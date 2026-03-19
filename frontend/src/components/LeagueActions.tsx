@@ -19,13 +19,25 @@ export function LeagueActions() {
         <div className="flex gap-2">
           <button
             onClick={() => setMode("create")}
-            className="px-4 py-2 text-sm bg-amber-400 hover:bg-amber-300 text-black font-semibold rounded transition-colors"
+            className="px-4 py-2 text-sm font-bold text-white rounded-lg transition-all active:scale-95 hover:brightness-90"
+            style={{ background: "var(--color-primary)" }}
           >
             Crear liga
           </button>
           <button
             onClick={() => setMode("join")}
-            className="px-4 py-2 text-sm border border-[#2a2a2a] hover:border-[#3a3a3a] text-zinc-400 hover:text-white rounded transition-colors"
+            className="px-4 py-2 text-sm rounded-lg border transition-all"
+            style={{
+              borderColor: "var(--color-primary)",
+              color: "var(--color-primary)",
+              background: "transparent",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary-bg)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+            }}
           >
             Unirse con código
           </button>
@@ -39,9 +51,8 @@ export function LeagueActions() {
 }
 
 // ---------------------------------------------------------------------------
-// Crear liga
+// Create league form
 // ---------------------------------------------------------------------------
-
 function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [name, setName] = useState("");
   const [maxMembers, setMaxMembers] = useState(10);
@@ -63,11 +74,22 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-[#111111] border border-[#1a1a1a] rounded-lg p-5 space-y-4">
-      <h2 className="font-semibold text-white">Nueva liga</h2>
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-xl p-5 space-y-4 animate-fade-in"
+      style={{
+        background: "white",
+        border: "1px solid var(--border-medium)",
+        borderRadius: "12px",
+        boxShadow: "0 2px 12px rgba(26,28,26,0.06)",
+      }}
+    >
+      <h2 className="font-bold" style={{ color: "var(--text-primary)" }}>Nueva liga</h2>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-500 uppercase tracking-wider">Nombre</label>
+        <label className="text-xs uppercase tracking-wider font-medium" style={{ color: "var(--text-secondary)" }}>
+          Nombre
+        </label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -75,13 +97,26 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
           minLength={3}
           maxLength={60}
           placeholder="Mi liga de la LEC"
-          className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400/50"
+          className="w-full rounded-lg px-3 py-2 text-sm placeholder-[#7c7589] outline-none transition-colors"
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-medium)",
+            color: "var(--text-primary)",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "var(--color-primary)";
+            e.currentTarget.style.boxShadow = "0 0 0 3px var(--color-primary-bg)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "var(--border-medium)";
+            e.currentTarget.style.boxShadow = "none";
+          }}
         />
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-500 uppercase tracking-wider">
-          Jugadores máx. <span className="text-zinc-600 normal-case">(2–20)</span>
+        <label className="text-xs uppercase tracking-wider font-medium" style={{ color: "var(--text-secondary)" }}>
+          Jugadores máx. <span className="normal-case font-normal" style={{ color: "var(--text-muted)" }}>(2–20)</span>
         </label>
         <input
           type="number"
@@ -89,24 +124,39 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
           onChange={(e) => setMaxMembers(Number(e.target.value))}
           min={2}
           max={20}
-          className="w-32 bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50"
+          className="w-32 rounded-lg px-3 py-2 text-sm outline-none transition-colors"
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-medium)",
+            color: "var(--text-primary)",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "var(--color-primary)";
+            e.currentTarget.style.boxShadow = "0 0 0 3px var(--color-primary-bg)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "var(--border-medium)";
+            e.currentTarget.style.boxShadow = "none";
+          }}
         />
       </div>
 
-      {error && <p className="text-red-400 text-sm">{error}</p>}
+      {error && <p className="text-red-500 text-sm">{error}</p>}
 
       <div className="flex gap-2 pt-1">
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="px-4 py-2 text-sm transition-colors underline-offset-2 hover:underline"
+          style={{ color: "var(--text-muted)" }}
         >
           Cancelar
         </button>
         <button
           type="submit"
           disabled={busy || name.trim().length < 3}
-          className="px-4 py-2 text-sm bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-black font-semibold rounded transition-colors"
+          className="px-4 py-2 text-sm font-bold text-white rounded-lg transition-all disabled:opacity-40 active:scale-95 hover:brightness-90"
+          style={{ background: "var(--color-primary)" }}
         >
           {busy ? "Creando…" : "Crear liga"}
         </button>
@@ -116,9 +166,8 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
 }
 
 // ---------------------------------------------------------------------------
-// Unirse con código
+// Join with code form
 // ---------------------------------------------------------------------------
-
 function JoinForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [code, setCode] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -140,47 +189,86 @@ function JoinForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => vo
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-[#111111] border border-[#1a1a1a] rounded-lg p-5 space-y-4">
-      <h2 className="font-semibold text-white">Unirse a una liga</h2>
+    <form
+      onSubmit={handleSubmit}
+      className="rounded-xl p-5 space-y-4 animate-fade-in"
+      style={{
+        background: "white",
+        border: "1px solid var(--border-medium)",
+        borderRadius: "12px",
+        boxShadow: "0 2px 12px rgba(26,28,26,0.06)",
+      }}
+    >
+      <h2 className="font-bold" style={{ color: "var(--text-primary)" }}>Unirse a una liga</h2>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-500 uppercase tracking-wider">Código de invitación</label>
+        <label className="text-xs uppercase tracking-wider font-medium" style={{ color: "var(--text-secondary)" }}>
+          Código de invitación
+        </label>
         <input
           value={code}
           onChange={(e) => setCode(e.target.value)}
           required
           placeholder="ej. a3f9c1b2"
-          className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-white placeholder-zinc-600 font-mono focus:outline-none focus:border-amber-400/50"
+          className="w-full rounded-lg px-3 py-2 text-sm placeholder-[#7c7589] font-mono outline-none transition-colors"
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-medium)",
+            color: "var(--text-primary)",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "var(--color-primary)";
+            e.currentTarget.style.boxShadow = "0 0 0 3px var(--color-primary-bg)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "var(--border-medium)";
+            e.currentTarget.style.boxShadow = "none";
+          }}
         />
       </div>
 
       <div className="space-y-1">
-        <label className="text-xs text-zinc-500 uppercase tracking-wider">
-          Nombre en la liga <span className="text-zinc-600 normal-case">(opcional)</span>
+        <label className="text-xs uppercase tracking-wider font-medium" style={{ color: "var(--text-secondary)" }}>
+          Nombre en la liga <span className="normal-case font-normal" style={{ color: "var(--text-muted)" }}>(opcional)</span>
         </label>
         <input
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
           maxLength={40}
           placeholder="Tu apodo"
-          className="w-full bg-[#0a0a0a] border border-[#2a2a2a] rounded px-3 py-2 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-amber-400/50"
+          className="w-full rounded-lg px-3 py-2 text-sm placeholder-[#7c7589] outline-none transition-colors"
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-medium)",
+            color: "var(--text-primary)",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "var(--color-primary)";
+            e.currentTarget.style.boxShadow = "0 0 0 3px var(--color-primary-bg)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "var(--border-medium)";
+            e.currentTarget.style.boxShadow = "none";
+          }}
         />
       </div>
 
-      {error && <p className="text-red-400 text-sm">{error}</p>}
+      {error && <p className="text-red-500 text-sm">{error}</p>}
 
       <div className="flex gap-2 pt-1">
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="px-4 py-2 text-sm transition-colors underline-offset-2 hover:underline"
+          style={{ color: "var(--text-muted)" }}
         >
           Cancelar
         </button>
         <button
           type="submit"
           disabled={busy || code.trim().length === 0}
-          className="px-4 py-2 text-sm bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-black font-semibold rounded transition-colors"
+          className="px-4 py-2 text-sm font-bold text-white rounded-lg transition-all disabled:opacity-40 active:scale-95 hover:brightness-90"
+          style={{ background: "var(--color-primary)" }}
         >
           {busy ? "Uniéndose…" : "Unirse"}
         </button>
