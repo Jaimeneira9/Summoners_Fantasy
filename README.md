@@ -384,6 +384,4 @@ market_listings
 
 ---
 
-## 📄 License
 
-MIT — see [LICENSE](LICENSE) for details.
