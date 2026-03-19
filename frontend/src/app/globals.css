@@ -1,16 +1,55 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700;900&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Datatype:wght@100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  /* Fondos — cream light theme */
+  --bg-base:    #faf9f6;
+  --bg-surface: #f3f1ec;
+  --bg-panel:   #eceae4;
+  --bg-card:    #1e1b1e;
+
+  /* Acento principal — púrpura */
+  --color-primary:       #5100bd;
+  --color-primary-light: #6b21e8;
+  --color-primary-bg:    rgba(107,33,232,0.08);
+
+  /* Acento económico — gold */
+  --color-gold:      #fcd400;
+  --color-gold-dark: #b89b00;
+
+  /* Texto */
+  --text-primary:   #1a1c1a;
+  --text-secondary: #4a4456;
+  --text-muted:     #7c7589;
+  --text-on-dark:   #f0f0f0;
+
+  /* Bordes */
+  --border-subtle: rgba(26,28,26,0.08);
+  --border-medium: rgba(26,28,26,0.15);
+
+  /* Role colors — vibrantes para light theme */
+  --role-top:     #dc2626;
+  --role-jungle:  #16a34a;
+  --role-mid:     #2563eb;
+  --role-adc:     #ca8a04;
+  --role-support: #7c3aed;
+  --role-coach:   #475569;
+
+  /* Aliases para compatibilidad con código existente */
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  font-family: 'Inter', Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Quitar flechas de inputs numéricos */
@@ -24,6 +63,7 @@ input[type="number"] {
 }
 
 @layer utilities {
+  .font-datatype { font-family: 'Datatype', var(--font-geist-mono), ui-monospace, monospace; }
   .text-balance { text-wrap: balance; }
   .animate-fade-in { animation: fadeIn 0.2s ease-out; }
   .animate-slide-up { animation: slideUp 0.25s ease-out; }
@@ -32,6 +72,40 @@ input[type="number"] {
     -ms-overflow-style: none;
   }
   .scrollbar-none::-webkit-scrollbar { display: none; }
+
+  /* Glass panel — light theme */
+  .glass-panel {
+    background: rgba(255,255,255,0.7);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-subtle);
+  }
+
+  /* Glow — versión púrpura */
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(107,33,232,0.15), 0 0 40px rgba(107,33,232,0.05);
+  }
+  .glow-primary-hover:hover {
+    box-shadow: 0 0 20px rgba(107,33,232,0.25), 0 0 40px rgba(107,33,232,0.1);
+  }
+
+  /* Border neon — ahora púrpura */
+  .border-neon {
+    border-color: rgba(107,33,232,0.4);
+  }
+
+  /* Gradient text — púrpura */
+  .text-gradient-primary {
+    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .text-gradient-accent {
+    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
 }
 
 @keyframes fadeIn {
@@ -42,4 +116,31 @@ input[type="number"] {
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes slideUpSheet {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes neonPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-neon-pulse {
+  animation: neonPulse 2s ease-in-out infinite;
+}
+
+.animate-modal-in {
+  animation: modalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-sheet-up {
+  animation: slideUpSheet 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }

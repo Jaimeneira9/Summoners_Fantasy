@@ -10,53 +10,79 @@ export default function LoginPage() {
   const [state, formAction] = useFormState(login, initialState);
 
   return (
-    <div className="w-full max-w-md p-8 bg-gray-900 rounded-xl border border-gray-800">
-      <h1 className="text-2xl font-bold text-white mb-2">Iniciar sesión</h1>
-      <p className="text-gray-400 mb-6 text-sm">
-        ¿No tienes cuenta?{" "}
-        <Link href="/signup" className="text-blue-400 hover:underline">
-          Regístrate
-        </Link>
-      </p>
-
-      <form action={formAction} className="space-y-4">
-        <div>
-          <label className="block text-sm text-gray-300 mb-1" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            required
-            autoComplete="email"
-            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            placeholder="tu@email.com"
-          />
+    <div className="w-full max-w-md">
+      {/* Header */}
+      <div className="mb-8">
+        {/* Logo mobile */}
+        <div className="flex items-center gap-2 mb-8 lg:hidden">
+          <div className="w-8 h-8 bg-[#6b21e8] rounded-lg flex items-center justify-center">
+            <span className="material-symbols-outlined text-white text-base">military_tech</span>
+          </div>
+          <span className="font-display font-black text-[#1a1c1a] text-lg tracking-tight uppercase">LOLFantasy</span>
         </div>
 
-        <div>
-          <label className="block text-sm text-gray-300 mb-1" htmlFor="password">
-            Contraseña
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            required
-            autoComplete="current-password"
-            className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-            placeholder="••••••••"
-          />
+        <h1 className="font-display font-black text-3xl text-[#1a1c1a] uppercase tracking-tight mb-2">
+          Bienvenido
+        </h1>
+        <p className="text-[#7c7589] text-sm">
+          ¿No tenés cuenta?{" "}
+          <Link href="/signup" className="text-[#6b21e8] font-semibold hover:underline">
+            Registrate
+          </Link>
+        </p>
+      </div>
+
+      {/* Error block */}
+      {state?.error && (
+        <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm">
+          {state.error}
         </div>
+      )}
 
-        {state?.error && (
-          <p className="text-red-400 text-sm bg-red-900/20 border border-red-900 rounded-lg p-3">
-            {state.error}
-          </p>
-        )}
+      {/* Form */}
+      <form action={formAction}>
+        <div className="space-y-4">
+          {/* Email */}
+          <div>
+            <label
+              className="block text-xs font-semibold text-[#4a4456] uppercase tracking-wider mb-1.5"
+              htmlFor="email"
+            >
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              name="email"
+              required
+              autoComplete="email"
+              className="w-full px-4 py-3 bg-white border border-[rgba(26,28,26,0.15)] rounded-xl text-[#1a1c1a] placeholder-[#7c7589] text-sm focus:outline-none focus:border-[#6b21e8] focus:ring-2 focus:ring-[#6b21e8]/10 transition-all"
+              placeholder="tu@email.com"
+            />
+          </div>
 
-        <SubmitButton label="Entrar" pendingLabel="Entrando..." />
+          {/* Contraseña */}
+          <div>
+            <label
+              className="block text-xs font-semibold text-[#4a4456] uppercase tracking-wider mb-1.5"
+              htmlFor="password"
+            >
+              Contraseña
+            </label>
+            <input
+              id="password"
+              type="password"
+              name="password"
+              required
+              autoComplete="current-password"
+              className="w-full px-4 py-3 bg-white border border-[rgba(26,28,26,0.15)] rounded-xl text-[#1a1c1a] placeholder-[#7c7589] text-sm focus:outline-none focus:border-[#6b21e8] focus:ring-2 focus:ring-[#6b21e8]/10 transition-all"
+              placeholder="Tu contraseña"
+            />
+          </div>
+
+          {/* Submit */}
+          <SubmitButton label="Entrar" pendingLabel="Entrando..." />
+        </div>
       </form>
     </div>
   );
@@ -68,7 +94,9 @@ function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: st
     <button
       type="submit"
       disabled={pending}
-      className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition-colors"
+      className={`w-full bg-[#6b21e8] hover:bg-[#5100bd] text-white font-semibold py-3 px-6 rounded-xl transition-all active:scale-95 text-sm ${
+        pending ? "opacity-60 cursor-not-allowed" : ""
+      }`}
     >
       {pending ? pendingLabel : label}
     </button>
