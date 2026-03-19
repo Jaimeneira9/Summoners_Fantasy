@@ -6,7 +6,7 @@ Al reset:
 2. Borrar roster_players no protegidos
 3. Quitar is_protected de los que se conservan
 4. Redistribuir presupuesto: último +8M, penúltimo +6M, ... primero +0M
-5. Marcar split como inactivo
+5. Marcar competition como inactiva
 """
 import logging
 from datetime import date
@@ -20,29 +20,29 @@ BUDGET_BONUS_STEP = 2.0  # M por posición desde el final
 
 def run_split_reset_if_due(supabase: Client, force: bool = False) -> None:
     """
-    Comprueba si hoy es reset_date de algún split activo.
+    Comprueba si hoy es reset_date de alguna competition activa.
     Si force=True, ejecuta aunque no sea la fecha.
     """
     today = date.today().isoformat()
 
     resp = (
-        supabase.table("splits")
+        supabase.table("competitions")
         .select("id, name, reset_date")
         .eq("is_active", True)
         .execute()
     )
-    splits = resp.data or []
+    competitions = resp.data or []
 
-    for split in splits:
-        if force or (split.get("reset_date") and split["reset_date"] <= today):
-            logger.info("Running split reset for: %s", split["name"])
-            _execute_reset(supabase, split["id"])
+    for competition in competitions:
+        if force or (competition.get("reset_date") and competition["reset_date"] <= today):
+            logger.info("Running split reset for competition: %s", competition["name"])
+            _execute_reset(supabase, competition["id"])
             return  # Un reset por ejecución
 
 
-def _execute_reset(supabase: Client, split_id: str) -> None:
+def _execute_reset(supabase: Client, competition_id: str) -> None:
     # ── 1. Snapshot de puntos ──────────────────────────────────────────────
-    _record_split_scores(supabase, split_id)
+    _record_split_scores(supabase, competition_id)
 
     # ── 2. Por cada liga activa: limpiar rosters y redistribuir presupuesto
     leagues_resp = (
@@ -52,14 +52,14 @@ def _execute_reset(supabase: Client, split_id: str) -> None:
         .execute()
     )
     for league in (leagues_resp.data or []):
-        _reset_league(supabase, league["id"], float(league["budget"]), split_id)
+        _reset_league(supabase, league["id"], float(league["budget"]), competition_id)
 
-    # ── 3. Marcar split como inactivo ─────────────────────────────────────
-    supabase.table("splits").update({"is_active": False}).eq("id", split_id).execute()
-    logger.info("Split %s marked inactive", split_id)
+    # ── 3. Marcar competition como inactiva ────────────────────────────────
+    supabase.table("competitions").update({"is_active": False}).eq("id", competition_id).execute()
+    logger.info("Competition %s marked inactive", competition_id)
 
 
-def _record_split_scores(supabase: Client, split_id: str) -> None:
+def _record_split_scores(supabase: Client, competition_id: str) -> None:
     """Guarda los puntos ganados en este split para cada miembro."""
     members_resp = supabase.table("league_members").select("id, total_points").execute()
     for member in (members_resp.data or []):
@@ -74,12 +74,12 @@ def _record_split_scores(supabase: Client, split_id: str) -> None:
 
         supabase.table("member_split_scores").insert({
             "member_id": member["id"],
-            "split_id": split_id,
+            "competition_id": competition_id,
             "points": this_split,
         }).execute()
 
 
-def _reset_league(supabase: Client, league_id: str, base_budget: float, split_id: str) -> None:
+def _reset_league(supabase: Client, league_id: str, base_budget: float, competition_id: str) -> None:
     # Miembros ordenados por puntos desc (rank 1 = mejor)
     members_resp = (
         supabase.table("league_members")
@@ -120,7 +120,7 @@ def _reset_league(supabase: Client, league_id: str, base_budget: float, split_id
                     supabase.table("split_protect_history").insert({
                         "member_id": member["id"],
                         "player_id": p["player_id"],
-                        "split_id": split_id,
+                        "competition_id": competition_id,
                     }).execute()
                 except Exception as exc:
                     logger.warning("Could not record protect history: %s", exc)

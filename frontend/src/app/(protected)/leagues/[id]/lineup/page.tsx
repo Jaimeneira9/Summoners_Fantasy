@@ -6,6 +6,15 @@ import Link from "next/link";
 import { api, type Roster, type RosterPlayer, type Slot, type Split } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { PlayerStatsModal } from "@/components/PlayerStatsModal";
+import { getTeamBadgeUrl } from "@/components/PlayerCard";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+type StatsPlayer = {
+  playerId: string;
+  hint: { name: string; team: string; role: string; image_url: string | null };
+};
 
 // ---------------------------------------------------------------------------
 // Config
@@ -18,25 +27,13 @@ const STARTER_SLOTS: { slot: Slot; role: string }[] = [
   { slot: "starter_5", role: "support" },
 ];
 
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Split reset warning banner
 // ---------------------------------------------------------------------------
-function SplitResetWarning({ leagueId }: { leagueId: string }) {
-  const [split, setSplit] = useState<Split | null | undefined>(undefined);
-
-  useEffect(() => {
-    api.splits.active().then(setSplit).catch(() => setSplit(null));
-  }, []);
-
+function SplitResetWarning({ split, leagueId }: { split: Split | null; leagueId: string }) {
   if (!split?.reset_date) return null;
 
-  const resetDate = new Date(split.reset_date);
-  const now = new Date();
-  const msUntilReset = resetDate.getTime() - now.getTime();
+  const msUntilReset = new Date(split.reset_date).getTime() - Date.now();
   const hoursUntilReset = msUntilReset / (1000 * 60 * 60);
 
   if (hoursUntilReset > 48 || hoursUntilReset < 0) return null;
@@ -66,17 +63,25 @@ function SplitResetWarning({ leagueId }: { leagueId: string }) {
 // ---------------------------------------------------------------------------
 export default function LineupPage() {
   const { id: leagueId } = useParams<{ id: string }>();
-  const [roster, setRoster]       = useState<Roster | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
-  const [selected, setSelected]   = useState<RosterPlayer | null>(null);
-  const [statsPlayer, setStatsPlayer] = useState<{ id: string; name: string; team: string; role: string; image_url: string | null } | null>(null);
+  const [roster, setRoster]           = useState<Roster | null>(null);
+  const [split, setSplit]             = useState<Split | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [error, setError]             = useState<string | null>(null);
+  const [selected, setSelected]       = useState<RosterPlayer | null>(null);
+  const [statsPlayer, setStatsPlayer] = useState<StatsPlayer | null>(null);
 
+  // PERF FIX: parallel fetch — roster + split in one Promise.all
   const load = useCallback(() => {
     setLoading(true);
-    api.roster.get(leagueId)
-      .then(setRoster)
-      .catch((e) => setError(e.message))
+    Promise.all([
+      api.roster.get(leagueId),
+      api.splits.active().catch(() => null),
+    ])
+      .then(([rosterData, splitData]) => {
+        setRoster(rosterData);
+        setSplit(splitData);
+      })
+      .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [leagueId]);
 
@@ -118,39 +123,45 @@ export default function LineupPage() {
     }
   };
 
-  const benchSlots: Slot[] = ["bench_1", "bench_2"];
-
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      <SplitResetWarning leagueId={leagueId} />
-      {/* Header */}
-      <header className="border-b border-[#1a1a1a] px-4 sm:px-6 py-4 flex items-center gap-2 sm:gap-4 flex-wrap">
-        <Link href="/dashboard" className="text-zinc-600 hover:text-zinc-300 transition-colors text-sm">← Mis ligas</Link>
-        <span className="text-[#2a2a2a] hidden sm:inline">/</span>
-        <span className="text-sm text-white font-medium">Mi equipo</span>
-        <div className="flex items-center gap-3 ml-auto flex-wrap">
-          <Link href={`/leagues/${leagueId}/market`}    className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm whitespace-nowrap">Mercado</Link>
-          <Link href={`/leagues/${leagueId}/standings`} className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm whitespace-nowrap hidden sm:inline">Clasificación</Link>
-          <Link href={`/leagues/${leagueId}/activity`}  className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm whitespace-nowrap hidden sm:inline">Actividad</Link>
-          {roster && (
-            <div className="flex items-center gap-3 text-sm">
-              <span className="font-mono text-amber-400 font-semibold">{roster.remaining_budget.toFixed(1)}M</span>
-              <span className="font-mono text-zinc-400">{roster.total_points.toFixed(0)} pts</span>
-            </div>
-          )}
-        </div>
-      </header>
+    <div className="min-h-screen" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
+      <SplitResetWarning split={split} leagueId={leagueId} />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {/* Banner de movimiento */}
+      {/* Player stats modal */}
+      {statsPlayer && (
+        <PlayerStatsModal
+          playerId={statsPlayer.playerId}
+          playerHint={statsPlayer.hint}
+          onClose={() => setStatsPlayer(null)}
+        />
+      )}
+
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-24 sm:py-8">
+        {/* Move selection banner */}
         {selected && (
-          <div className="mb-5 px-4 py-3 bg-amber-400/10 border border-amber-400/30 rounded-xl text-sm text-amber-300 flex items-center justify-between animate-fade-in">
-            <span>Moviendo <strong>{selected.player.name}</strong> — toca el slot de destino</span>
-            <button onClick={() => setSelected(null)} className="text-amber-400/60 hover:text-amber-300 ml-4 transition-colors">✕ Cancelar</button>
+          <div
+            className="mb-5 px-4 py-3 rounded-xl text-sm flex items-center justify-between animate-fade-in"
+            style={{
+              background: "var(--color-primary-bg)",
+              border: "1px solid rgba(107,33,232,0.3)",
+              color: "var(--color-primary)",
+            }}
+          >
+            <span>
+              Moviendo <strong style={{ color: "var(--text-primary)" }}>{selected.player.name}</strong> — toca el slot de destino
+            </span>
+            <button
+              onClick={() => setSelected(null)}
+              className="ml-4 transition-colors"
+              style={{ color: "var(--text-muted)" }}
+            >
+              ✕ Cancelar
+            </button>
           </div>
         )}
+
         {error && (
-          <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm">{error}</div>
+          <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm">{error}</div>
         )}
 
         {loading ? (
@@ -159,9 +170,11 @@ export default function LineupPage() {
           <EmptyRoster leagueId={leagueId} />
         ) : (
           <>
-            {/* ── Titulares ── */}
+            {/* Starters */}
             <section>
-              <h2 className="text-xs text-zinc-600 uppercase tracking-widest mb-3 font-semibold">Titulares</h2>
+              <h2 className="text-xs uppercase tracking-widest mb-3 font-semibold" style={{ color: "var(--text-muted)" }}>
+                Titulares
+              </h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 {STARTER_SLOTS.map(({ slot, role }) => {
                   const rp = playerBySlot(slot);
@@ -172,115 +185,71 @@ export default function LineupPage() {
                       rp={rp}
                       isSelected={selected?.slot === slot}
                       isTarget={!!selected && selected.slot !== slot}
+                      splitName={split?.name ?? undefined}
                       onClick={() => handleSlotClick(slot)}
                       onSellToggle={rp ? () => handleSellToggle(rp) : undefined}
-                      onShowStats={rp ? () => setStatsPlayer({ id: rp.player.id, name: rp.player.name, team: rp.player.team, role: rp.player.role, image_url: rp.player.image_url }) : undefined}
                       onProtectToggle={rp ? () => handleProtectToggle(rp) : undefined}
+                      onShowStats={rp ? () => setStatsPlayer({ playerId: rp.player.id, hint: { name: rp.player.name, team: rp.player.team, role: rp.player.role, image_url: rp.player.image_url } }) : undefined}
                     />
                   );
                 })}
               </div>
             </section>
 
-            {/* ── Entrenador ── */}
-            <section className="mt-5">
-              <h2 className="text-xs text-zinc-600 uppercase tracking-widest mb-3 font-semibold">Entrenador</h2>
-              <div className="max-w-xs">
-                {(() => {
-                  const rp = playerBySlot("coach");
-                  return (
-                    <PlayerCard
-                      expectedRole="coach"
-                      rp={rp}
-                      isSelected={selected?.slot === "coach"}
-                      isTarget={!!selected && selected.slot !== "coach"}
-                      onClick={() => handleSlotClick("coach")}
-                      onSellToggle={rp ? () => handleSellToggle(rp) : undefined}
-                      onShowStats={rp ? () => setStatsPlayer({ id: rp.player.id, name: rp.player.name, team: rp.player.team, role: rp.player.role, image_url: rp.player.image_url }) : undefined}
-                      onProtectToggle={rp ? () => handleProtectToggle(rp) : undefined}
-                    />
-                  );
-                })()}
-              </div>
-            </section>
-
-            {/* ── Suplentes ── */}
-            <section className="mt-5">
-              <h2 className="text-xs text-zinc-600 uppercase tracking-widest mb-3 font-semibold">Suplentes</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {benchSlots.map((slot) => {
-                  const rp = playerBySlot(slot);
-                  return (
-                    <PlayerCard
-                      key={slot}
-                      expectedRole="bench"
-                      rp={rp}
-                      isSelected={selected?.slot === slot}
-                      isTarget={!!selected && selected.slot !== slot}
-                      onClick={() => handleSlotClick(slot)}
-                      onSellToggle={rp ? () => handleSellToggle(rp) : undefined}
-                      onShowStats={rp ? () => setStatsPlayer({ id: rp.player.id, name: rp.player.name, team: rp.player.team, role: rp.player.role, image_url: rp.player.image_url }) : undefined}
-                      onProtectToggle={rp ? () => handleProtectToggle(rp) : undefined}
-                    />
-                  );
-                })}
-              </div>
-            </section>
           </>
         )}
       </main>
-
-      {/* Modal de stats */}
-      {statsPlayer && (
-        <PlayerStatsModal
-          playerId={statsPlayer.id}
-          playerHint={{ name: statsPlayer.name, team: statsPlayer.team, role: statsPlayer.role, image_url: statsPlayer.image_url }}
-          onClose={() => setStatsPlayer(null)}
-        />
-      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// PlayerCard — ficha tipo trading card vertical
+// PlayerCard — gaming trading card style with inline stats overlay
 // ---------------------------------------------------------------------------
 function PlayerCard({
   expectedRole,
   rp,
   isSelected,
   isTarget,
+  splitName,
   onClick,
   onSellToggle,
-  onShowStats,
   onProtectToggle,
+  onShowStats,
 }: {
   expectedRole: string;
   rp: RosterPlayer | null;
   isSelected: boolean;
   isTarget: boolean;
+  splitName?: string;
   onClick: () => void;
   onSellToggle?: () => void;
-  onShowStats?: () => void;
   onProtectToggle?: () => void;
+  onShowStats?: () => void;
 }) {
   const roleColor = ROLE_COLORS[expectedRole] ?? ROLE_COLORS.coach;
 
-  // Slot vacío
+  // Empty slot
   if (!rp) {
     return (
       <button
         onClick={onClick}
         className={`relative w-full aspect-[3/4] rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 transition-all duration-200
           ${isTarget
-            ? "border-amber-400/50 bg-amber-400/5 hover:bg-amber-400/10 scale-[1.02]"
-            : `${roleColor.border} bg-[#0d0d0d] hover:bg-[#111] opacity-60 hover:opacity-90`
+            ? "border-[rgba(107,33,232,0.5)] scale-[1.02]"
+            : `${roleColor.border} opacity-60 hover:opacity-90`
           }`}
+        style={{
+          background: isTarget ? "var(--color-primary-bg)" : "var(--bg-panel)",
+        }}
       >
         <div className={`p-2 rounded-lg ${roleColor.bg}`}>
           <RoleIcon role={expectedRole} className={`w-6 h-6 ${roleColor.text}`} />
         </div>
-        <span className={`text-xs font-bold ${isTarget ? "text-amber-400" : roleColor.text}`}>
+        <span
+          className={`text-xs font-bold ${isTarget ? "" : roleColor.text}`}
+          style={isTarget ? { color: "var(--color-primary)" } : undefined}
+        >
           {isTarget ? "Mover aquí" : (ROLE_LABEL[expectedRole] ?? "BENCH")}
         </span>
       </button>
@@ -291,76 +260,160 @@ function PlayerCard({
   const rc = ROLE_COLORS[p.role] ?? ROLE_COLORS.coach;
 
   return (
+    <PlayerCardFilled
+      rp={rp}
+      p={p}
+      rc={rc}
+      isSelected={isSelected}
+      isTarget={isTarget}
+      splitName={splitName}
+      onClick={onClick}
+      onSellToggle={onSellToggle}
+      onProtectToggle={onProtectToggle}
+      onShowStats={onShowStats}
+    />
+  );
+}
+
+// Separate component to keep hooks at top level (no conditional hook calls)
+function PlayerCardFilled({
+  rp,
+  p,
+  rc,
+  isSelected,
+  isTarget,
+  splitName,
+  onClick,
+  onSellToggle,
+  onProtectToggle,
+  onShowStats,
+}: {
+  rp: RosterPlayer;
+  p: RosterPlayer["player"];
+  rc: (typeof ROLE_COLORS)[string];
+  isSelected: boolean;
+  isTarget: boolean;
+  splitName?: string;
+  onClick: () => void;
+  onSellToggle?: () => void;
+  onProtectToggle?: () => void;
+  onShowStats?: () => void;
+}) {
+  const handleStatsClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onShowStats?.();
+  };
+
+  return (
     <div
       className={`group relative w-full aspect-[3/4] rounded-xl overflow-hidden border-2 transition-all duration-200 flex flex-col
         ${isSelected
-          ? "border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.2)] scale-[1.02]"
+          ? "scale-[1.02]"
           : isTarget
-            ? "border-amber-400/40 hover:border-amber-400/70 cursor-pointer scale-[1.01] hover:scale-[1.03]"
-            : `border-[#1a1a1a] hover:border-[#2a2a2a] cursor-pointer hover:scale-[1.02] hover:-translate-y-0.5`
+            ? "cursor-pointer scale-[1.01] hover:scale-[1.03]"
+            : "cursor-pointer hover:scale-[1.02] hover:-translate-y-0.5"
         }`}
+      style={{
+        borderColor: isSelected
+          ? "var(--color-primary)"
+          : isTarget
+            ? "rgba(107,33,232,0.4)"
+            : "var(--border-subtle)",
+        boxShadow: isSelected
+          ? "0 0 20px rgba(107,33,232,0.25)"
+          : "0 2px 8px rgba(26,28,26,0.08)",
+      }}
     >
-      {/* Foto — ocupa casi todo el card */}
-      <div className="absolute inset-0 bg-[#0d0d0d]">
+      {/* Photo fills the card — click opens stats */}
+      <div
+        className="absolute inset-0"
+        style={{ background: "var(--bg-panel)" }}
+        onClick={(e) => { e.stopPropagation(); onShowStats?.(); }}
+      >
         {p.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={p.image_url} alt={p.name}
-            className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
+            className="w-full h-full object-cover object-top grayscale group-hover:grayscale-0 group-hover:-translate-y-1 transition-all duration-300"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <RoleIcon role={p.role} className={`w-16 h-16 ${rc.text} opacity-10`} />
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ background: "var(--bg-surface)" }}
+          >
+            <RoleIcon role={p.role} className={`w-16 h-16 ${rc.text} opacity-20`} />
           </div>
         )}
-        {/* Gradiente inferior pronunciado */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+        {/* Gradient overlay */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: "linear-gradient(to top, rgba(30,27,30,0.95) 0%, rgba(30,27,30,0.7) 25%, transparent 50%)" }}
+        />
       </div>
 
-      {/* Badge rol — esquina superior izquierda */}
+      {/* Role badge — top left */}
       <div className={`absolute top-2 left-2 flex items-center gap-1 px-1.5 py-1 rounded-lg ${rc.bg} border ${rc.border} backdrop-blur-sm`}>
         <RoleIcon role={p.role} className={`w-3 h-3 ${rc.text}`} />
         <span className={`text-[9px] font-black ${rc.text}`}>{ROLE_LABEL[p.role] ?? p.role.toUpperCase()}</span>
       </div>
 
-      {/* Precio — esquina superior derecha */}
-      <div className="absolute top-2 right-2 font-mono text-amber-400 text-[10px] font-bold bg-black/70 px-1.5 py-0.5 rounded-md backdrop-blur-sm">
+      {/* Price — top right */}
+      <div
+        className="absolute top-2 right-2 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded-md backdrop-blur-sm"
+        style={{
+          color: "var(--color-gold)",
+          background: "rgba(0,0,0,0.6)",
+          border: "1px solid rgba(252,212,0,0.2)",
+        }}
+      >
         {p.current_price.toFixed(1)}M
       </div>
 
-      {/* Badge venta */}
+      {/* For sale badge */}
       {rp.for_sale && (
         <div className="absolute top-8 right-2 text-[9px] text-orange-400 bg-orange-400/20 border border-orange-400/30 px-1.5 py-0.5 rounded-md font-semibold">
           venta
         </div>
       )}
 
-      {/* Badge protegido */}
+      {/* Protected badge */}
       {rp.is_protected && (
         <div className="absolute top-2 right-10 text-[11px] bg-sky-500/20 border border-sky-400/40 px-1.5 py-0.5 rounded-md">
           🛡
         </div>
       )}
 
-      {/* Seleccionado overlay */}
+      {/* Selected overlay */}
       {isSelected && (
-        <div className="absolute inset-0 bg-amber-400/10 pointer-events-none" />
+        <div className="absolute inset-0 pointer-events-none" style={{ background: "var(--color-primary-bg)" }} />
       )}
 
-      {/* Info inferior */}
+      {/* Team badge — bottom right of photo area */}
+      {p.team && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={getTeamBadgeUrl(p.team)}
+          alt={p.team}
+          className="absolute bottom-12 right-2 w-6 h-6 object-contain rounded-sm pointer-events-none"
+          style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.8))" }}
+        />
+      )}
+
+      {/* Info — bottom */}
       <div className="absolute bottom-0 inset-x-0 p-3" onClick={onClick}>
-        <p className="font-black text-sm leading-tight truncate">{p.name}</p>
-        <p className="text-zinc-400 text-[11px] truncate">{p.team}</p>
+        <p
+          className="font-black text-sm leading-tight truncate text-white uppercase tracking-tight"
+          style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          {p.name}
+        </p>
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          <p className="text-white/50 text-[11px] truncate">{p.team}</p>
+        </div>
       </div>
 
-      {/* Botones acción — aparecen en hover */}
-      <div className="absolute bottom-0 inset-x-0 translate-y-full group-hover:translate-y-0 transition-transform duration-200 flex flex-wrap gap-1 p-2 bg-black/90">
-        <button
-          onClick={(e) => { e.stopPropagation(); onShowStats?.(); }}
-          className="flex-1 py-1.5 text-[10px] font-semibold text-zinc-300 hover:text-white bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-all active:scale-95"
-        >
-          Stats
-        </button>
+      {/* Action buttons — slide up on hover */}
+      <div className="absolute bottom-0 inset-x-0 translate-y-full group-hover:translate-y-0 transition-transform duration-200 flex flex-wrap gap-1 p-2 bg-black/80 backdrop-blur-sm">
         {onProtectToggle && (
           <button
             onClick={(e) => { e.stopPropagation(); onProtectToggle(); }}
@@ -368,7 +421,7 @@ function PlayerCard({
             className={`py-1.5 px-2 text-[10px] font-semibold rounded-lg transition-all active:scale-95
               ${rp.is_protected
                 ? "text-sky-300 bg-sky-500/20 hover:bg-sky-500/30"
-                : "text-zinc-500 bg-zinc-800 hover:bg-zinc-700 hover:text-zinc-300"
+                : "text-white/30 bg-white/5 hover:bg-white/10 hover:text-white/60"
               }`}
           >
             🛡
@@ -380,7 +433,7 @@ function PlayerCard({
             className={`flex-1 py-1.5 text-[10px] font-semibold rounded-lg transition-all active:scale-95
               ${rp.for_sale
                 ? "text-orange-400 bg-orange-400/20 hover:bg-orange-400/30"
-                : "text-zinc-400 bg-zinc-800 hover:bg-zinc-700"
+                : "text-white/30 bg-white/5 hover:bg-white/10 hover:text-white/60"
               }`}
           >
             {rp.for_sale ? "✕ Venta" : "Vender"}
@@ -398,16 +451,16 @@ function LineupSkeleton() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="h-3 w-16 bg-[#1a1a1a] rounded mb-3 animate-pulse" />
+        <div className="h-3 w-16 rounded mb-3 animate-pulse" style={{ background: "var(--bg-panel)" }} />
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="aspect-[3/4] bg-[#111111] border border-[#1a1a1a] rounded-xl animate-pulse" />
+            <div
+              key={i}
+              className="aspect-[3/4] rounded-xl animate-pulse"
+              style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+            />
           ))}
         </div>
-      </div>
-      <div>
-        <div className="h-3 w-20 bg-[#1a1a1a] rounded mb-3 animate-pulse" />
-        <div className="max-w-xs aspect-[3/4] bg-[#111111] border border-[#1a1a1a] rounded-xl animate-pulse" />
       </div>
     </div>
   );
@@ -416,14 +469,18 @@ function LineupSkeleton() {
 function EmptyRoster({ leagueId }: { leagueId: string }) {
   return (
     <div className="py-20 text-center">
-      <div className="w-16 h-16 rounded-full bg-[#1a1a1a] flex items-center justify-center mx-auto mb-4">
-        <RoleIcon role="support" className="w-7 h-7 text-zinc-700" />
+      <div
+        className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+        style={{ background: "var(--color-primary-bg)", border: "1px solid rgba(107,33,232,0.2)" }}
+      >
+        <RoleIcon role="support" className="w-7 h-7 text-[var(--color-primary)] opacity-60" />
       </div>
-      <p className="text-zinc-400 font-semibold mb-2">Tu equipo está vacío</p>
-      <p className="text-zinc-600 text-sm mb-6">Ve al mercado y ficha a tus primeros jugadores.</p>
+      <p className="font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>Tu equipo está vacío</p>
+      <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>Ve al mercado y ficha a tus primeros jugadores.</p>
       <Link
         href={`/leagues/${leagueId}/market`}
-        className="inline-block px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-black font-bold text-sm rounded-xl transition-all active:scale-95"
+        className="inline-block px-5 py-2.5 text-sm font-bold text-white rounded-xl transition-all active:scale-95 hover:brightness-90"
+        style={{ background: "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))" }}
       >
         Ir al mercado →
       </Link>

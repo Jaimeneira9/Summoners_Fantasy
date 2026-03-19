@@ -1,19 +1,24 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
-import Link from "next/link";
-import { api, type Listing, type SellOffer, type MyBid } from "@/lib/api";
+import { useParams, useSearchParams } from "next/navigation";
+import { api, type Listing, type SellOffer, type MyBid, type Split } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
+import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { PlayerStatsModal } from "@/components/PlayerStatsModal";
 
 // ---------------------------------------------------------------------------
-// Tipos
+// Types
 // ---------------------------------------------------------------------------
 type Tab = "mercado" | "mis-pujas" | "ofertas";
 
+type StatsPlayer = {
+  playerId: string;
+  hint: { name: string; team: string; role: string; image_url: string | null };
+};
+
 // ---------------------------------------------------------------------------
-// Hook countdown
+// Countdown hook
 // ---------------------------------------------------------------------------
 function useCountdown(closesAt: string | null | undefined): string {
   const [label, setLabel] = useState("");
@@ -35,20 +40,32 @@ function useCountdown(closesAt: string | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
-// Página principal
+// Market page
 // ---------------------------------------------------------------------------
+// Map URL query param values from sidebar to internal Tab keys
+const URL_TAB_MAP: Record<string, Tab> = {
+  live:   "mercado",
+  bids:   "mis-pujas",
+  offers: "ofertas",
+};
+
 export default function MarketPage() {
   const { id: leagueId } = useParams<{ id: string }>();
-  const [tab, setTab]               = useState<Tab>("mercado");
+  const searchParams = useSearchParams();
+
+  const tabFromUrl = searchParams.get("tab");
+  const initialTab: Tab = (tabFromUrl && URL_TAB_MAP[tabFromUrl]) ?? "mercado";
+
+  const [tab, setTab]               = useState<Tab>(initialTab);
   const [budget, setBudget]         = useState<number | null>(null);
-  const [leagueName, setLeagueName] = useState("");
-  const [statsPlayer, setStatsPlayer] = useState<{ id: string; name: string; team: string; role: string; image_url: string | null } | null>(null);
+  const [statsPlayer, setStatsPlayer] = useState<StatsPlayer | null>(null);
+  const [split, setSplit]           = useState<Split | null>(null);
 
   useEffect(() => {
     api.leagues.get(leagueId).then((l) => {
-      setLeagueName(l.name);
       if (l.member) setBudget(l.member.remaining_budget);
     }).catch(() => {});
+    api.splits.active().then(setSplit).catch(() => {});
   }, [leagueId]);
 
   const refreshBudget = useCallback(() => {
@@ -64,38 +81,19 @@ export default function MarketPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      {/* Header */}
-      <header className="border-b border-[#1a1a1a] px-4 sm:px-6 py-4 flex items-center gap-2 sm:gap-3 flex-wrap">
-        <Link href="/dashboard" className="text-zinc-600 hover:text-zinc-300 transition-colors text-sm whitespace-nowrap">
-          ← Mis ligas
-        </Link>
-        <span className="text-[#2a2a2a] hidden sm:inline">/</span>
-        <span className="text-sm text-white font-medium truncate max-w-[100px] sm:max-w-none">
-          {leagueName || "Mercado"}
-        </span>
-        <div className="flex items-center gap-2 sm:gap-3 ml-auto flex-wrap">
-          <Link href={`/leagues/${leagueId}/lineup`}    className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm whitespace-nowrap">Mi equipo</Link>
-          <Link href={`/leagues/${leagueId}/standings`} className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm whitespace-nowrap hidden sm:inline">Clasificación</Link>
-          <Link href={`/leagues/${leagueId}/activity`}  className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm whitespace-nowrap hidden sm:inline">Actividad</Link>
-          {budget !== null && (
-            <span className="font-mono text-amber-400 text-sm font-semibold">{budget.toFixed(1)}M</span>
-          )}
-        </div>
-      </header>
-
+    <div className="min-h-screen" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
       {/* Tabs */}
-      <div className="border-b border-[#1a1a1a] px-4 sm:px-6">
-        <nav className="flex gap-0 overflow-x-auto">
+      <div className="border-b px-4 sm:px-6" style={{ borderBottomColor: "var(--border-subtle)" }}>
+        <nav className="flex gap-0 overflow-x-auto scrollbar-none">
           {TABS.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
-              className={`px-3 sm:px-4 py-3 text-xs sm:text-sm border-b-2 transition-colors -mb-px whitespace-nowrap ${
-                tab === t.key
-                  ? "border-amber-400 text-white font-medium"
-                  : "border-transparent text-zinc-500 hover:text-zinc-300"
-              }`}
+              className="px-3 sm:px-4 py-3 text-xs sm:text-sm border-b-2 transition-all duration-200 -mb-px whitespace-nowrap font-medium"
+              style={{
+                borderBottomColor: tab === t.key ? "var(--color-primary)" : "transparent",
+                color: tab === t.key ? "var(--color-primary)" : "var(--text-muted)",
+              }}
             >
               {t.label}
             </button>
@@ -103,18 +101,18 @@ export default function MarketPage() {
         </nav>
       </div>
 
-      {/* Contenido */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        {tab === "mercado"   && <MarketTab  leagueId={leagueId} onBid={refreshBudget} onShowStats={setStatsPlayer} />}
+      {/* Content */}
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-24 sm:py-8">
+        {tab === "mercado"   && <MarketTab  leagueId={leagueId} splitName={split?.name} onBid={refreshBudget} onShowStats={setStatsPlayer} />}
         {tab === "mis-pujas" && <MyBidsTab  leagueId={leagueId} />}
         {tab === "ofertas"   && <OffersTab  leagueId={leagueId} />}
       </main>
 
-      {/* Modal de stats */}
+      {/* Player stats modal */}
       {statsPlayer && (
         <PlayerStatsModal
-          playerId={statsPlayer.id}
-          playerHint={{ name: statsPlayer.name, team: statsPlayer.team, role: statsPlayer.role, image_url: statsPlayer.image_url }}
+          playerId={statsPlayer.playerId}
+          playerHint={statsPlayer.hint}
           onClose={() => setStatsPlayer(null)}
         />
       )}
@@ -123,14 +121,13 @@ export default function MarketPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Tab Mercado
+// Market tab
 // ---------------------------------------------------------------------------
-type StatsTarget = { id: string; name: string; team: string; role: string; image_url: string | null };
-
-function MarketTab({ leagueId, onBid, onShowStats }: { leagueId: string; onBid: () => void; onShowStats: (t: StatsTarget) => void }) {
+function MarketTab({ leagueId, splitName, onBid, onShowStats }: { leagueId: string; splitName?: string; onBid: () => void; onShowStats: (p: StatsPlayer) => void }) {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
+  const [roleFilter, setRoleFilter] = useState<string>("all");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -142,6 +139,9 @@ function MarketTab({ leagueId, onBid, onShowStats }: { leagueId: string; onBid: 
 
   useEffect(() => { load(); }, [load]);
 
+  const roles = ["all", "top", "jungle", "mid", "adc", "support", "coach"];
+  const filtered = roleFilter === "all" ? listings : listings.filter((l) => l.players.role === roleFilter);
+
   if (loading) return <CardSkeleton />;
   if (error)   return <ErrorState message={error} onRetry={load} />;
   if (listings.length === 0) return (
@@ -152,27 +152,89 @@ function MarketTab({ leagueId, onBid, onShowStats }: { leagueId: string; onBid: 
   );
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-      {listings.map((l) => (
-        <PlayerCard key={l.id} listing={l} leagueId={leagueId} onBid={() => { onBid(); load(); }} onShowStats={onShowStats} />
-      ))}
+    <div>
+      {/* Role filter pills */}
+      <div className="flex gap-2 mb-5 flex-wrap">
+        {roles.map((r) => {
+          const rc = r !== "all" ? (ROLE_COLORS[r] ?? ROLE_COLORS.coach) : null;
+          const active = roleFilter === r;
+          return (
+            <button
+              key={r}
+              onClick={() => setRoleFilter(r)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-150 active:scale-95
+                ${active
+                  ? rc
+                    ? `${rc.bg} ${rc.text} ${rc.border}`
+                    : ""
+                  : ""
+                }`}
+              style={active && !rc ? {
+                background: "var(--color-primary-bg)",
+                color: "var(--color-primary)",
+                borderColor: "rgba(107,33,232,0.3)",
+              } : !active ? {
+                background: "var(--bg-surface)",
+                color: "var(--text-muted)",
+                borderColor: "var(--border-subtle)",
+              } : undefined}
+            >
+              {rc && r !== "all" && <RoleIcon role={r} className={`w-3 h-3 ${active ? rc.text : "text-[var(--text-muted)]"}`} />}
+              {r === "all" ? "Todos" : ROLE_LABEL[r] ?? r.toUpperCase()}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+        {filtered.map((l) => (
+          <PlayerCard
+            key={l.id}
+            listing={l}
+            leagueId={leagueId}
+            splitName={splitName}
+            onBid={() => { onBid(); load(); }}
+            onShowStats={onShowStats}
+          />
+        ))}
+      </div>
+
+      {filtered.length === 0 && listings.length > 0 && (
+        <div className="py-16 text-center">
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Sin jugadores para este rol.</p>
+        </div>
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Ficha de jugador — estilo trading card
+// Player card — trading card style, clicking photo/info opens stats modal
 // ---------------------------------------------------------------------------
-function PlayerCard({ listing, leagueId, onBid, onShowStats }: { listing: Listing; leagueId: string; onBid: () => void; onShowStats: (t: StatsTarget) => void }) {
-  const [expanded, setExpanded]   = useState(false);
+function PlayerCard({
+  listing,
+  leagueId,
+  splitName,
+  onBid,
+  onShowStats,
+}: {
+  listing: Listing;
+  leagueId: string;
+  splitName?: string;
+  onBid: () => void;
+  onShowStats: (p: StatsPlayer) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
   const [bidAmount, setBidAmount] = useState(listing.ask_price.toFixed(1));
-  const [busy, setBusy]           = useState(false);
-  const [err, setErr]             = useState<string | null>(null);
-  const [success, setSuccess]     = useState(false);
+  const [busy, setBusy]         = useState(false);
+  const [err, setErr]           = useState<string | null>(null);
+  const [success, setSuccess]   = useState(false);
+
   const inputRef  = useRef<HTMLInputElement>(null);
   const countdown = useCountdown(listing.closes_at);
   const roleColor = ROLE_COLORS[listing.players.role] ?? ROLE_COLORS.coach;
   const closed    = countdown === "Cerrado";
+  const p         = listing.players;
 
   const handleBid = async () => {
     const amount = parseFloat(bidAmount);
@@ -189,45 +251,95 @@ function PlayerCard({ listing, leagueId, onBid, onShowStats }: { listing: Listin
     } finally { setBusy(false); }
   };
 
-  const p = listing.players;
+  const handleCardClick = () => {
+    onShowStats({
+      playerId: listing.player_id,
+      hint: { name: p.name, team: p.team, role: p.role, image_url: p.image_url },
+    });
+  };
 
   return (
     <div
-      className={`group relative bg-[#111111] border rounded-xl overflow-hidden transition-all duration-200 flex flex-col
-        ${success
-          ? "border-green-500/40 shadow-[0_0_16px_rgba(34,197,94,0.08)]"
-          : "border-[#1a1a1a] hover:border-[#2a2a2a] hover:shadow-[0_0_24px_rgba(251,191,36,0.04)]"}
-        hover:scale-[1.02] hover:-translate-y-0.5`}
+      className={`group relative border rounded-xl overflow-hidden transition-all duration-300 flex flex-col hover:scale-[1.02] hover:-translate-y-1`}
+      style={{
+        background: "var(--bg-panel)",
+        borderColor: success ? "rgba(34,197,94,0.4)" : "var(--border-subtle)",
+        boxShadow: success ? "0 0 16px rgba(34,197,94,0.08)" : "0 2px 8px rgba(26,28,26,0.08)",
+      }}
     >
-      {/* Foto — proporción 3:4 */}
-      <div className="relative w-full aspect-[3/4] overflow-hidden bg-[#0d0d0d] flex-shrink-0">
+      {/* Photo section — clickable to open stats modal */}
+      <button
+        type="button"
+        onClick={handleCardClick}
+        className="relative w-full aspect-[3/4] overflow-hidden flex-shrink-0 text-left focus:outline-none"
+        style={{ background: "var(--bg-surface)" }}
+        aria-label={`Ver estadísticas de ${p.name}`}
+      >
         {p.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={p.image_url}
             alt={p.name}
-            className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-105"
+            className="w-full h-full object-cover object-top grayscale group-hover:grayscale-0 group-hover:-translate-y-1 transition-all duration-300"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
+          <div
+            className="w-full h-full flex items-center justify-center"
+            style={{ background: "var(--bg-surface)" }}
+          >
             <RoleIcon role={p.role} className={`w-16 h-16 ${roleColor.text} opacity-10`} />
           </div>
         )}
 
-        {/* Gradiente inferior sobre la foto */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#111111] via-transparent to-transparent" />
+        {/* Gradient overlay */}
+        <div
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(to top, rgba(30,27,30,0.95) 0%, rgba(30,27,30,0.7) 25%, transparent 55%)" }}
+        />
 
-        {/* Icono de rol — esquina superior izquierda */}
+        {/* Role badge — top left */}
         <div className={`absolute top-2 left-2 p-1.5 rounded-lg ${roleColor.bg} ${roleColor.border} border backdrop-blur-sm`}>
           <RoleIcon role={p.role} className={`w-3.5 h-3.5 ${roleColor.text}`} />
         </div>
 
-        {/* Precio — esquina superior derecha */}
-        <div className="absolute top-2 right-2 font-mono text-amber-400 text-[11px] font-bold bg-black/70 backdrop-blur-sm px-2 py-0.5 rounded-md">
+        {/* Price chip — top right */}
+        <div
+          className="absolute top-2 right-2 font-mono text-[11px] font-bold backdrop-blur-sm px-2 py-0.5 rounded-md"
+          style={{
+            color: "var(--color-gold)",
+            background: "rgba(0,0,0,0.7)",
+            border: "1px solid rgba(252,212,0,0.2)",
+          }}
+        >
           {listing.ask_price.toFixed(1)}M
         </div>
 
-        {/* Overlay éxito */}
+        {/* Team badge — bottom right of photo */}
+        {p.team && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={getTeamBadgeUrl(p.team)}
+            alt={p.team}
+            className="absolute bottom-2 right-2 w-6 h-6 object-contain rounded-sm pointer-events-none"
+            style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.8))" }}
+          />
+        )}
+
+        {/* Stats hint — bottom center on hover */}
+        <div className="absolute bottom-2 inset-x-0 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+          <span
+            className="text-[10px] backdrop-blur-sm px-2 py-0.5 rounded-full"
+            style={{
+              color: "var(--color-primary-light)",
+              background: "rgba(0,0,0,0.7)",
+              border: "1px solid rgba(107,33,232,0.3)",
+            }}
+          >
+            Ver stats →
+          </span>
+        </div>
+
+        {/* Success overlay */}
         {success && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <div className="text-green-400 text-center">
@@ -238,43 +350,69 @@ function PlayerCard({ listing, leagueId, onBid, onShowStats }: { listing: Listin
             </div>
           </div>
         )}
-      </div>
+      </button>
 
-      {/* Datos del jugador */}
-      <div className="p-3 flex flex-col flex-1">
-        <h3 className="font-bold text-sm truncate leading-tight">{p.name}</h3>
+      {/* Player info + bid section */}
+      <div className="p-3 flex flex-col flex-1" style={{ background: "var(--bg-surface)", borderTop: "1px solid var(--border-subtle)" }}>
+        <button
+          type="button"
+          onClick={handleCardClick}
+          className="text-left focus:outline-none"
+        >
+          <h3
+            className="font-bold text-sm truncate leading-tight transition-colors"
+            style={{ color: "var(--text-primary)", fontFamily: "'Space Grotesk', sans-serif" }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLHeadingElement).style.color = "var(--color-primary)"; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLHeadingElement).style.color = "var(--text-primary)"; }}
+          >
+            {p.name}
+          </h3>
+        </button>
         <div className="flex items-center justify-between mt-0.5 gap-1">
-          <span className="text-zinc-500 text-xs truncate">{p.team}</span>
+          <span className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{p.team}</span>
           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${roleColor.bg} ${roleColor.text}`}>
             {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
           </span>
         </div>
-
         {/* Countdown */}
         {listing.closes_at && !closed && countdown && (
-          <p className="text-zinc-600 text-[10px] mt-1 font-mono">⏱ {countdown}</p>
+          <p className="text-[10px] mt-1 font-mono" style={{ color: "var(--text-muted)" }}>⏱ {countdown}</p>
         )}
-        {closed && <p className="text-red-500/60 text-[10px] mt-1">Cerrado</p>}
+        {closed && <p className="text-[10px] mt-1" style={{ color: "var(--color-danger, rgb(220,38,38))" }}>Cerrado</p>}
 
-        {/* Botones */}
+        {/* Bid section */}
         <div className="mt-2 flex-1 flex flex-col justify-end gap-1.5">
-          <button
-            onClick={() => onShowStats({ id: listing.player_id, name: p.name, team: p.team, role: p.role, image_url: p.image_url })}
-            className="w-full py-1.5 text-xs rounded-lg border border-[#222] text-zinc-500 hover:border-zinc-600 hover:text-zinc-300 transition-all duration-150 active:scale-95"
-          >
-            Ver stats
-          </button>
           {!expanded ? (
             <button
               onClick={() => { setExpanded(true); setTimeout(() => inputRef.current?.focus(), 50); }}
               disabled={closed}
-              className={`w-full py-1.5 text-xs rounded-lg border transition-all duration-150 active:scale-95
-                ${success
-                  ? "border-green-500/40 text-green-400"
-                  : closed
-                    ? "border-[#1a1a1a] text-zinc-700 cursor-not-allowed"
-                    : "border-[#222] text-zinc-500 hover:border-amber-400/40 hover:text-amber-400 hover:bg-amber-400/5"
-                }`}
+              className="w-full py-1.5 text-xs rounded-lg border transition-all duration-150 active:scale-95"
+              style={success ? {
+                borderColor: "rgba(34,197,94,0.4)",
+                color: "rgb(22,163,74)",
+              } : closed ? {
+                borderColor: "var(--border-subtle)",
+                color: "var(--text-muted)",
+                cursor: "not-allowed",
+                opacity: "0.5",
+              } : {
+                borderColor: "var(--border-medium)",
+                color: "var(--text-secondary)",
+              }}
+              onMouseEnter={(e) => {
+                if (!closed && !success) {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(107,33,232,0.4)";
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--color-primary)";
+                  (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary-bg)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!closed && !success) {
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-medium)";
+                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
+                  (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                }
+              }}
             >
               {success ? "✓ Puja enviada" : closed ? "Cerrado" : "Pujar"}
             </button>
@@ -288,22 +426,31 @@ function PlayerCard({ listing, leagueId, onBid, onShowStats }: { listing: Listin
                   min={listing.ask_price}
                   value={bidAmount}
                   onChange={(e) => setBidAmount(e.target.value)}
-                  className="flex-1 min-w-0 bg-[#0a0a0a] border border-[#2a2a2a] focus:border-amber-400/50 text-white text-xs rounded px-2 py-1.5 outline-none transition-colors"
+                  className="flex-1 min-w-0 text-xs rounded px-2 py-1.5 outline-none transition-colors appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-moz-appearance]:textfield"
+                  style={{
+                    background: "var(--bg-base)",
+                    border: "1px solid var(--border-medium)",
+                    color: "var(--text-primary)",
+                  }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "rgba(107,33,232,0.5)"; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = "var(--border-medium)"; }}
                 />
-                <span className="text-zinc-600 text-xs flex-shrink-0">M</span>
+                <span className="text-xs flex-shrink-0" style={{ color: "var(--text-muted)" }}>M</span>
               </div>
               {err && <p className="text-red-400 text-[10px]">{err}</p>}
               <div className="flex gap-1.5">
                 <button
                   onClick={() => { setExpanded(false); setErr(null); }}
-                  className="flex-1 py-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                  className="flex-1 py-1 text-xs transition-colors"
+                  style={{ color: "var(--text-muted)" }}
                 >
                   ✕
                 </button>
                 <button
                   onClick={handleBid}
                   disabled={busy}
-                  className="flex-[2] py-1.5 text-xs bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-black font-bold rounded-lg transition-all active:scale-95"
+                  className="flex-[2] py-1.5 text-xs font-bold text-white rounded-lg transition-all active:scale-95 disabled:opacity-40 hover:brightness-90"
+                  style={{ background: "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))" }}
                 >
                   {busy ? "…" : "Confirmar"}
                 </button>
@@ -317,7 +464,7 @@ function PlayerCard({ listing, leagueId, onBid, onShowStats }: { listing: Listin
 }
 
 // ---------------------------------------------------------------------------
-// Tab Mis Pujas
+// My bids tab
 // ---------------------------------------------------------------------------
 function MyBidsTab({ leagueId }: { leagueId: string }) {
   const [bids, setBids]       = useState<MyBid[]>([]);
@@ -363,9 +510,21 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
   };
 
   return (
-    <div className={`flex items-center gap-3 sm:gap-4 bg-[#111111] border rounded-xl px-4 py-3 transition-all duration-150
-      ${bid.status === "won" ? "border-green-500/30" : bid.status === "lost" ? "border-zinc-700/50" : "border-[#1a1a1a] hover:border-[#2a2a2a]"}`}>
-      <div className="w-10 h-10 rounded-full overflow-hidden bg-[#1a1a1a] flex-shrink-0 flex items-center justify-center">
+    <div
+      className="flex items-center gap-3 sm:gap-4 rounded-xl px-4 py-3 transition-all duration-150 border"
+      style={{
+        background: "var(--bg-surface)",
+        borderColor: bid.status === "won"
+          ? "rgba(34,197,94,0.3)"
+          : bid.status === "lost"
+            ? "var(--border-subtle)"
+            : "var(--border-subtle)",
+      }}
+    >
+      <div
+        className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
+        style={{ background: "var(--bg-panel)", border: "1px solid var(--border-medium)" }}
+      >
         {bid.player_image_url
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={bid.player_image_url} alt={bid.player_name} className="w-full h-full object-cover object-top" />
@@ -374,27 +533,36 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm truncate">{bid.player_name}</span>
+          <span className="font-semibold text-sm truncate" style={{ color: "var(--text-primary)" }}>{bid.player_name}</span>
           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${roleColor.bg} ${roleColor.text}`}>
             {ROLE_LABEL[bid.player_role] ?? bid.player_role.toUpperCase()}
           </span>
         </div>
-        <p className="text-zinc-500 text-xs">{bid.player_team}</p>
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>{bid.player_team}</p>
         {bid.status === "active" && bid.listing_closes_at && countdown && countdown !== "Cerrado" && (
-          <p className="text-zinc-600 text-[10px] mt-0.5 font-mono">⏱ {countdown}</p>
+          <p className="text-[10px] mt-0.5 font-mono" style={{ color: "var(--text-muted)" }}>⏱ {countdown}</p>
         )}
       </div>
       <div className="text-right flex-shrink-0 mr-2">
-        <p className="font-mono text-amber-400 text-sm font-semibold">{bid.bid_amount.toFixed(1)}M</p>
-        <p className="text-zinc-600 text-[10px]">tu puja</p>
+        <p className="font-mono text-sm font-semibold" style={{ color: "var(--color-gold-dark)" }}>
+          {bid.bid_amount.toFixed(1)}M
+        </p>
+        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>tu puja</p>
       </div>
       {bid.status === "won" && (
-        <span className="px-2.5 py-1 text-xs font-bold text-green-400 bg-green-500/10 border border-green-500/20 rounded-lg flex-shrink-0">
+        <span className="px-2.5 py-1 text-xs font-bold text-green-600 bg-green-500/10 border border-green-500/20 rounded-lg flex-shrink-0">
           ✓ Ganada
         </span>
       )}
       {bid.status === "lost" && (
-        <span className="px-2.5 py-1 text-xs font-bold text-zinc-500 bg-zinc-800/50 border border-zinc-700/40 rounded-lg flex-shrink-0">
+        <span
+          className="px-2.5 py-1 text-xs font-bold rounded-lg flex-shrink-0"
+          style={{
+            color: "var(--text-muted)",
+            background: "var(--bg-panel)",
+            border: "1px solid var(--border-medium)",
+          }}
+        >
           ✗ Perdida
         </span>
       )}
@@ -402,7 +570,19 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
         <button
           onClick={handleCancel}
           disabled={busy || countdown === "Cerrado"}
-          className="px-3 py-1.5 text-xs text-zinc-500 border border-[#2a2a2a] hover:border-red-500/40 hover:text-red-400 rounded-lg transition-all disabled:opacity-40 active:scale-95 flex-shrink-0"
+          className="px-3 py-1.5 text-xs rounded-lg transition-all disabled:opacity-40 active:scale-95 flex-shrink-0"
+          style={{
+            color: "var(--text-muted)",
+            border: "1px solid var(--border-medium)",
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(220,38,38,0.3)";
+            (e.currentTarget as HTMLButtonElement).style.color = "rgb(220,38,38)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-medium)";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+          }}
         >
           {busy ? "…" : "Cancelar"}
         </button>
@@ -412,7 +592,7 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
 }
 
 // ---------------------------------------------------------------------------
-// Tab Ofertas
+// Offers tab
 // ---------------------------------------------------------------------------
 function OffersTab({ leagueId }: { leagueId: string }) {
   const [offers, setOffers]   = useState<SellOffer[]>([]);
@@ -464,8 +644,19 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
 
   const p = offer.player;
   return (
-    <div className="flex items-center gap-3 sm:gap-4 bg-[#111111] border border-[#1a1a1a] hover:border-[#2a2a2a] rounded-xl px-4 py-3 transition-all duration-150">
-      <div className="w-10 h-10 rounded-full overflow-hidden bg-[#1a1a1a] flex-shrink-0 flex items-center justify-center">
+    <div
+      className="flex items-center gap-3 sm:gap-4 rounded-xl px-4 py-3 transition-all duration-150 border"
+      style={{
+        background: "var(--bg-surface)",
+        borderColor: "var(--border-subtle)",
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(107,33,232,0.2)"; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border-subtle)"; }}
+    >
+      <div
+        className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
+        style={{ background: "var(--bg-panel)", border: "1px solid var(--border-medium)" }}
+      >
         {p.image_url
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover object-top" />
@@ -474,25 +665,43 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm truncate">{p.name}</span>
+          <span className="font-semibold text-sm truncate" style={{ color: "var(--text-primary)" }}>{p.name}</span>
           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${roleColor.bg} ${roleColor.text}`}>
             {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
           </span>
         </div>
-        <p className="text-zinc-500 text-xs">{p.team}</p>
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>{p.team}</p>
       </div>
       <div className="text-right flex-shrink-0 mr-1">
-        <p className="font-mono text-amber-400 text-sm font-semibold">{offer.ask_price.toFixed(1)}M</p>
-        <p className="text-zinc-600 text-xs">{expiresIn > 0 ? `${expiresIn}d` : "hoy"}</p>
+        <p className="font-mono text-sm font-semibold" style={{ color: "var(--color-gold-dark)" }}>
+          {offer.ask_price.toFixed(1)}M
+        </p>
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>{expiresIn > 0 ? `${expiresIn}d` : "hoy"}</p>
       </div>
-      {err && <span className="text-red-400 text-xs">{err}</span>}
+      {err && <span className="text-red-500 text-xs">{err}</span>}
       <div className="flex gap-2 flex-shrink-0">
-        <button onClick={() => handle("reject")} disabled={busy !== null}
-          className="px-2 sm:px-3 py-1.5 text-xs text-zinc-500 border border-[#2a2a2a] hover:border-red-500/40 hover:text-red-400 rounded-lg transition-all disabled:opacity-40 active:scale-95">
+        <button
+          onClick={() => handle("reject")}
+          disabled={busy !== null}
+          className="px-2 sm:px-3 py-1.5 text-xs rounded-lg transition-all disabled:opacity-40 active:scale-95"
+          style={{ color: "var(--text-muted)", border: "1px solid var(--border-medium)" }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(220,38,38,0.3)";
+            (e.currentTarget as HTMLButtonElement).style.color = "rgb(220,38,38)";
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-medium)";
+            (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+          }}
+        >
           {busy === "reject" ? "…" : "Rechazar"}
         </button>
-        <button onClick={() => handle("accept")} disabled={busy !== null}
-          className="px-2 sm:px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-all disabled:opacity-40 font-semibold active:scale-95">
+        <button
+          onClick={() => handle("accept")}
+          disabled={busy !== null}
+          className="px-2 sm:px-3 py-1.5 text-xs text-white font-semibold rounded-lg transition-all disabled:opacity-40 active:scale-95 hover:brightness-90"
+          style={{ background: "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))" }}
+        >
           {busy === "accept" ? "…" : "Aceptar"}
         </button>
       </div>
@@ -506,13 +715,16 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
 function EmptyState({ title, description }: { title: string; description: string }) {
   return (
     <div className="py-20 text-center">
-      <div className="w-16 h-16 rounded-full bg-[#1a1a1a] flex items-center justify-center mx-auto mb-4">
-        <svg className="w-7 h-7 text-zinc-700" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+      <div
+        className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+        style={{ background: "var(--color-primary-bg)", border: "1px solid rgba(107,33,232,0.15)" }}
+      >
+        <svg className="w-7 h-7 opacity-60" style={{ color: "var(--color-primary)" }} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
       </div>
-      <p className="text-white font-semibold mb-2">{title}</p>
-      <p className="text-zinc-500 text-sm max-w-sm mx-auto">{description}</p>
+      <p className="font-semibold mb-2" style={{ color: "var(--text-primary)" }}>{title}</p>
+      <p className="text-sm max-w-sm mx-auto" style={{ color: "var(--text-secondary)" }}>{description}</p>
     </div>
   );
 }
@@ -520,9 +732,23 @@ function EmptyState({ title, description }: { title: string; description: string
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="py-20 text-center">
-      <p className="text-zinc-500 text-sm mb-4">{message}</p>
-      <button onClick={onRetry}
-        className="text-sm text-zinc-400 hover:text-white border border-[#2a2a2a] hover:border-[#3a3a3a] rounded-lg px-4 py-2 transition-all active:scale-95">
+      <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>{message}</p>
+      <button
+        onClick={onRetry}
+        className="text-sm rounded-lg px-4 py-2 transition-all active:scale-95"
+        style={{
+          color: "var(--text-secondary)",
+          border: "1px solid var(--border-medium)",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(107,33,232,0.3)";
+          (e.currentTarget as HTMLButtonElement).style.color = "var(--color-primary)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-medium)";
+          (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
+        }}
+      >
         Reintentar
       </button>
     </div>
@@ -533,12 +759,16 @@ function CardSkeleton() {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
       {Array.from({ length: 10 }).map((_, i) => (
-        <div key={i} className="bg-[#111111] border border-[#1a1a1a] rounded-xl overflow-hidden animate-pulse">
-          <div className="w-full aspect-[3/4] bg-[#1a1a1a]" />
+        <div
+          key={i}
+          className="rounded-xl overflow-hidden animate-pulse"
+          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+        >
+          <div className="w-full aspect-[3/4]" style={{ background: "var(--bg-panel)" }} />
           <div className="p-3 space-y-2">
-            <div className="h-3.5 bg-[#1a1a1a] rounded w-3/4" />
-            <div className="h-3 bg-[#1a1a1a] rounded w-1/2" />
-            <div className="h-7 bg-[#1a1a1a] rounded mt-2" />
+            <div className="h-3.5 rounded w-3/4" style={{ background: "var(--bg-panel)" }} />
+            <div className="h-3 rounded w-1/2" style={{ background: "var(--bg-panel)" }} />
+            <div className="h-7 rounded mt-2" style={{ background: "var(--bg-panel)" }} />
           </div>
         </div>
       ))}
@@ -550,8 +780,13 @@ function ListSkeleton({ rows = 3 }: { rows?: number }) {
   return (
     <div className="space-y-2">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-16 bg-[#111111] border border-[#1a1a1a] rounded-xl animate-pulse" />
+        <div
+          key={i}
+          className="h-16 rounded-xl animate-pulse"
+          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+        />
       ))}
     </div>
   );
 }
+

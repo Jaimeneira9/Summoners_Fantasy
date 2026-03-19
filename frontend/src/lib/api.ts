@@ -74,6 +74,18 @@ export type ActivityEvent = {
   executed_at: string;
 };
 
+export type PlayerMatchStat = {
+  kills: number;
+  deaths: number;
+  assists: number;
+  cs_per_min: number;
+  vision_score: number;
+  fantasy_points: number;
+  damage_share: number | null;
+  gold_diff_at_15: number | null;
+  matches?: { scheduled_at: string | null; team_1: string; team_2: string } | null;
+};
+
 export type MyBid = {
   id: string;
   listing_id: string;
@@ -168,7 +180,7 @@ export type Roster = {
 
 export type MemberRoster = {
   member: { id: string; display_name: string | null; total_points: number };
-  players: { slot: string; price_paid: number; players: { name: string; team: string; role: string; image_url: string | null } }[];
+  players: { slot: string; price_paid: number; split_points: number; players: { id: string; name: string; team: string; role: string; image_url: string | null } }[];
 };
 
 export const api = {
@@ -238,7 +250,7 @@ export const api = {
     leaderboard: (leagueId: string) =>
       req<LeaderboardEntry[]>(`/scoring/leaderboard/${leagueId}`),
     playerHistory: (playerId: string) =>
-      req<{ player: { id: string; name: string; team: string; role: string; image_url: string | null; current_price: number }; stats: { kills: number; deaths: number; assists: number; cs: number; vision_score: number; fantasy_points: number; matches?: { scheduled_at: string; team_1: string; team_2: string } }[]; total_points: number }>(`/scoring/player/${playerId}/history`),
+      req<{ player: { id: string; name: string; team: string; role: string; image_url: string | null; current_price: number }; stats: PlayerMatchStat[]; total_points: number }>(`/scoring/player/${playerId}/history`),
   },
   splits: {
     active: () => req<Split | null>("/splits/active"),

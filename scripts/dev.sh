@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 trap 'echo ""; echo "Deteniendo servicios..."; kill 0' EXIT
 
 echo "Iniciando backend en :8000 ..."
-(cd "$ROOT/backend" && uvicorn main:app --reload) &
+(cd "$ROOT/backend" && source venv/bin/activate && uvicorn main:app --reload) &
 
 echo "Iniciando frontend en :3000 ..."
 (cd "$ROOT/frontend" && npm run dev) &

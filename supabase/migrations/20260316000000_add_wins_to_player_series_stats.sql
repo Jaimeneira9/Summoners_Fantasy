@@ -1,0 +1,1 @@
+ALTER TABLE player_series_stats ADD COLUMN IF NOT EXISTS wins int NOT NULL DEFAULT 0;

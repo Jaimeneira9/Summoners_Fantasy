@@ -37,13 +37,14 @@ def _job_market_refresh() -> None:
         logger.error("market_refresh failed: %s", exc, exc_info=True)
 
 
-def _job_nightly_ingest() -> None:
-    from pipeline.ingest import nightly_ingest
+def _job_series_ingest() -> None:
+    import asyncio
+    from pipeline.series_ingest import run_series_ingest
     try:
-        nightly_ingest(_get_supabase())
-        logger.info("Nightly ingest completed")
+        asyncio.run(run_series_ingest(_get_supabase()))
+        logger.info("Series ingest completed")
     except Exception as exc:
-        logger.error("nightly_ingest failed: %s", exc, exc_info=True)
+        logger.error("series_ingest failed: %s", exc, exc_info=True)
 
 
 def _job_check_split_reset() -> None:
@@ -75,9 +76,9 @@ def _bootstrap_closes_at(supabase: Client) -> None:
 async def lifespan(app: FastAPI):
     sb = _get_supabase()
 
-    _scheduler.add_job(_job_market_refresh,   "interval", hours=1,            id="market_refresh",  replace_existing=True)
-    _scheduler.add_job(_job_nightly_ingest,   "cron",     hour=3,  minute=0,  id="nightly_ingest",  replace_existing=True)
-    _scheduler.add_job(_job_check_split_reset,"cron",     hour=1,  minute=0,  id="split_reset_check", replace_existing=True)
+    _scheduler.add_job(_job_market_refresh,   "interval", hours=1,  id="market_refresh",    replace_existing=True)
+    _scheduler.add_job(_job_series_ingest,    "interval", hours=1,  id="series_ingest",     replace_existing=True)
+    _scheduler.add_job(_job_check_split_reset,"cron",     hour=1,   minute=0, id="split_reset_check", replace_existing=True)
     _scheduler.start()
     logger.info("Background scheduler started")
 
@@ -94,7 +95,11 @@ from routers import splits as splits_router
 
 app = FastAPI(title="LoL Fantasy API", version="0.1.0", lifespan=lifespan)
 
-CORS_ORIGINS = ["http://localhost:3000"]
+_raw_origins = os.environ.get(
+    "ALLOWED_ORIGINS",
+    os.environ.get("FRONTEND_URL", "http://localhost:3000"),
+)
+CORS_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
@@ -132,6 +137,16 @@ app.include_router(splits_router.router,prefix="/splits",    tags=["splits"])
 @app.get("/health")
 def health_check() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/debug/series-ingest", tags=["debug"])
+def debug_series_ingest() -> dict:
+    """Fuerza el pipeline de series desde gol.gg (sin auth, solo dev)."""
+    if os.environ.get("ENVIRONMENT") != "development":
+        from fastapi import HTTPException as _HTTPException
+        raise _HTTPException(status_code=403, detail="Solo disponible en development")
+    _job_series_ingest()
+    return {"message": "Series ingest completado"}
 
 
 @app.post("/debug/market-refresh", tags=["debug"])

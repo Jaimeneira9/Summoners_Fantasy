@@ -37,14 +37,16 @@ ROLE_WEIGHTS: dict[Role, dict[str, float]] = {
     },
 }
 
-MULTIKILL_BONUS = {"double": 2.0, "triple": 5.0, "quadra": 8.0, "penta": 15.0}
+MULTIKILL_BONUS = {"double_kill": 2.0, "triple_kill": 5.0, "quadra_kill": 8.0, "penta_kill": 15.0}
 GAME_LENGTH_NORMALIZATION_THRESHOLD_MIN = 30  # partidas > 30 min aplican factor
 
 
 def calculate_match_points(stats: dict, role: Role, game_duration_min: float) -> float:
     """Calcula los fantasy points de un jugador para un partido concreto."""
     weights = ROLE_WEIGHTS[role]
-    points = sum(stats.get(stat, 0) * weight for stat, weight in weights.items())
+    # stats.get() puede devolver None para campos opcionales (gold_diff_15, xp_diff_15).
+    # Tratamos None como 0 para evitar TypeError en la multiplicación.
+    points = sum((stats.get(stat) or 0) * weight for stat, weight in weights.items())
 
     # Bonus multikills
     for kill_type, bonus in MULTIKILL_BONUS.items():

@@ -61,12 +61,12 @@ export function RoleIcon({ role, className = "w-5 h-5" }: { role: string; classN
 }
 
 export const ROLE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  top:     { bg: "bg-orange-500/20", text: "text-orange-400", border: "border-orange-500/30" },
-  jungle:  { bg: "bg-green-500/20",  text: "text-green-400",  border: "border-green-500/30"  },
-  mid:     { bg: "bg-blue-500/20",   text: "text-blue-400",   border: "border-blue-500/30"   },
-  adc:     { bg: "bg-red-500/20",    text: "text-red-400",    border: "border-red-500/30"    },
-  support: { bg: "bg-purple-500/20", text: "text-purple-400", border: "border-purple-500/30" },
-  coach:   { bg: "bg-zinc-500/20",   text: "text-zinc-400",   border: "border-zinc-500/30"   },
+  top:     { bg: "bg-red-500/20",    text: "text-red-400",    border: "border-red-500/40"    },
+  jungle:  { bg: "bg-green-500/20",  text: "text-green-400",  border: "border-green-500/40"  },
+  mid:     { bg: "bg-blue-500/20",   text: "text-blue-400",   border: "border-blue-500/40"   },
+  adc:     { bg: "bg-yellow-500/20", text: "text-yellow-400", border: "border-yellow-500/40" },
+  support: { bg: "bg-purple-500/20", text: "text-purple-400", border: "border-purple-500/40" },
+  coach:   { bg: "bg-slate-500/20",  text: "text-slate-400",  border: "border-slate-500/40"  },
 };
 
 export const ROLE_LABEL: Record<string, string> = {

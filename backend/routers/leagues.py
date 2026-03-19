@@ -358,11 +358,36 @@ async def get_member_roster(
     roster_id = roster_resp.data[0]["id"]
     players_resp = (
         supabase.table("roster_players")
-        .select("slot, price_paid, players(name, team, role, image_url, current_price)")
+        .select("slot, price_paid, players(id, name, team, role, image_url, current_price)")
         .eq("roster_id", roster_id)
         .execute()
     )
-    return {"member": member, "players": players_resp.data or []}
+    roster_players = players_resp.data or []
+
+    # Enrich with split points from player_series_stats
+    player_ids = [rp["players"]["id"] for rp in roster_players if rp.get("players")]
+    points_map: dict[str, float] = {}
+    if player_ids:
+        stats_resp = (
+            supabase.table("player_series_stats")
+            .select("player_id, series_points")
+            .in_("player_id", player_ids)
+            .execute()
+        )
+        for row in (stats_resp.data or []):
+            pid = row["player_id"]
+            points_map[pid] = points_map.get(pid, 0.0) + float(row["series_points"] or 0)
+
+    # Attach split_points to each player entry
+    enriched = []
+    for rp in roster_players:
+        entry = dict(rp)
+        if entry.get("players"):
+            pid = entry["players"]["id"]
+            entry["split_points"] = round(points_map.get(pid, 0.0), 2)
+        enriched.append(entry)
+
+    return {"member": member, "players": enriched}
 
 
 # ---------------------------------------------------------------------------
