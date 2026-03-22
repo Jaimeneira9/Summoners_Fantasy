@@ -34,16 +34,16 @@ def test_jungle_objective_steal():
 
 
 def test_penta_kill_bonus():
-    stats = {"kills": 5, "deaths": 0, "penta": True}
+    stats = {"kills": 5, "deaths": 0, "penta_kill": True}
     pts = calculate_match_points(stats, "adc", 25.0)
     # kills: 5*2.0=10, penta bonus: 15
-    assert pts == round(10.0 + MULTIKILL_BONUS["penta"], 2)
+    assert pts == round(10.0 + MULTIKILL_BONUS["penta_kill"], 2)
 
 
 def test_double_kill_bonus():
-    stats = {"kills": 2, "deaths": 0, "double": True}
+    stats = {"kills": 2, "deaths": 0, "double_kill": True}
     pts = calculate_match_points(stats, "mid", 25.0)
-    assert pts == round(2 * 2.0 + MULTIKILL_BONUS["double"], 2)
+    assert pts == round(2 * 2.0 + MULTIKILL_BONUS["double_kill"], 2)
 
 
 def test_normalization_applies_above_threshold():

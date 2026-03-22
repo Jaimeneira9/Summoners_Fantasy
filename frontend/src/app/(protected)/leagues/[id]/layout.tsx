@@ -9,7 +9,7 @@ export default async function LeagueLayout({
   params: { id: string };
 }) {
   return (
-    <div className="flex h-screen bg-[#faf9f6] overflow-hidden">
+    <div className="flex h-screen bg-background overflow-hidden">
       <Sidebar leagueId={params.id} />
       <main className="flex-1 overflow-y-auto">
         {children}

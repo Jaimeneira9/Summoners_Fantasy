@@ -30,7 +30,7 @@ export default async function DashboardPage() {
       <header
         className="px-6 py-3.5 flex items-center justify-between sticky top-0 z-10"
         style={{
-          background: "rgba(250,249,246,0.92)",
+          background: "rgba(10,10,10,0.92)",
           backdropFilter: "blur(12px)",
           borderBottom: "1px solid var(--border-subtle)",
         }}
@@ -133,7 +133,7 @@ function EmptyState() {
         className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5"
         style={{
           background: "var(--color-primary-bg)",
-          border: "1px solid rgba(107,33,232,0.2)",
+          border: "1px solid rgba(252,212,0,0.2)",
         }}
       >
         <svg
@@ -161,7 +161,7 @@ function EmptyState() {
           className="flex-1 rounded-xl p-5 text-left cursor-default"
           style={{
             background: "var(--color-primary-bg)",
-            border: "1px solid rgba(107,33,232,0.2)",
+            border: "1px solid rgba(252,212,0,0.2)",
           }}
         >
           <p className="font-black mb-1" style={{ color: "var(--color-primary)" }}>Crear liga</p>

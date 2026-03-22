@@ -18,7 +18,7 @@ export default function BottomNav({ leagueId }: BottomNavProps) {
   const pathname = usePathname();
 
   return (
-    <nav className="lg:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around px-4 pb-8 pt-3 bg-[#faf9f6]/90 backdrop-blur-xl shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
+    <nav className="lg:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around px-4 pb-8 pt-3 bg-background/90 backdrop-blur-xl shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
       {NAV_ITEMS.map(({ label, icon, href, match }) => {
         const resolvedHref =
           href === "/dashboard" ? href : `/leagues/${leagueId}/${href}`;
@@ -30,7 +30,7 @@ export default function BottomNav({ leagueId }: BottomNavProps) {
             href={resolvedHref}
             className={`flex flex-col items-center gap-0.5 transition-all ${
               isActive
-                ? "bg-[#6b21e8] text-white rounded-2xl py-2 px-5 scale-110"
+                ? "nav-item-active rounded-2xl py-2 px-5 scale-110"
                 : "opacity-50 hover:opacity-100 active:scale-90 transition-all"
             }`}
           >

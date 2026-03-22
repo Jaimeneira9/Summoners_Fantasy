@@ -1,21 +1,16 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, useSearchParams } from "next/navigation";
-import { api, type Listing, type SellOffer, type MyBid, type Split } from "@/lib/api";
-import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { api, type Listing, type SellOffer, type MyBid, type Split, type League } from "@/lib/api";
+import { ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
-import { PlayerStatsModal } from "@/components/PlayerStatsModal";
+import { getRoleColor } from "@/lib/roles";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 type Tab = "mercado" | "mis-pujas" | "ofertas";
-
-type StatsPlayer = {
-  playerId: string;
-  hint: { name: string; team: string; role: string; image_url: string | null };
-};
 
 // ---------------------------------------------------------------------------
 // Countdown hook
@@ -42,7 +37,6 @@ function useCountdown(closesAt: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 // Market page
 // ---------------------------------------------------------------------------
-// Map URL query param values from sidebar to internal Tab keys
 const URL_TAB_MAP: Record<string, Tab> = {
   live:   "mercado",
   bids:   "mis-pujas",
@@ -54,15 +48,16 @@ export default function MarketPage() {
   const searchParams = useSearchParams();
 
   const tabFromUrl = searchParams.get("tab");
-  const initialTab: Tab = (tabFromUrl && URL_TAB_MAP[tabFromUrl]) ?? "mercado";
+  const initialTab: Tab = (tabFromUrl ? URL_TAB_MAP[tabFromUrl] : null) ?? "mercado";
 
   const [tab, setTab]               = useState<Tab>(initialTab);
   const [budget, setBudget]         = useState<number | null>(null);
-  const [statsPlayer, setStatsPlayer] = useState<StatsPlayer | null>(null);
+  const [league, setLeague]         = useState<League | null>(null);
   const [split, setSplit]           = useState<Split | null>(null);
 
   useEffect(() => {
     api.leagues.get(leagueId).then((l) => {
+      setLeague(l);
       if (l.member) setBudget(l.member.remaining_budget);
     }).catch(() => {});
     api.splits.active().then(setSplit).catch(() => {});
@@ -70,7 +65,10 @@ export default function MarketPage() {
 
   const refreshBudget = useCallback(() => {
     api.leagues.get(leagueId)
-      .then((l) => l.member && setBudget(l.member.remaining_budget))
+      .then((l) => {
+        setLeague(l);
+        if (l.member) setBudget(l.member.remaining_budget);
+      })
       .catch(() => {});
   }, [leagueId]);
 
@@ -81,41 +79,109 @@ export default function MarketPage() {
   ];
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
-      {/* Tabs */}
-      <div className="border-b px-4 sm:px-6" style={{ borderBottomColor: "var(--border-subtle)" }}>
-        <nav className="flex gap-0 overflow-x-auto scrollbar-none">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className="px-3 sm:px-4 py-3 text-xs sm:text-sm border-b-2 transition-all duration-200 -mb-px whitespace-nowrap font-medium"
-              style={{
-                borderBottomColor: tab === t.key ? "var(--color-primary)" : "transparent",
-                color: tab === t.key ? "var(--color-primary)" : "var(--text-muted)",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+    <div className="min-h-screen" style={{ background: "#0A0A0A", color: "#F0E8D0" }}>
+      {/* Page header */}
+      <div
+        className="px-6 pt-6 pb-0"
+        style={{ borderBottom: "1px solid #1A1A1A" }}
+      >
+        <div className="max-w-6xl mx-auto">
+          <div className="flex items-start justify-between gap-4 mb-5">
+            {/* Title block */}
+            <div>
+              {league && (
+                <p
+                  style={{
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    letterSpacing: "0.1em",
+                    color: "#333333",
+                    textTransform: "uppercase",
+                    marginBottom: "4px",
+                  }}
+                >
+                  {league.name}
+                </p>
+              )}
+              <h1
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: "30px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                  color: "#F0E8D0",
+                  lineHeight: 1,
+                }}
+              >
+                Mercado de Fichajes
+              </h1>
+            </div>
+
+            {/* Budget badge */}
+            {budget !== null && (
+              <div
+                style={{
+                  background: "#1A1A1A",
+                  border: "1px solid #2A2A2A",
+                  borderRadius: "8px",
+                  padding: "8px 14px",
+                  flexShrink: 0,
+                }}
+              >
+                <p
+                  style={{
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontSize: "11px",
+                    color: "#555555",
+                    marginBottom: "2px",
+                  }}
+                >
+                  Presupuesto
+                </p>
+                <p
+                  style={{
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    color: "#FCD400",
+                  }}
+                >
+                  {budget.toFixed(1)}M
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Tabs */}
+          <nav className="flex gap-0">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className="px-4 py-3 text-sm border-b-2 transition-all duration-200 -mb-px whitespace-nowrap"
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontWeight: tab === t.key ? 700 : 400,
+                  borderBottomColor: tab === t.key ? "#FCD400" : "transparent",
+                  color: tab === t.key ? "#FCD400" : "#555555",
+                  background: "transparent",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </nav>
+        </div>
       </div>
 
       {/* Content */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-24 sm:py-8">
-        {tab === "mercado"   && <MarketTab  leagueId={leagueId} splitName={split?.name} onBid={refreshBudget} onShowStats={setStatsPlayer} />}
+      <main className="max-w-6xl mx-auto px-6 pt-6 pb-24">
+        {tab === "mercado"   && <MarketTab  leagueId={leagueId} budget={budget} splitName={split?.name} onBid={refreshBudget} />}
         {tab === "mis-pujas" && <MyBidsTab  leagueId={leagueId} />}
         {tab === "ofertas"   && <OffersTab  leagueId={leagueId} />}
       </main>
 
-      {/* Player stats modal */}
-      {statsPlayer && (
-        <PlayerStatsModal
-          playerId={statsPlayer.playerId}
-          playerHint={statsPlayer.hint}
-          onClose={() => setStatsPlayer(null)}
-        />
-      )}
     </div>
   );
 }
@@ -123,11 +189,23 @@ export default function MarketPage() {
 // ---------------------------------------------------------------------------
 // Market tab
 // ---------------------------------------------------------------------------
-function MarketTab({ leagueId, splitName, onBid, onShowStats }: { leagueId: string; splitName?: string; onBid: () => void; onShowStats: (p: StatsPlayer) => void }) {
+function MarketTab({
+  leagueId,
+  budget,
+  splitName,
+  onBid,
+}: {
+  leagueId: string;
+  budget: number | null;
+  splitName?: string;
+  onBid: () => void;
+}) {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [search, setSearch]     = useState("");
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -139,8 +217,19 @@ function MarketTab({ leagueId, splitName, onBid, onShowStats }: { leagueId: stri
 
   useEffect(() => { load(); }, [load]);
 
-  const roles = ["all", "top", "jungle", "mid", "adc", "support", "coach"];
-  const filtered = roleFilter === "all" ? listings : listings.filter((l) => l.players.role === roleFilter);
+  const roles = ["all", "top", "jungle", "mid", "adc", "support"];
+  const roleLabels: Record<string, string> = {
+    all:     "TODOS",
+    top:     "TOP",
+    jungle:  "JGL",
+    mid:     "MID",
+    adc:     "ADC",
+    support: "SUP",
+  };
+
+  const filtered = listings
+    .filter((l) => roleFilter === "all" || l.players.role === roleFilter)
+    .filter((l) => search === "" || l.players.name.toLowerCase().includes(search.toLowerCase()) || l.players.team.toLowerCase().includes(search.toLowerCase()));
 
   if (loading) return <CardSkeleton />;
   if (error)   return <ErrorState message={error} onRetry={load} />;
@@ -153,55 +242,82 @@ function MarketTab({ leagueId, splitName, onBid, onShowStats }: { leagueId: stri
 
   return (
     <div>
-      {/* Role filter pills */}
-      <div className="flex gap-2 mb-5 flex-wrap">
-        {roles.map((r) => {
-          const rc = r !== "all" ? (ROLE_COLORS[r] ?? ROLE_COLORS.coach) : null;
-          const active = roleFilter === r;
-          return (
-            <button
-              key={r}
-              onClick={() => setRoleFilter(r)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-150 active:scale-95
-                ${active
-                  ? rc
-                    ? `${rc.bg} ${rc.text} ${rc.border}`
-                    : ""
-                  : ""
-                }`}
-              style={active && !rc ? {
-                background: "var(--color-primary-bg)",
-                color: "var(--color-primary)",
-                borderColor: "rgba(107,33,232,0.3)",
-              } : !active ? {
-                background: "var(--bg-surface)",
-                color: "var(--text-muted)",
-                borderColor: "var(--border-subtle)",
-              } : undefined}
-            >
-              {rc && r !== "all" && <RoleIcon role={r} className={`w-3 h-3 ${active ? rc.text : "text-[var(--text-muted)]"}`} />}
-              {r === "all" ? "Todos" : ROLE_LABEL[r] ?? r.toUpperCase()}
-            </button>
-          );
-        })}
+      {/* Search + role filters */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        {/* Search */}
+        <div className="relative flex-1 max-w-sm">
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
+            style={{ color: "#555555" }}
+            fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Buscar jugador o equipo..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 text-sm outline-none transition-colors"
+            style={{
+              background: "#1A1A1A",
+              border: "1px solid #2A2A2A",
+              borderRadius: "8px",
+              color: "#F0E8D0",
+              fontFamily: "'Space Grotesk', sans-serif",
+            }}
+          />
+        </div>
+
+        {/* Role pills */}
+        <div className="flex gap-2 flex-wrap">
+          {roles.map((r) => {
+            const active = roleFilter === r;
+            return (
+              <button
+                key={r}
+                onClick={() => setRoleFilter(r)}
+                className="px-3 py-1.5 text-xs transition-all duration-150 active:scale-95"
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontWeight: active ? 700 : 400,
+                  borderRadius: "6px",
+                  background: active ? "#FCD400" : "#1A1A1A",
+                  color: active ? "#111111" : "#555555",
+                  border: active ? "1px solid #FCD400" : "1px solid #2A2A2A",
+                }}
+              >
+                {roleLabels[r] ?? r.toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+      <div className="flex flex-wrap gap-4">
         {filtered.map((l) => (
           <PlayerCard
             key={l.id}
             listing={l}
             leagueId={leagueId}
+            budget={budget}
             splitName={splitName}
-            onBid={() => { onBid(); load(); }}
-            onShowStats={onShowStats}
+            onBid={() => { onBid(); setExpandedCardId(null); load(); }}
+            expanded={expandedCardId === l.id}
+            onExpand={() => setExpandedCardId(l.id)}
+            onClose={() => setExpandedCardId(null)}
           />
         ))}
       </div>
 
       {filtered.length === 0 && listings.length > 0 && (
         <div className="py-16 text-center">
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>Sin jugadores para este rol.</p>
+          <p
+            className="text-sm"
+            style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#555555" }}
+          >
+            Sin jugadores para este filtro.
+          </p>
         </div>
       )}
     </div>
@@ -209,32 +325,47 @@ function MarketTab({ leagueId, splitName, onBid, onShowStats }: { leagueId: stri
 }
 
 // ---------------------------------------------------------------------------
-// Player card — trading card style, clicking photo/info opens stats modal
+// Player card — Paper B Premium style
 // ---------------------------------------------------------------------------
 function PlayerCard({
   listing,
   leagueId,
+  budget,
   splitName,
   onBid,
-  onShowStats,
+  expanded,
+  onExpand,
+  onClose,
 }: {
   listing: Listing;
   leagueId: string;
+  budget: number | null;
   splitName?: string;
   onBid: () => void;
-  onShowStats: (p: StatsPlayer) => void;
+  expanded: boolean;
+  onExpand: () => void;
+  onClose: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [bidAmount, setBidAmount] = useState(listing.ask_price.toFixed(1));
   const [busy, setBusy]         = useState(false);
   const [err, setErr]           = useState<string | null>(null);
   const [success, setSuccess]   = useState(false);
 
+  const router    = useRouter();
   const inputRef  = useRef<HTMLInputElement>(null);
   const countdown = useCountdown(listing.closes_at);
-  const roleColor = ROLE_COLORS[listing.players.role] ?? ROLE_COLORS.coach;
   const closed    = countdown === "Cerrado";
   const p         = listing.players;
+
+  const roleColorHex = getRoleColor(p.role);
+  const hasBudget = budget !== null && budget >= listing.ask_price;
+
+  // Initials fallback
+  const initials = p.name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
 
   const handleBid = async () => {
     const amount = parseFloat(bidAmount);
@@ -243,7 +374,7 @@ function PlayerCard({
     try {
       await api.bids.place(leagueId, listing.id, amount);
       setSuccess(true);
-      setExpanded(false);
+      onClose();
       setTimeout(() => setSuccess(false), 3000);
       onBid();
     } catch (e: unknown) {
@@ -252,96 +383,80 @@ function PlayerCard({
   };
 
   const handleCardClick = () => {
-    onShowStats({
-      playerId: listing.player_id,
-      hint: { name: p.name, team: p.team, role: p.role, image_url: p.image_url },
-    });
+    router.push(`/leagues/${leagueId}/stats/${listing.player_id}`);
   };
+
+  // suppress unused warning
+  void splitName;
 
   return (
     <div
-      className={`group relative border rounded-xl overflow-hidden transition-all duration-300 flex flex-col hover:scale-[1.02] hover:-translate-y-1`}
+      className="group relative flex flex-col overflow-hidden hover:-translate-y-1 transition-transform duration-150"
       style={{
-        background: "var(--bg-panel)",
-        borderColor: success ? "rgba(34,197,94,0.4)" : "var(--border-subtle)",
-        boxShadow: success ? "0 0 16px rgba(34,197,94,0.08)" : "0 2px 8px rgba(26,28,26,0.08)",
+        width: "200px",
+        minHeight: "340px",
+        borderRadius: "12px",
+        border: success ? "1px solid rgba(34,197,94,0.4)" : "1px solid #222222",
+        background: "#111111",
+        overflow: "hidden",
       }}
     >
-      {/* Photo section — clickable to open stats modal */}
-      <button
-        type="button"
-        onClick={handleCardClick}
-        className="relative w-full aspect-[3/4] overflow-hidden flex-shrink-0 text-left focus:outline-none"
-        style={{ background: "var(--bg-surface)" }}
-        aria-label={`Ver estadísticas de ${p.name}`}
+      {/* PHOTO ZONE — 180px */}
+      <div
+        style={{
+          height: "180px",
+          width: "100%",
+          position: "relative",
+          background: roleColorHex,
+          flexShrink: 0,
+        }}
       >
-        {p.image_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={p.image_url}
-            alt={p.name}
-            className="w-full h-full object-cover object-top grayscale group-hover:grayscale-0 group-hover:-translate-y-1 transition-all duration-300"
-          />
-        ) : (
-          <div
-            className="w-full h-full flex items-center justify-center"
-            style={{ background: "var(--bg-surface)" }}
-          >
-            <RoleIcon role={p.role} className={`w-16 h-16 ${roleColor.text} opacity-10`} />
-          </div>
-        )}
-
-        {/* Gradient overlay */}
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(to top, rgba(30,27,30,0.95) 0%, rgba(30,27,30,0.7) 25%, transparent 55%)" }}
-        />
-
-        {/* Role badge — top left */}
-        <div className={`absolute top-2 left-2 p-1.5 rounded-lg ${roleColor.bg} ${roleColor.border} border backdrop-blur-sm`}>
-          <RoleIcon role={p.role} className={`w-3.5 h-3.5 ${roleColor.text}`} />
-        </div>
-
-        {/* Price chip — top right */}
-        <div
-          className="absolute top-2 right-2 font-mono text-[11px] font-bold backdrop-blur-sm px-2 py-0.5 rounded-md"
-          style={{
-            color: "var(--color-gold)",
-            background: "rgba(0,0,0,0.7)",
-            border: "1px solid rgba(252,212,0,0.2)",
-          }}
+        <button
+          type="button"
+          onClick={handleCardClick}
+          className="absolute inset-0 focus:outline-none"
+          aria-label={`Ver estadísticas de ${p.name}`}
         >
-          {listing.ask_price.toFixed(1)}M
-        </div>
+          {p.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={p.image_url}
+              alt={p.name}
+              className="w-full h-full"
+              style={{ objectFit: "cover", objectPosition: "center top" }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <span
+                style={{
+                  fontSize: "48px",
+                  fontWeight: 700,
+                  fontFamily: "'Barlow Condensed', sans-serif",
+                  color: "rgba(255,255,255,0.15)",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                {initials}
+              </span>
+            </div>
+          )}
+        </button>
 
-        {/* Team badge — bottom right of photo */}
-        {p.team && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={getTeamBadgeUrl(p.team)}
-            alt={p.team}
-            className="absolute bottom-2 right-2 w-6 h-6 object-contain rounded-sm pointer-events-none"
-            style={{ filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.8))" }}
-          />
-        )}
-
-        {/* Stats hint — bottom center on hover */}
-        <div className="absolute bottom-2 inset-x-0 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-          <span
-            className="text-[10px] backdrop-blur-sm px-2 py-0.5 rounded-full"
-            style={{
-              color: "var(--color-primary-light)",
-              background: "rgba(0,0,0,0.7)",
-              border: "1px solid rgba(107,33,232,0.3)",
-            }}
-          >
-            Ver stats →
-          </span>
-        </div>
+        {/* Bottom gradient overlay */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: 0,
+            width: "100%",
+            height: "80px",
+            background: "linear-gradient(180deg, transparent 0%, #0C0C0F 100%)",
+            pointerEvents: "none",
+          }}
+        />
 
         {/* Success overlay */}
         {success && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
             <div className="text-green-400 text-center">
               <svg className="w-10 h-10 mx-auto mb-1" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -350,74 +465,137 @@ function PlayerCard({
             </div>
           </div>
         )}
-      </button>
+      </div>
 
-      {/* Player info + bid section */}
-      <div className="p-3 flex flex-col flex-1" style={{ background: "var(--bg-surface)", borderTop: "1px solid var(--border-subtle)" }}>
+      {/* INFO ZONE */}
+      <div
+        style={{ padding: "14px 16px 16px", display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}
+      >
+        {/* Fila 1 — Role badge + Team */}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <span
+            style={{
+              backgroundColor: roleColorHex,
+              borderRadius: "4px",
+              padding: "3px 7px",
+              fontSize: "10px",
+              fontWeight: 700,
+              color: "#000000",
+            }}
+          >
+            {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
+          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={getTeamBadgeUrl(p.team)}
+            alt={p.team}
+            style={{ width: 18, height: 18, objectFit: "contain", marginLeft: "auto" }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        </div>
+
+        {/* Fila 2 — Player name */}
         <button
           type="button"
           onClick={handleCardClick}
           className="text-left focus:outline-none"
         >
-          <h3
-            className="font-bold text-sm truncate leading-tight transition-colors"
-            style={{ color: "var(--text-primary)", fontFamily: "'Space Grotesk', sans-serif" }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLHeadingElement).style.color = "var(--color-primary)"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLHeadingElement).style.color = "var(--text-primary)"; }}
+          <p
+            style={{
+              fontFamily: "'Barlow Condensed', sans-serif",
+              fontSize: "22px",
+              fontWeight: 700,
+              color: "#FFFFFF",
+              letterSpacing: "-0.01em",
+              lineHeight: 1.1,
+              margin: 0,
+            }}
           >
             {p.name}
-          </h3>
+          </p>
         </button>
-        <div className="flex items-center justify-between mt-0.5 gap-1">
-          <span className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{p.team}</span>
-          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${roleColor.bg} ${roleColor.text}`}>
-            {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
+
+        {/* Divisor */}
+        <div style={{ height: "1px", background: "#1E1E1E", marginBlock: "4px" }} />
+
+        {/* Fila 3 — Pts + Precio */}
+        <div style={{ display: "flex", alignItems: "baseline" }}>
+          <span
+            style={{
+              fontFamily: "'Barlow Condensed', sans-serif",
+              fontSize: "30px",
+              fontWeight: 700,
+              color: "#FCD400",
+              letterSpacing: "-0.02em",
+              lineHeight: 1,
+            }}
+          >
+            {p.split_points != null ? p.split_points.toFixed(1) : "—"}
+          </span>
+          <span
+            style={{
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontSize: "12px",
+              color: "#888888",
+              marginLeft: "4px",
+            }}
+          >
+            pts
+          </span>
+          <span
+            style={{
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontSize: "12px",
+              color: "#777777",
+              marginLeft: "auto",
+            }}
+          >
+            {p.current_price.toFixed(1)}M
           </span>
         </div>
+
         {/* Countdown */}
         {listing.closes_at && !closed && countdown && (
-          <p className="text-[10px] mt-1 font-mono" style={{ color: "var(--text-muted)" }}>⏱ {countdown}</p>
+          <p
+            className="font-mono"
+            style={{ fontSize: "11px", color: "#888888", marginTop: "2px" }}
+          >
+            ⏱ {countdown}
+          </p>
         )}
-        {closed && <p className="text-[10px] mt-1" style={{ color: "var(--color-danger, rgb(220,38,38))" }}>Cerrado</p>}
+        {closed && (
+          <p style={{ fontSize: "10px", color: "#C62828", marginTop: "2px" }}>
+            Cerrado
+          </p>
+        )}
 
-        {/* Bid section */}
-        <div className="mt-2 flex-1 flex flex-col justify-end gap-1.5">
+        {/* Fila 4 — Bid button / form */}
+        <div style={{ marginTop: "auto", paddingTop: "4px" }}>
           {!expanded ? (
             <button
-              onClick={() => { setExpanded(true); setTimeout(() => inputRef.current?.focus(), 50); }}
+              onClick={() => { onExpand(); setTimeout(() => inputRef.current?.focus(), 50); }}
               disabled={closed}
-              className="w-full py-1.5 text-xs rounded-lg border transition-all duration-150 active:scale-95"
-              style={success ? {
-                borderColor: "rgba(34,197,94,0.4)",
-                color: "rgb(22,163,74)",
-              } : closed ? {
-                borderColor: "var(--border-subtle)",
-                color: "var(--text-muted)",
-                cursor: "not-allowed",
-                opacity: "0.5",
-              } : {
-                borderColor: "var(--border-medium)",
-                color: "var(--text-secondary)",
-              }}
-              onMouseEnter={(e) => {
-                if (!closed && !success) {
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(107,33,232,0.4)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "var(--color-primary)";
-                  (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary-bg)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!closed && !success) {
-                  (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-medium)";
-                  (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
-                  (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                }
+              className="w-full transition-all duration-150 active:scale-95"
+              style={{
+                borderRadius: "6px",
+                padding: "6px 12px",
+                fontSize: "12px",
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontWeight: 700,
+                cursor: closed ? "not-allowed" : "pointer",
+                opacity: closed ? 0.4 : 1,
+                ...(success
+                  ? { background: "transparent", border: "1px solid rgba(34,197,94,0.4)", color: "rgb(22,163,74)" }
+                  : hasBudget && !closed
+                    ? { background: "#FCD400", border: "1px solid #FCD400", color: "#111111" }
+                    : { background: "transparent", border: "1px solid #333333", color: "#555555" }
+                ),
               }}
             >
-              {success ? "✓ Puja enviada" : closed ? "Cerrado" : "Pujar"}
+              {success ? "✓ Puja enviada" : closed ? "Cerrado" : "Fichar"}
             </button>
           ) : (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <div className="flex items-center gap-1">
                 <input
                   ref={inputRef}
@@ -426,31 +604,50 @@ function PlayerCard({
                   min={listing.ask_price}
                   value={bidAmount}
                   onChange={(e) => setBidAmount(e.target.value)}
-                  className="flex-1 min-w-0 text-xs rounded px-2 py-1.5 outline-none transition-colors appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-moz-appearance]:textfield"
+                  className="flex-1 min-w-0 text-xs rounded outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   style={{
-                    background: "var(--bg-base)",
-                    border: "1px solid var(--border-medium)",
-                    color: "var(--text-primary)",
+                    background: "#1A1A1A",
+                    border: "1px solid #2A2A2A",
+                    color: "#F0E8D0",
+                    padding: "6px 8px",
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontSize: "12px",
                   }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = "rgba(107,33,232,0.5)"; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = "var(--border-medium)"; }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "#FCD400"; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = "#2A2A2A"; }}
                 />
-                <span className="text-xs flex-shrink-0" style={{ color: "var(--text-muted)" }}>M</span>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: "#555555",
+                    flexShrink: 0,
+                    fontFamily: "'Space Grotesk', sans-serif",
+                  }}
+                >
+                  M
+                </span>
               </div>
               {err && <p className="text-red-400 text-[10px]">{err}</p>}
               <div className="flex gap-1.5">
                 <button
-                  onClick={() => { setExpanded(false); setErr(null); }}
+                  onClick={() => { onClose(); setErr(null); }}
                   className="flex-1 py-1 text-xs transition-colors"
-                  style={{ color: "var(--text-muted)" }}
+                  style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
                 >
                   ✕
                 </button>
                 <button
                   onClick={handleBid}
                   disabled={busy}
-                  className="flex-[2] py-1.5 text-xs font-bold text-white rounded-lg transition-all active:scale-95 disabled:opacity-40 hover:brightness-90"
-                  style={{ background: "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))" }}
+                  className="flex-[2] py-1.5 text-xs font-bold rounded transition-all active:scale-95 disabled:opacity-40"
+                  style={{
+                    background: "#FCD400",
+                    color: "#111111",
+                    borderRadius: "6px",
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontWeight: 700,
+                    fontSize: "12px",
+                  }}
                 >
                   {busy ? "…" : "Confirmar"}
                 </button>
@@ -500,7 +697,7 @@ function MyBidsTab({ leagueId }: { leagueId: string }) {
 function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onCancel: () => void }) {
   const [busy, setBusy] = useState(false);
   const countdown       = useCountdown(bid.status === "active" ? bid.listing_closes_at : null);
-  const roleColor       = ROLE_COLORS[bid.player_role] ?? ROLE_COLORS.coach;
+  const roleColorHex    = getRoleColor(bid.player_role);
 
   const handleCancel = async () => {
     setBusy(true);
@@ -511,46 +708,94 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
 
   return (
     <div
-      className="flex items-center gap-3 sm:gap-4 rounded-xl px-4 py-3 transition-all duration-150 border"
+      className="flex items-center gap-3 sm:gap-4 rounded-xl px-4 py-3 transition-all duration-150"
       style={{
-        background: "var(--bg-surface)",
-        borderColor: bid.status === "won"
-          ? "rgba(34,197,94,0.3)"
-          : bid.status === "lost"
-            ? "var(--border-subtle)"
-            : "var(--border-subtle)",
+        background: "#111111",
+        border: bid.status === "won"
+          ? "1px solid rgba(34,197,94,0.3)"
+          : "1px solid #1A1A1A",
       }}
     >
       <div
         className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border-medium)" }}
+        style={{ background: roleColorHex + "33", border: `1px solid ${roleColorHex}44` }}
       >
         {bid.player_image_url
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={bid.player_image_url} alt={bid.player_name} className="w-full h-full object-cover object-top" />
-          : <RoleIcon role={bid.player_role} className={`w-5 h-5 ${roleColor.text}`} />
+          : (
+            <span
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: roleColorHex,
+              }}
+            >
+              {bid.player_name[0]?.toUpperCase()}
+            </span>
+          )
         }
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm truncate" style={{ color: "var(--text-primary)" }}>{bid.player_name}</span>
-          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${roleColor.bg} ${roleColor.text}`}>
+          <span
+            className="font-semibold text-sm truncate"
+            style={{ color: "#F0E8D0", fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px" }}
+          >
+            {bid.player_name}
+          </span>
+          <span
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+            style={{
+              background: roleColorHex + "22",
+              color: roleColorHex,
+              border: `1px solid ${roleColorHex}44`,
+              fontFamily: "'Space Grotesk', sans-serif",
+            }}
+          >
             {ROLE_LABEL[bid.player_role] ?? bid.player_role.toUpperCase()}
           </span>
         </div>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>{bid.player_team}</p>
+        <p
+          className="text-xs"
+          style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          {bid.player_team}
+        </p>
         {bid.status === "active" && bid.listing_closes_at && countdown && countdown !== "Cerrado" && (
-          <p className="text-[10px] mt-0.5 font-mono" style={{ color: "var(--text-muted)" }}>⏱ {countdown}</p>
+          <p
+            className="text-[10px] mt-0.5 font-mono"
+            style={{ color: "#555555" }}
+          >
+            ⏱ {countdown}
+          </p>
         )}
       </div>
       <div className="text-right flex-shrink-0 mr-2">
-        <p className="font-mono text-sm font-semibold" style={{ color: "var(--color-gold-dark)" }}>
+        <p
+          className="font-mono text-sm font-semibold"
+          style={{ color: "#FCD400", fontFamily: "'Space Grotesk', sans-serif" }}
+        >
           {bid.bid_amount.toFixed(1)}M
         </p>
-        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>tu puja</p>
+        <p
+          className="text-[10px]"
+          style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          tu puja
+        </p>
       </div>
       {bid.status === "won" && (
-        <span className="px-2.5 py-1 text-xs font-bold text-green-600 bg-green-500/10 border border-green-500/20 rounded-lg flex-shrink-0">
+        <span
+          className="px-2.5 py-1 text-xs font-bold rounded-lg flex-shrink-0"
+          style={{
+            color: "rgb(22,163,74)",
+            background: "rgba(34,197,94,0.1)",
+            border: "1px solid rgba(34,197,94,0.2)",
+            fontFamily: "'Space Grotesk', sans-serif",
+          }}
+        >
           ✓ Ganada
         </span>
       )}
@@ -558,9 +803,10 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
         <span
           className="px-2.5 py-1 text-xs font-bold rounded-lg flex-shrink-0"
           style={{
-            color: "var(--text-muted)",
-            background: "var(--bg-panel)",
-            border: "1px solid var(--border-medium)",
+            color: "#555555",
+            background: "#1A1A1A",
+            border: "1px solid #2A2A2A",
+            fontFamily: "'Space Grotesk', sans-serif",
           }}
         >
           ✗ Perdida
@@ -572,16 +818,18 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
           disabled={busy || countdown === "Cerrado"}
           className="px-3 py-1.5 text-xs rounded-lg transition-all disabled:opacity-40 active:scale-95 flex-shrink-0"
           style={{
-            color: "var(--text-muted)",
-            border: "1px solid var(--border-medium)",
+            color: "#555555",
+            border: "1px solid #2A2A2A",
+            background: "transparent",
+            fontFamily: "'Space Grotesk', sans-serif",
           }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(220,38,38,0.3)";
-            (e.currentTarget as HTMLButtonElement).style.color = "rgb(220,38,38)";
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(198,40,40,0.4)";
+            (e.currentTarget as HTMLButtonElement).style.color = "#C62828";
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-medium)";
-            (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "#2A2A2A";
+            (e.currentTarget as HTMLButtonElement).style.color = "#555555";
           }}
         >
           {busy ? "…" : "Cancelar"}
@@ -628,8 +876,8 @@ function OffersTab({ leagueId }: { leagueId: string }) {
 function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: string; onAction: () => void }) {
   const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
   const [err, setErr]   = useState<string | null>(null);
-  const roleColor = ROLE_COLORS[offer.player.role] ?? ROLE_COLORS.coach;
-  const expiresIn = Math.ceil((new Date(offer.expires_at).getTime() - Date.now()) / 86_400_000);
+  const roleColorHex    = getRoleColor(offer.player.role);
+  const expiresIn       = Math.ceil((new Date(offer.expires_at).getTime() - Date.now()) / 86_400_000);
 
   const handle = async (action: "accept" | "reject") => {
     setBusy(action); setErr(null);
@@ -645,38 +893,79 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
   const p = offer.player;
   return (
     <div
-      className="flex items-center gap-3 sm:gap-4 rounded-xl px-4 py-3 transition-all duration-150 border"
+      className="flex items-center gap-3 sm:gap-4 rounded-xl px-4 py-3 transition-all duration-150"
       style={{
-        background: "var(--bg-surface)",
-        borderColor: "var(--border-subtle)",
+        background: "#111111",
+        border: "1px solid #1A1A1A",
       }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(107,33,232,0.2)"; }}
-      onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border-subtle)"; }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "#2A2A2A"; }}
+      onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "#1A1A1A"; }}
     >
       <div
         className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
-        style={{ background: "var(--bg-panel)", border: "1px solid var(--border-medium)" }}
+        style={{ background: roleColorHex + "33", border: `1px solid ${roleColorHex}44` }}
       >
         {p.image_url
           // eslint-disable-next-line @next/next/no-img-element
           ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover object-top" />
-          : <RoleIcon role={p.role} className={`w-5 h-5 ${roleColor.text}`} />
+          : (
+            <span
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: roleColorHex,
+              }}
+            >
+              {p.name[0]?.toUpperCase()}
+            </span>
+          )
         }
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-sm truncate" style={{ color: "var(--text-primary)" }}>{p.name}</span>
-          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${roleColor.bg} ${roleColor.text}`}>
+          <span
+            className="font-semibold truncate"
+            style={{
+              color: "#F0E8D0",
+              fontFamily: "'Barlow Condensed', sans-serif",
+              fontSize: "16px",
+            }}
+          >
+            {p.name}
+          </span>
+          <span
+            className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+            style={{
+              background: roleColorHex + "22",
+              color: roleColorHex,
+              border: `1px solid ${roleColorHex}44`,
+              fontFamily: "'Space Grotesk', sans-serif",
+            }}
+          >
             {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
           </span>
         </div>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>{p.team}</p>
+        <p
+          className="text-xs"
+          style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          {p.team}
+        </p>
       </div>
       <div className="text-right flex-shrink-0 mr-1">
-        <p className="font-mono text-sm font-semibold" style={{ color: "var(--color-gold-dark)" }}>
+        <p
+          className="font-mono text-sm font-semibold"
+          style={{ color: "#FCD400", fontFamily: "'Space Grotesk', sans-serif" }}
+        >
           {offer.ask_price.toFixed(1)}M
         </p>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>{expiresIn > 0 ? `${expiresIn}d` : "hoy"}</p>
+        <p
+          className="text-xs"
+          style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          {expiresIn > 0 ? `${expiresIn}d` : "hoy"}
+        </p>
       </div>
       {err && <span className="text-red-500 text-xs">{err}</span>}
       <div className="flex gap-2 flex-shrink-0">
@@ -684,14 +973,19 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
           onClick={() => handle("reject")}
           disabled={busy !== null}
           className="px-2 sm:px-3 py-1.5 text-xs rounded-lg transition-all disabled:opacity-40 active:scale-95"
-          style={{ color: "var(--text-muted)", border: "1px solid var(--border-medium)" }}
+          style={{
+            color: "#555555",
+            border: "1px solid #2A2A2A",
+            background: "transparent",
+            fontFamily: "'Space Grotesk', sans-serif",
+          }}
           onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(220,38,38,0.3)";
-            (e.currentTarget as HTMLButtonElement).style.color = "rgb(220,38,38)";
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(198,40,40,0.4)";
+            (e.currentTarget as HTMLButtonElement).style.color = "#C62828";
           }}
           onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-medium)";
-            (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+            (e.currentTarget as HTMLButtonElement).style.borderColor = "#2A2A2A";
+            (e.currentTarget as HTMLButtonElement).style.color = "#555555";
           }}
         >
           {busy === "reject" ? "…" : "Rechazar"}
@@ -699,8 +993,14 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
         <button
           onClick={() => handle("accept")}
           disabled={busy !== null}
-          className="px-2 sm:px-3 py-1.5 text-xs text-white font-semibold rounded-lg transition-all disabled:opacity-40 active:scale-95 hover:brightness-90"
-          style={{ background: "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))" }}
+          className="px-2 sm:px-3 py-1.5 text-xs font-bold rounded-lg transition-all disabled:opacity-40 active:scale-95"
+          style={{
+            background: "#FCD400",
+            color: "#111111",
+            border: "1px solid #FCD400",
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontWeight: 700,
+          }}
         >
           {busy === "accept" ? "…" : "Aceptar"}
         </button>
@@ -717,14 +1017,28 @@ function EmptyState({ title, description }: { title: string; description: string
     <div className="py-20 text-center">
       <div
         className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-        style={{ background: "var(--color-primary-bg)", border: "1px solid rgba(107,33,232,0.15)" }}
+        style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
       >
-        <svg className="w-7 h-7 opacity-60" style={{ color: "var(--color-primary)" }} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+        <svg
+          className="w-7 h-7"
+          style={{ color: "#333333" }}
+          fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"
+        >
           <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
       </div>
-      <p className="font-semibold mb-2" style={{ color: "var(--text-primary)" }}>{title}</p>
-      <p className="text-sm max-w-sm mx-auto" style={{ color: "var(--text-secondary)" }}>{description}</p>
+      <p
+        className="font-semibold mb-2"
+        style={{ color: "#F0E8D0", fontFamily: "'Space Grotesk', sans-serif" }}
+      >
+        {title}
+      </p>
+      <p
+        className="text-sm max-w-sm mx-auto"
+        style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
+      >
+        {description}
+      </p>
     </div>
   );
 }
@@ -732,21 +1046,25 @@ function EmptyState({ title, description }: { title: string; description: string
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="py-20 text-center">
-      <p className="text-sm mb-4" style={{ color: "var(--text-secondary)" }}>{message}</p>
+      <p className="text-sm mb-4" style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}>
+        {message}
+      </p>
       <button
         onClick={onRetry}
         className="text-sm rounded-lg px-4 py-2 transition-all active:scale-95"
         style={{
-          color: "var(--text-secondary)",
-          border: "1px solid var(--border-medium)",
+          color: "#888888",
+          border: "1px solid #2A2A2A",
+          background: "transparent",
+          fontFamily: "'Space Grotesk', sans-serif",
         }}
         onMouseEnter={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.borderColor = "rgba(107,33,232,0.3)";
-          (e.currentTarget as HTMLButtonElement).style.color = "var(--color-primary)";
+          (e.currentTarget as HTMLButtonElement).style.borderColor = "#FCD400";
+          (e.currentTarget as HTMLButtonElement).style.color = "#FCD400";
         }}
         onMouseLeave={(e) => {
-          (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-medium)";
-          (e.currentTarget as HTMLButtonElement).style.color = "var(--text-secondary)";
+          (e.currentTarget as HTMLButtonElement).style.borderColor = "#2A2A2A";
+          (e.currentTarget as HTMLButtonElement).style.color = "#888888";
         }}
       >
         Reintentar
@@ -757,18 +1075,18 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 
 function CardSkeleton() {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-      {Array.from({ length: 10 }).map((_, i) => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      {Array.from({ length: 8 }).map((_, i) => (
         <div
           key={i}
           className="rounded-xl overflow-hidden animate-pulse"
-          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+          style={{ background: "#111111", border: "1px solid #1A1A1A" }}
         >
-          <div className="w-full aspect-[3/4]" style={{ background: "var(--bg-panel)" }} />
+          <div className="w-full" style={{ height: "130px", background: "#1A1A1A" }} />
           <div className="p-3 space-y-2">
-            <div className="h-3.5 rounded w-3/4" style={{ background: "var(--bg-panel)" }} />
-            <div className="h-3 rounded w-1/2" style={{ background: "var(--bg-panel)" }} />
-            <div className="h-7 rounded mt-2" style={{ background: "var(--bg-panel)" }} />
+            <div className="h-4 rounded w-3/4" style={{ background: "#1A1A1A" }} />
+            <div className="h-3 rounded w-1/2" style={{ background: "#1A1A1A" }} />
+            <div className="h-7 rounded mt-2" style={{ background: "#1A1A1A" }} />
           </div>
         </div>
       ))}
@@ -783,10 +1101,9 @@ function ListSkeleton({ rows = 3 }: { rows?: number }) {
         <div
           key={i}
           className="h-16 rounded-xl animate-pulse"
-          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+          style={{ background: "#111111", border: "1px solid #1A1A1A" }}
         />
       ))}
     </div>
   );
 }
-

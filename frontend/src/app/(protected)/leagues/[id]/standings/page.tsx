@@ -2,17 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { api, type LeaderboardEntry, type MemberRoster } from "@/lib/api";
+import { api, type LeaderboardEntry, type MemberRoster, type League } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
-
-const RANK_STYLES = [
-  // rank 1 — gold
-  { medal: "🥇", glow: "shadow-[0_0_20px_rgba(234,179,8,0.15)]", border: "border-yellow-400/30", bg: "bg-yellow-400/5" },
-  // rank 2 — silver
-  { medal: "🥈", glow: "shadow-[0_0_16px_rgba(148,163,184,0.10)]", border: "border-slate-400/25", bg: "bg-slate-400/5" },
-  // rank 3 — bronze
-  { medal: "🥉", glow: "shadow-[0_0_12px_rgba(180,83,9,0.08)]", border: "border-orange-700/25", bg: "bg-orange-900/5" },
-];
 
 // ---------------------------------------------------------------------------
 // Modal: equipo de un miembro
@@ -44,7 +35,7 @@ function TeamModal({ leagueId, memberId, memberName, onClose }: {
       <div
         className="rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto animate-slide-up"
         style={{
-          background: "white",
+          background: "var(--bg-surface)",
           border: "1px solid var(--border-medium)",
           boxShadow: "0 8px 40px rgba(26,28,26,0.15)",
         }}
@@ -100,7 +91,7 @@ function TeamModal({ leagueId, memberId, memberName, onClose }: {
                       background: "var(--bg-surface)",
                       borderColor: "var(--border-subtle)",
                     }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(107,33,232,0.25)"; }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "rgba(252,212,0,0.25)"; }}
                     onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "var(--border-subtle)"; }}
                   >
                     <div
@@ -137,162 +128,341 @@ function TeamModal({ leagueId, memberId, memberName, onClose }: {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function getInitials(name: string | null): string {
+  if (!name) return "?";
+  return name
+    .split(" ")
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function DeltaBadge({ value }: { value: number | null }) {
+  if (value === null) return <span style={{ color: "#555555", fontSize: 11, fontWeight: 600 }}>—</span>;
+  if (value === 0) return <span style={{ color: "#555555", fontSize: 11, fontWeight: 600 }}>—</span>;
+  const positive = value > 0;
+  return (
+    <span style={{ color: positive ? "#22C55E" : "#EF4444", fontSize: 11, fontWeight: 600 }}>
+      {positive ? "+" : ""}{value.toFixed(1)}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row component
+// ---------------------------------------------------------------------------
+function StandingRow({
+  entry,
+  isMe,
+  weekPoints,
+  onClick,
+}: {
+  entry: LeaderboardEntry;
+  isMe: boolean;
+  weekPoints: number | null;
+  onClick: () => void;
+}) {
+  const isFirst = entry.rank === 1;
+  const initials = getInitials(entry.display_name);
+
+  // Styles for the position badge
+  const posBadgeStyle: React.CSSProperties = isMe
+    ? {
+        width: 24, height: 24, borderRadius: 6,
+        background: "rgba(252,212,0,0.2)",
+        border: "1px solid rgba(252,212,0,0.4)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }
+    : isFirst
+    ? {
+        width: 24, height: 24, borderRadius: 6,
+        background: "#FCD400",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }
+    : {
+        width: 24, height: 24, borderRadius: 6,
+        background: "#2A2A2A",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      };
+
+  const posNumStyle: React.CSSProperties = {
+    fontFamily: "'Barlow Condensed', sans-serif",
+    fontSize: 13, fontWeight: 700,
+    color: isMe ? "#FCD400" : isFirst ? "#111111" : "#555555",
+  };
+
+  // Avatar
+  const avatarStyle: React.CSSProperties = isMe
+    ? {
+        width: 32, height: 32, borderRadius: "50%",
+        background: "#FCD400",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 12, fontWeight: 700, color: "#111111",
+        flexShrink: 0,
+      }
+    : {
+        width: 32, height: 32, borderRadius: "50%",
+        background: "#2A2A2A",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 12, color: "#666666",
+        flexShrink: 0,
+      };
+
+  // Row container
+  const rowStyle: React.CSSProperties = isMe
+    ? {
+        background: "#1E1A00",
+        border: "1px solid rgba(252,212,0,0.25)",
+        borderRadius: 10,
+        padding: "14px 20px",
+        display: "flex", alignItems: "center", gap: 12,
+        cursor: "pointer", width: "100%", textAlign: "left",
+      }
+    : {
+        background: "#1A1A1A",
+        border: "1px solid #2A2A2A",
+        borderRadius: 10,
+        padding: "14px 20px",
+        display: "flex", alignItems: "center", gap: 12,
+        cursor: "pointer", width: "100%", textAlign: "left",
+      };
+
+  const usernameStyle: React.CSSProperties = {
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: 13,
+    fontWeight: isMe ? 700 : 600,
+    color: isMe ? "#FCD400" : isFirst ? "#E8D8A0" : "#888888",
+  };
+
+  const teamStyle: React.CSSProperties = {
+    fontSize: 11,
+    color: isMe ? "#8A7800" : "#444444",
+  };
+
+  const weekPtsStyle: React.CSSProperties = {
+    fontSize: 13, fontWeight: 600, textAlign: "right",
+    color: isMe ? "#FCD400" : "#888888",
+  };
+
+  const totalPtsStyle: React.CSSProperties = {
+    fontFamily: "'Barlow Condensed', sans-serif",
+    fontSize: 20, fontWeight: 700, textAlign: "right",
+    color: isMe ? "#FCD400" : isFirst ? "#FCD400" : "#666666",
+  };
+
+  return (
+    <button style={rowStyle} onClick={onClick}>
+      {/* POS — 52px */}
+      <div style={{ width: 52, display: "flex", alignItems: "center", justifyContent: "flex-start", flexShrink: 0 }}>
+        <div style={posBadgeStyle}>
+          <span style={posNumStyle}>{entry.rank}</span>
+        </div>
+      </div>
+
+      {/* MANAGER — flex-grow */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+        <div style={avatarStyle}>{initials}</div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={usernameStyle} className="truncate">
+              {entry.display_name ?? "Manager"}
+            </span>
+            {isMe && (
+              <span
+                style={{
+                  background: "#FCD400", borderRadius: 3, padding: "1px 5px",
+                  fontSize: 9, fontWeight: 700, color: "#111111",
+                  flexShrink: 0,
+                }}
+              >
+                TÚ
+              </span>
+            )}
+          </div>
+          <div style={teamStyle}>{entry.player_count} jugadores</div>
+        </div>
+      </div>
+
+      {/* PTS ESTA SEM. — 120px */}
+      <div style={{ width: 120, flexShrink: 0, textAlign: "right" }}>
+        {weekPoints !== null
+          ? <span style={weekPtsStyle}>{weekPoints.toFixed(1)}</span>
+          : <span style={{ fontSize: 13, fontWeight: 600, color: "#555555" }}>—</span>
+        }
+      </div>
+
+      {/* TOTAL — 100px */}
+      <div style={{ width: 100, flexShrink: 0, textAlign: "right" }}>
+        <span style={totalPtsStyle}>{entry.total_points.toFixed(1)}</span>
+      </div>
+
+      {/* Δ — 60px */}
+      <div style={{ width: 60, flexShrink: 0, textAlign: "right" }}>
+        <DeltaBadge value={null} />
+      </div>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 export default function StandingsPage() {
   const { id: leagueId } = useParams<{ id: string }>();
   const [entries, setEntries]       = useState<LeaderboardEntry[]>([]);
+  const [league, setLeague]         = useState<League | null>(null);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [myMemberId, setMyMemberId] = useState<string | null>(null);
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string } | null>(null);
 
-  // PERF FIX: parallel fetch with Promise.all
   useEffect(() => {
     Promise.all([
       api.leagues.get(leagueId).catch(() => null),
       api.scoring.leaderboard(leagueId),
     ])
-      .then(([league, board]) => {
-        if (league?.member) setMyMemberId(league.member.id);
+      .then(([lg, board]) => {
+        if (lg?.member) setMyMemberId(lg.member.id);
+        setLeague(lg);
         setEntries(board as LeaderboardEntry[]);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [leagueId]);
 
-  // Reorder for podium: [2nd, 1st, 3rd]
-  const podiumEntries = entries.length >= 3
-    ? ([entries[1], entries[0], entries[2]] as LeaderboardEntry[])
-    : null;
-
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
       <main className="max-w-3xl mx-auto px-4 sm:px-6 pt-8 pb-24 sm:py-10">
-        <h1
-          className="text-xl sm:text-2xl font-bold mb-1"
-          style={{ fontFamily: "'Space Grotesk', sans-serif", color: "var(--text-primary)" }}
-        >
-          Clasificación
-        </h1>
-        <p className="text-sm mb-6" style={{ color: "var(--text-secondary)" }}>Toca un manager para ver su equipo.</p>
 
+        {/* ---- Page header ---- */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28 }}>
+          <div>
+            {league && (
+              <p style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontSize: 10, fontWeight: 700,
+                letterSpacing: "0.1em", color: "#333333",
+                textTransform: "uppercase", marginBottom: 4,
+              }}>
+                {league.name}
+              </p>
+            )}
+            <h1 style={{
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontSize: 30, fontWeight: 700, color: "#F0E8D0",
+              lineHeight: 1.1,
+            }}>
+              Clasificación
+            </h1>
+          </div>
+
+          {/* Week badge */}
+          <div style={{
+            background: "#1A1A1A",
+            border: "1px solid #2A2A2A",
+            borderRadius: 8,
+            padding: "8px 14px",
+            display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2,
+            flexShrink: 0, marginTop: 4,
+          }}>
+            <span style={{ fontSize: 11, color: "#555555" }}>Semana</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#FCD400", fontFamily: "'Space Grotesk', sans-serif" }}>
+              — / —
+            </span>
+          </div>
+        </div>
+
+        {/* ---- Loading skeleton ---- */}
         {loading && (
           <div className="space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
+            {Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
                 className="h-14 rounded-xl animate-pulse"
-                style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+                style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
               />
             ))}
           </div>
         )}
 
+        {/* ---- Error ---- */}
         {error && <p className="text-sm text-center py-20" style={{ color: "var(--text-muted)" }}>{error}</p>}
 
+        {/* ---- Empty state ---- */}
         {!loading && !error && entries.length === 0 && (
           <div className="py-20 text-center">
-            <span className="text-4xl mb-4 block">🏆</span>
-            <p className="font-medium mb-2" style={{ color: "var(--text-secondary)" }}>Sin datos aún</p>
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>Los puntos se actualizan tras cada jornada de LEC.</p>
+            <p className="font-medium mb-2" style={{ color: "#888888" }}>Sin datos aún</p>
+            <p className="text-sm" style={{ color: "#555555" }}>Los puntos se actualizan tras cada jornada de LEC.</p>
           </div>
         )}
 
-        {/* Podio top 3 */}
-        {!loading && !error && podiumEntries && (
-          <div className="grid grid-cols-3 gap-3 mb-6">
-            {podiumEntries.map((e, i) => {
-              const podiumRank = [2, 1, 3][i];
-              const style = RANK_STYLES[podiumRank - 1];
-              const heights = ["h-24", "h-32", "h-20"];
-              const isMe = e.member_id === myMemberId;
-              return (
-                <button
-                  key={e.member_id}
-                  onClick={() => setSelectedMember({ id: e.member_id, name: e.display_name ?? "Manager" })}
-                  className={`flex flex-col items-center justify-end ${heights[i]} rounded-xl border ${style.border} ${style.bg} ${style.glow} pb-3 px-2 transition-all duration-200 hover:scale-[1.03] cursor-pointer w-full`}
-                >
-                  <span className="text-2xl mb-1">{style.medal}</span>
-                  <p
-                    className="text-xs font-bold truncate w-full text-center"
-                    style={{ color: isMe ? "var(--color-primary)" : "var(--text-primary)" }}
-                  >
-                    {e.display_name ?? "Manager"}
-                  </p>
-                  <p className="font-mono text-xs" style={{ color: "var(--text-secondary)" }}>
-                    {e.total_points.toFixed(1)} pts
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Lista completa */}
+        {/* ---- Table ---- */}
         {!loading && !error && entries.length > 0 && (
-          <div className="space-y-1.5">
-            {entries.map((e) => {
-              const isMe = e.member_id === myMemberId;
-              const style = e.rank <= 3 ? RANK_STYLES[e.rank - 1] : null;
-              return (
-                <button
+          <div>
+            {/* Table header */}
+            <div style={{
+              display: "flex", alignItems: "center",
+              paddingInline: 20, marginBottom: 8,
+            }}>
+              <div style={{ width: 52, flexShrink: 0 }}>
+                <span style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: 10, fontWeight: 600,
+                  letterSpacing: "0.08em", color: "#333333",
+                  textTransform: "uppercase",
+                }}>POS</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <span style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: 10, fontWeight: 600,
+                  letterSpacing: "0.08em", color: "#333333",
+                  textTransform: "uppercase",
+                }}>MANAGER</span>
+              </div>
+              <div style={{ width: 120, flexShrink: 0, textAlign: "right" }}>
+                <span style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: 10, fontWeight: 600,
+                  letterSpacing: "0.08em", color: "#333333",
+                  textTransform: "uppercase",
+                }}>PTS ESTA SEM.</span>
+              </div>
+              <div style={{ width: 100, flexShrink: 0, textAlign: "right" }}>
+                <span style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: 10, fontWeight: 600,
+                  letterSpacing: "0.08em", color: "#333333",
+                  textTransform: "uppercase",
+                }}>TOTAL</span>
+              </div>
+              <div style={{ width: 60, flexShrink: 0, textAlign: "right" }}>
+                <span style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: 10, fontWeight: 600,
+                  letterSpacing: "0.08em", color: "#333333",
+                  textTransform: "uppercase",
+                }}>Δ</span>
+              </div>
+            </div>
+
+            {/* Rows */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {entries.map((e) => (
+                <StandingRow
                   key={e.member_id}
+                  entry={e}
+                  isMe={e.member_id === myMemberId}
+                  weekPoints={null}
                   onClick={() => setSelectedMember({ id: e.member_id, name: e.display_name ?? "Manager" })}
-                  className={`flex items-center gap-3 sm:gap-4 px-4 py-3 rounded-xl border w-full text-left transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.99]
-                    ${style ? `${style.bg} ${style.border}` : ""}`}
-                  style={isMe ? {
-                    background: "var(--color-primary-bg)",
-                    borderColor: "rgba(107,33,232,0.25)",
-                  } : !style ? {
-                    background: "var(--bg-surface)",
-                    borderColor: "var(--border-subtle)",
-                  } : undefined}
-                  onMouseEnter={(e_) => {
-                    if (!isMe && !style) {
-                      (e_.currentTarget as HTMLButtonElement).style.borderColor = "rgba(107,33,232,0.2)";
-                    }
-                  }}
-                  onMouseLeave={(e_) => {
-                    if (!isMe && !style) {
-                      (e_.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-subtle)";
-                    }
-                  }}
-                >
-                  <span
-                    className="w-7 text-center font-bold text-sm flex-shrink-0"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {e.rank <= 3 && style ? style.medal : e.rank}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p
-                      className="font-semibold text-sm truncate"
-                      style={{ color: isMe ? "var(--color-primary)" : "var(--text-primary)" }}
-                    >
-                      {e.display_name ?? "Manager"}
-                      {isMe && (
-                        <span className="text-xs font-normal ml-1.5" style={{ color: "var(--text-muted)" }}>(tú)</span>
-                      )}
-                    </p>
-                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>{e.player_count} jugadores</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p
-                      className="font-mono text-sm font-bold"
-                      style={{ color: isMe ? "var(--color-primary)" : "var(--text-primary)" }}
-                    >
-                      {e.total_points.toFixed(1)} pts
-                    </p>
-                    {e.remaining_budget !== undefined && (
-                      <p className="font-mono text-xs" style={{ color: "var(--color-gold-dark)" }}>
-                        {e.remaining_budget.toFixed(1)}M
-                      </p>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+                />
+              ))}
+            </div>
           </div>
         )}
       </main>
@@ -308,4 +478,3 @@ export default function StandingsPage() {
     </div>
   );
 }
-

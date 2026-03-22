@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { api, type PlayerSplitHistory } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
+import { getRoleColor } from "@/lib/roles";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,17 +48,6 @@ export interface PlayerStatsModalProps {
 
 type StatsTab = "jornada" | "split";
 
-// ---------------------------------------------------------------------------
-// Role hex colors (for inline style usage, complements ROLE_COLORS tailwind)
-// ---------------------------------------------------------------------------
-const ROLE_HEX: Record<string, string> = {
-  top:     "#ef4444",
-  jungle:  "#22c55e",
-  mid:     "#3b82f6",
-  adc:     "#eab308",
-  support: "#a855f7",
-  coach:   "#64748b",
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,7 +59,7 @@ function fmtKDA(k: number, d: number, a: number): string {
 }
 
 function fmtGoldDiff(val: number | null | undefined): { text: string; color: string } {
-  if (val == null) return { text: "N/A", color: "text-[#4a5568]" };
+  if (val == null) return { text: "N/A", color: "text-white/50" };
   const sign = val >= 0 ? "+" : "";
   const color = val >= 0 ? "text-green-400" : "text-red-400";
   return { text: `${sign}${val.toLocaleString("es-ES")}`, color };
@@ -153,28 +143,28 @@ function KdaTriangle({
         className="flex flex-col items-center justify-center px-4 gap-2"
         style={{ background: "#1a2030", borderLeft: "1px solid rgba(255,255,255,0.05)", borderRight: "1px solid rgba(255,255,255,0.05)" }}
       >
-        <span className="text-[#4a5568] text-[11px] font-datatype">/</span>
+        <span className="text-white/50 text-[11px] font-datatype">/</span>
         <div
           className="px-2.5 py-1 rounded-lg text-center"
           style={{
             background: isPerfect
               ? "rgba(34,197,94,0.15)"
-              : "rgba(59,130,246,0.1)",
+              : "rgba(252,212,0,0.1)",
             border: isPerfect
               ? "1px solid rgba(34,197,94,0.3)"
-              : "1px solid rgba(59,130,246,0.2)",
+              : "1px solid rgba(252,212,0,0.2)",
           }}
         >
           <span
             className={`font-datatype font-black text-sm leading-none whitespace-nowrap ${
-              isPerfect ? "text-green-400" : "text-blue-300"
+              isPerfect ? "text-green-400" : "text-yellow-400"
             }`}
           >
             {isPerfect ? "∞" : kdaStr}
           </span>
-          <p className="text-[9px] uppercase tracking-wider text-[#4a5568] mt-0.5">KDA</p>
+          <p className="text-[9px] uppercase tracking-wider text-white/50 mt-0.5">KDA</p>
         </div>
-        <span className="text-[#4a5568] text-[11px] font-datatype">/</span>
+        <span className="text-white/50 text-[11px] font-datatype">/</span>
       </div>
 
       {/* D */}
@@ -226,7 +216,7 @@ function StatTile({
         {value}
       </span>
       <span className="text-[#8892aa] text-[11px]">{label}</span>
-      {sub && <span className="text-[#4a5568] text-[10px]">{sub}</span>}
+      {sub && <span className="text-white/50 text-[10px]">{sub}</span>}
     </div>
   );
 }
@@ -250,15 +240,13 @@ function DmgProgressBar({ pct, roleHex }: { pct: number; roleHex: string }) {
 
 function TabJornada({
   stats,
-  totalPoints,
   role,
 }: {
   stats: MatchStat[];
-  totalPoints: number;
   role: string;
 }) {
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const roleHex = ROLE_HEX[role] ?? "#3b82f6";
+  const roleHex = getRoleColor(role);
 
   if (stats.length === 0) {
     return (
@@ -267,11 +255,11 @@ function TabJornada({
           className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3"
           style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
         >
-          <svg className="w-5 h-5 text-[#4a5568]" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-white/50" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
         </div>
-        <p className="text-[#4a5568] text-sm">Sin partidas registradas aún.</p>
+        <p className="text-white/50 text-sm">Sin partidas registradas aún.</p>
       </div>
     );
   }
@@ -293,7 +281,7 @@ function TabJornada({
         className="w-full text-sm font-semibold rounded-xl px-3 py-2.5 outline-none cursor-pointer transition-colors"
         style={{
           background: "#1e2535",
-          border: "1px solid rgba(59,130,246,0.25)",
+          border: "1px solid rgba(252,212,0,0.25)",
           color: "#f0f4ff",
         }}
       >
@@ -334,7 +322,7 @@ function TabJornada({
           <p className="text-[#8892aa] text-[11px] mt-0.5">Daño %</p>
           {hasDmg && <DmgProgressBar pct={dmgPct} roleHex={roleHex} />}
           {hasDmg && (
-            <p className="text-[#4a5568] text-[9px] mt-1">de 50% máx</p>
+            <p className="text-white/50 text-[9px] mt-1">de 50% máx</p>
           )}
         </div>
 
@@ -347,7 +335,7 @@ function TabJornada({
             {goldDiff.text}
           </span>
           <p className="text-[#8892aa] text-[11px] mt-0.5">Gold@15</p>
-          <p className="text-[#4a5568] text-[9px] mt-1">diferencia oro min 15</p>
+          <p className="text-white/50 text-[9px] mt-1">diferencia oro min 15</p>
         </div>
       </div>
 
@@ -355,8 +343,8 @@ function TabJornada({
       <div
         className="rounded-2xl overflow-hidden"
         style={{
-          background: "linear-gradient(135deg, rgba(59,130,246,0.1), rgba(168,85,247,0.07))",
-          border: "1px solid rgba(59,130,246,0.2)",
+          background: "linear-gradient(135deg, rgba(252,212,0,0.08), rgba(252,212,0,0.04))",
+          border: "1px solid rgba(252,212,0,0.2)",
         }}
       >
         {/* Top section */}
@@ -366,7 +354,7 @@ function TabJornada({
               <span className="font-datatype font-black text-4xl text-[#f0f4ff] leading-none">
                 {stat.fantasy_points.toFixed(1)}
               </span>
-              <span className="text-[#4a5568] text-xs uppercase tracking-wider pb-0.5">pts</span>
+              <span className="text-white/50 text-xs uppercase tracking-wider pb-0.5">pts</span>
             </div>
             <p className="text-[#8892aa] text-xs mt-1">esta jornada</p>
           </div>
@@ -381,23 +369,23 @@ function TabJornada({
                 background: relPct >= 80
                   ? "rgba(34,197,94,0.12)"
                   : relPct >= 50
-                    ? "rgba(59,130,246,0.12)"
+                    ? "rgba(252,212,0,0.1)"
                     : "rgba(255,255,255,0.04)",
                 border: relPct >= 80
                   ? "1px solid rgba(34,197,94,0.25)"
                   : relPct >= 50
-                    ? "1px solid rgba(59,130,246,0.2)"
+                    ? "1px solid rgba(252,212,0,0.2)"
                     : "1px solid rgba(255,255,255,0.06)",
               }}
             >
               <span
                 className={`font-datatype font-black text-sm ${
-                  relPct >= 80 ? "text-green-400" : relPct >= 50 ? "text-blue-300" : "text-[#4a5568]"
+                  relPct >= 80 ? "text-green-400" : relPct >= 50 ? "text-yellow-400" : "text-white/50"
                 }`}
               >
                 {relPct}%
               </span>
-              <p className="text-[9px] text-[#4a5568] mt-0.5 whitespace-nowrap">mejor actuación</p>
+              <p className="text-[9px] text-white/50 mt-0.5 whitespace-nowrap">mejor actuación</p>
             </div>
           </div>
         </div>
@@ -409,13 +397,13 @@ function TabJornada({
               className="h-full rounded-full transition-all duration-700"
               style={{
                 width: `${relPct}%`,
-                background: "linear-gradient(90deg, #3b82f6, #a855f7)",
+                background: "linear-gradient(90deg, #fcd400, #fcb900)",
               }}
             />
           </div>
           <div className="flex justify-between mt-1.5">
-            <span className="text-[#4a5568] text-[9px]">0</span>
-            <span className="text-[#4a5568] text-[9px] font-datatype">best: {bestPoints.toFixed(1)} pts</span>
+            <span className="text-white/50 text-[9px]">0</span>
+            <span className="text-white/50 text-[9px] font-datatype">best: {bestPoints.toFixed(1)} pts</span>
           </div>
         </div>
       </div>
@@ -435,11 +423,11 @@ function TabSplit({ splits }: { splits: PlayerSplitHistory[] }) {
           className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3"
           style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
         >
-          <svg className="w-5 h-5 text-[#4a5568]" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-white/50" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
           </svg>
         </div>
-        <p className="text-[#4a5568] text-sm">Sin datos de este split aún.</p>
+        <p className="text-white/50 text-sm">Sin datos de este split aún.</p>
       </div>
     );
   }
@@ -486,14 +474,14 @@ function TabSplit({ splits }: { splits: PlayerSplitHistory[] }) {
             />
             <p className="text-[#f0f4ff] font-bold text-sm">{s.split_name}</p>
           </div>
-          <p className="text-[#4a5568] text-xs mt-0.5">Estadísticas del split actual</p>
+          <p className="text-white/50 text-xs mt-0.5">Estadísticas del split actual</p>
         </div>
         <span
           className="text-xs font-bold px-3 py-1.5 rounded-full flex-shrink-0"
           style={{
-            background: "rgba(59,130,246,0.1)",
-            border: "1px solid rgba(59,130,246,0.2)",
-            color: "#93c5fd",
+            background: "rgba(252,212,0,0.1)",
+            border: "1px solid rgba(252,212,0,0.2)",
+            color: "#fcd400",
           }}
         >
           {s.games_played} partidas
@@ -550,7 +538,7 @@ function TabSplit({ splits }: { splits: PlayerSplitHistory[] }) {
             <span className="text-[#8892aa] text-sm">{row.label}</span>
             <span
               className={`font-datatype font-bold text-sm ${
-                row.highlight ? "text-blue-300" : "text-[#f0f4ff]"
+                row.highlight ? "text-yellow-400" : "text-[#f0f4ff]"
               }`}
             >
               {row.value}
@@ -562,7 +550,7 @@ function TabSplit({ splits }: { splits: PlayerSplitHistory[] }) {
       {/* Previous splits */}
       {splits.length > 1 && (
         <div className="space-y-2">
-          <p className="text-[#4a5568] text-xs uppercase tracking-wider font-semibold">
+          <p className="text-white/50 text-xs uppercase tracking-wider font-semibold">
             Splits anteriores
           </p>
           {splits.slice(1).map((prev) => (
@@ -573,7 +561,7 @@ function TabSplit({ splits }: { splits: PlayerSplitHistory[] }) {
             >
               <span className="text-[#8892aa] text-sm">{prev.split_name}</span>
               <div className="flex items-center gap-3 text-xs font-datatype">
-                <span className="text-[#4a5568]">{prev.games_played}G</span>
+                <span className="text-white/50">{prev.games_played}G</span>
                 <span className="text-green-400">
                   {prev.kda != null ? prev.kda.toFixed(2) : "—"} KDA
                 </span>
@@ -608,7 +596,7 @@ function HeroSection({
   loading: boolean;
 }) {
   const rc = ROLE_COLORS[role] ?? ROLE_COLORS.coach;
-  const roleHex = ROLE_HEX[role] ?? "#3b82f6";
+  const roleHex = getRoleColor(role);
 
   return (
     <div className="relative flex-shrink-0 overflow-hidden" style={{ height: 220 }}>
@@ -721,15 +709,15 @@ function HeroSection({
             <div
               className="flex items-center gap-3 px-3 py-2 rounded-xl self-start"
               style={{
-                background: "rgba(59,130,246,0.08)",
-                border: "1px solid rgba(59,130,246,0.15)",
+                background: "rgba(252,212,0,0.08)",
+                border: "1px solid rgba(252,212,0,0.2)",
               }}
             >
               <div>
-                <span className="font-datatype font-black text-3xl text-blue-400 leading-none">
+                <span className="font-datatype font-black text-3xl text-yellow-400 leading-none">
                   {totalPoints.toFixed(1)}
                 </span>
-                <p className="text-[#4a5568] text-[10px] uppercase tracking-wider mt-0.5">
+                <p className="text-white/50 text-[10px] uppercase tracking-wider mt-0.5">
                   pts totales
                 </p>
               </div>
@@ -817,14 +805,14 @@ export function PlayerStatsModal({ playerId, playerHint, onClose }: PlayerStatsM
         `}
         style={{
           background: "#161b27",
-          boxShadow: "0 0 0 1px rgba(255,255,255,0.07), 0 25px 80px rgba(0,0,0,0.7), 0 0 60px rgba(59,130,246,0.06)",
+          boxShadow: "0 0 0 1px rgba(255,255,255,0.07), 0 25px 80px rgba(0,0,0,0.7), 0 0 60px rgba(252,212,0,0.06)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 z-20 w-8 h-8 flex items-center justify-center rounded-lg text-[#4a5568] hover:text-[#f0f4ff] hover:bg-[rgba(255,255,255,0.06)] transition-all"
+          className="absolute top-3 right-3 z-20 w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:text-[#f0f4ff] hover:bg-[rgba(255,255,255,0.06)] transition-all"
           aria-label="Cerrar"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
@@ -866,8 +854,8 @@ export function PlayerStatsModal({ playerId, playerHint, onClose }: PlayerStatsM
                   onClick={() => setTab(key)}
                   className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-all duration-150
                     ${tab === key
-                      ? "border-blue-400 text-[#f0f4ff]"
-                      : "border-transparent text-[#4a5568] hover:text-[#8892aa]"
+                      ? "border-yellow-400 text-[#f0f4ff]"
+                      : "border-transparent text-white/50 hover:text-[#8892aa]"
                     }`}
                 >
                   {label}
@@ -880,7 +868,6 @@ export function PlayerStatsModal({ playerId, playerHint, onClose }: PlayerStatsM
               {tab === "jornada" && (
                 <TabJornada
                   stats={data?.stats ?? []}
-                  totalPoints={totalPoints}
                   role={role}
                 />
               )}

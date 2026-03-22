@@ -39,6 +39,7 @@ class RosterPlayerOut(BaseModel):
     price_paid: float
     for_sale: bool
     is_protected: bool = False
+    split_points: float = 0.0
     player: PlayerBrief
 
 
@@ -101,13 +102,34 @@ async def get_roster(
             .eq("roster_id", roster_resp.data[0]["id"])
             .execute()
         )
+        # Collect player_ids to fetch split_points for the active competition
+        player_ids = [row["players"]["id"] for row in (rp_resp.data or []) if row.get("players")]
+
+        split_points_by_player: dict[str, float] = {}
+        if player_ids:
+            # Fetch series_points for all series in the active competition
+            pss_resp = (
+                supabase.table("player_series_stats")
+                .select("player_id, series_points, series(competition_id, competitions(is_active))")
+                .in_("player_id", player_ids)
+                .execute()
+            )
+            for pss_row in (pss_resp.data or []):
+                series = pss_row.get("series") or {}
+                competition = series.get("competitions") or {}
+                if competition.get("is_active"):
+                    pid = str(pss_row["player_id"])
+                    split_points_by_player[pid] = split_points_by_player.get(pid, 0.0) + float(pss_row.get("series_points") or 0.0)
+
         for row in (rp_resp.data or []):
+            player_id = str(row["players"]["id"])
             players_out.append(RosterPlayerOut(
                 id=row["id"],
                 slot=row["slot"],
                 price_paid=float(row["price_paid"]),
                 for_sale=row["for_sale"],
                 is_protected=bool(row.get("is_protected", False)),
+                split_points=split_points_by_player.get(player_id, 0.0),
                 player=PlayerBrief(**row["players"]),
             ))
 

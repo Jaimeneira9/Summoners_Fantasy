@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
+import { getRoleColor } from "@/lib/roles";
 
 // ---------------------------------------------------------------------------
 // Team badge URL helper
@@ -46,26 +48,17 @@ export interface PlayerCardProps {
   totalPoints?: number;
   showPrice?: boolean;
   splitName?: string;
+  leagueId?: string;
 }
 
-/** Hex accent color per role — used for the left border */
-const ROLE_HEX: Record<string, string> = {
-  top:     "#ef4444",
-  jungle:  "#22c55e",
-  mid:     "#3b82f6",
-  adc:     "#eab308",
-  support: "#a855f7",
-  coach:   "#64748b",
-};
-
-export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = true, splitName }: PlayerCardProps) {
+export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = true, leagueId }: PlayerCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [selectedWeek, setSelectedWeek] = useState<number | null>(
     matchStats.length > 0 ? matchStats[matchStats.length - 1].week : null
   );
 
   const roleColor = ROLE_COLORS[player.role] ?? ROLE_COLORS.coach;
-  const roleHex   = ROLE_HEX[player.role]   ?? ROLE_HEX.coach;
+  const roleHex   = getRoleColor(player.role);
   const selectedStat = matchStats.find((s) => s.week === selectedWeek) ?? null;
 
   const kda = selectedStat
@@ -83,7 +76,7 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
       className="group relative rounded-xl overflow-hidden transition-all duration-300 cursor-pointer select-none"
       style={{
         borderLeft: `4px solid ${roleHex}`,
-        background: "#1e1b1e",
+        background: "var(--bg-card)",
         boxShadow: expanded
           ? `0 0 0 1px rgba(255,255,255,0.07), 0 4px 24px rgba(0,0,0,0.4), -2px 0 12px ${roleHex}33`
           : undefined,
@@ -97,8 +90,8 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
         className="relative w-full overflow-hidden transition-all duration-300"
         style={{
           height: expanded ? "110px" : undefined,
-          aspectRatio: expanded ? undefined : "3/4",
-          background: "#2a2529",
+          aspectRatio: expanded ? undefined : "2/3",
+          background: "var(--bg-surface)",
         }}
       >
         {player.image_url ? (
@@ -109,7 +102,7 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
             className="w-full h-full object-cover object-top grayscale group-hover:grayscale-0 group-hover:-translate-y-1 transition-all duration-300"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center" style={{ background: "#2a2529" }}>
+          <div className="w-full h-full flex items-center justify-center" style={{ background: "var(--bg-surface)" }}>
             <RoleIcon role={player.role} className={`w-16 h-16 ${roleColor.text} opacity-20`} />
           </div>
         )}
@@ -117,7 +110,7 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
         {/* Bottom gradient — always present so name is readable */}
         <div
           className="absolute inset-0 pointer-events-none"
-          style={{ background: "linear-gradient(to bottom, transparent 40%, rgba(30,27,30,0.95) 75%, #1e1b1e 100%)" }}
+          style={{ background: "linear-gradient(to bottom, transparent 40%, rgba(30,27,30,0.95) 75%, var(--bg-card) 100%)" }}
         />
 
         {/* Role badge — top left */}
@@ -204,12 +197,12 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
                 className="w-full text-xs rounded-lg px-3 py-2 outline-none cursor-pointer font-semibold transition-colors"
                 style={{
                   background: "rgba(255,255,255,0.07)",
-                  border: "1px solid rgba(107,33,232,0.3)",
+                  border: "1px solid rgba(252,212,0,0.3)",
                   color: "var(--text-on-dark)",
                 }}
               >
                 {matchStats.map((s) => (
-                  <option key={s.match_id} value={s.week} style={{ background: "#1e1b1e" }}>
+                  <option key={s.match_id} value={s.week} style={{ background: "var(--bg-card)" }}>
                     Jornada {s.week}
                   </option>
                 ))}
@@ -277,7 +270,7 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
                     className="rounded-lg px-3 py-2.5 flex items-center justify-between"
                     style={{
                       background: "var(--color-primary-bg)",
-                      border: "1px solid rgba(107,33,232,0.25)",
+                      border: "1px solid rgba(252,212,0,0.25)",
                     }}
                   >
                     <span className="text-white/40 text-[10px] uppercase tracking-widest font-semibold">Puntos jornada</span>
@@ -295,6 +288,27 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
             </div>
           ) : (
             <p className="text-white/30 text-xs text-center px-3 py-6">Sin datos para esta jornada</p>
+          )}
+
+          {/* Ver stats link */}
+          {leagueId && (
+            <div
+              className="px-4 py-3 border-t flex justify-end"
+              style={{ borderColor: "rgba(255,255,255,0.07)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Link
+                href={`/leagues/${leagueId}/stats/${player.id}`}
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                style={{
+                  background: "var(--color-primary-bg, rgba(252,212,0,0.1))",
+                  border: "1px solid rgba(252,212,0,0.25)",
+                  color: "var(--color-primary)",
+                }}
+              >
+                Ver stats completas →
+              </Link>
+            </div>
           )}
         </div>
       )}

@@ -138,7 +138,7 @@ async def get_player_score_history(
     if game_ids:
         games_resp = (
             supabase.table("games")
-            .select("id, team_home_id, team_away_id, duration_min, series(date)")
+            .select("id, team_home_id, team_away_id, duration_min, series(date, competition_id, competitions(name))")
             .in_("id", game_ids)
             .execute()
         )
@@ -172,6 +172,10 @@ async def get_player_score_history(
         else:
             team_1, team_2 = home_name, away_name
 
+        competition_id = str(series_data.get("competition_id") or "")
+        competition_obj = series_data.get("competitions") or {}
+        competition_name = competition_obj.get("name") or ""
+
         stats.append({
             "kills": s["kills"],
             "deaths": s["deaths"],
@@ -181,6 +185,8 @@ async def get_player_score_history(
             "fantasy_points": s["game_points"],
             "damage_share": s.get("damage_share"),
             "gold_diff_at_15": s.get("gold_diff_15"),
+            "competition_id": competition_id,
+            "competition_name": competition_name,
             "matches": {
                 "scheduled_at": series_data.get("date"),
                 "team_1": team_1,

@@ -600,6 +600,16 @@ async def _process_series(
 # ---------------------------------------------------------------------------
 
 
+def _competition_name_for_today() -> str:
+    """
+    Construye el nombre descriptivo de la competición activa basándose en la fecha actual.
+    Formato: "LEC Spring YYYY" o "LEC Summer YYYY".
+    """
+    today = date.today()
+    split = "Spring" if today.month <= 6 else "Summer"
+    return f"LEC {split} {today.year}"
+
+
 async def run_series_ingest(supabase: Client) -> None:
     """
     Pipeline completo de ingestión de series desde gol.gg.
@@ -610,22 +620,39 @@ async def run_series_ingest(supabase: Client) -> None:
     """
     logger.info("Starting series ingest pipeline")
 
+    comp_name = _competition_name_for_today()
+    logger.info("Looking up competition: '%s'", comp_name)
+
     # 1. Obtener gol_gg_slug de competitions para LEC
+    # Busca primero por nombre descriptivo (ej. "LEC Spring 2026"),
+    # con fallback al nombre legacy "LEC" para compatibilidad con registros anteriores.
     try:
         comp_resp = (
             supabase.table("competitions")
             .select("id, gol_gg_slug")
-            .eq("name", "LEC")
+            .eq("name", comp_name)
             .eq("is_active", True)
             .limit(1)
             .execute()
         )
+        if not comp_resp.data:
+            # Fallback: nombre legacy
+            comp_resp = (
+                supabase.table("competitions")
+                .select("id, gol_gg_slug")
+                .eq("name", "LEC")
+                .eq("is_active", True)
+                .limit(1)
+                .execute()
+            )
     except Exception as exc:
         logger.error("Failed to query competitions: %s", exc)
         return
 
     if not comp_resp.data:
-        logger.error("No active LEC competition found in DB")
+        logger.error(
+            "No active LEC competition found in DB (tried '%s' and 'LEC')", comp_name
+        )
         return
 
     competition = comp_resp.data[0]

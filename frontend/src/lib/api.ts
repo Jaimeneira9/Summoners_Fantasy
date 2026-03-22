@@ -38,6 +38,8 @@ export type PlayerBrief = {
   role: string;
   image_url: string | null;
   current_price: number;
+  total_season_points?: number | null;
+  split_points?: number | null;
 };
 
 export type Listing = {
@@ -83,6 +85,8 @@ export type PlayerMatchStat = {
   fantasy_points: number;
   damage_share: number | null;
   gold_diff_at_15: number | null;
+  competition_id: string;
+  competition_name: string;
   matches?: { scheduled_at: string | null; team_1: string; team_2: string } | null;
 };
 
@@ -137,6 +141,7 @@ export type RosterPlayer = {
   price_paid: number;
   for_sale: boolean;
   is_protected: boolean;
+  split_points?: number | null;
   player: PlayerBrief & { id: string };
 };
 

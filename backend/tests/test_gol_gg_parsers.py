@@ -2,7 +2,8 @@
 Tests de los parsers internos de gol_gg.py.
 
 Usa fixtures reales de gol.gg — NO mocks, NO red, NO DB.
-Los fixtures están en /tmp/golgg_*.md.
+Los fixtures están en backend/tests/fixtures/golgg_*.md.
+Para generarlos: correr el scraper localmente y copiar los archivos ahí.
 """
 from __future__ import annotations
 
@@ -27,25 +28,29 @@ from pipeline.gol_gg import (
 # Fixtures — cargan el markdown real de gol.gg
 # ---------------------------------------------------------------------------
 
-FIXTURES_DIR = Path("/tmp")
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def _require_fixture(filename: str) -> str:
+    path = FIXTURES_DIR / filename
+    if not path.exists():
+        pytest.skip(f"requires local scraper fixture: {path}")
+    return path.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def golgg_matchlist_fixture() -> str:
-    path = FIXTURES_DIR / "golgg_matchlist.md"
-    return path.read_text(encoding="utf-8")
+    return _require_fixture("golgg_matchlist.md")
 
 
 @pytest.fixture(scope="module")
 def golgg_fullstats_fixture() -> str:
-    path = FIXTURES_DIR / "golgg_fullstats.md"
-    return path.read_text(encoding="utf-8")
+    return _require_fixture("golgg_fullstats.md")
 
 
 @pytest.fixture(scope="module")
 def golgg_page_game_fixture() -> str:
-    path = FIXTURES_DIR / "golgg_page_game.md"
-    return path.read_text(encoding="utf-8")
+    return _require_fixture("golgg_page_game.md")
 
 
 # ---------------------------------------------------------------------------

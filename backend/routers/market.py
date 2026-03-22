@@ -35,6 +35,7 @@ class PlayerBrief(BaseModel):
     role: str
     image_url: str | None
     current_price: float
+    split_points: float = 0.0
 
 
 class ListingOut(BaseModel):
@@ -185,7 +186,30 @@ async def get_listings(
         .order("listed_at")
         .execute()
     )
-    return resp.data
+    listings = resp.data or []
+
+    # Fetch split_points for the active competition for each player in listings
+    player_ids = [row["player_id"] for row in listings if row.get("player_id")]
+    split_points_by_player: dict[str, float] = {}
+    if player_ids:
+        pss_resp = (
+            supabase.table("player_series_stats")
+            .select("player_id, series_points, series(competition_id, competitions(is_active))")
+            .in_("player_id", player_ids)
+            .execute()
+        )
+        for pss_row in (pss_resp.data or []):
+            series = pss_row.get("series") or {}
+            competition = series.get("competitions") or {}
+            if competition.get("is_active"):
+                pid = str(pss_row["player_id"])
+                split_points_by_player[pid] = split_points_by_player.get(pid, 0.0) + float(pss_row.get("series_points") or 0.0)
+
+    for listing in listings:
+        pid = str(listing["player_id"])
+        listing["players"]["split_points"] = split_points_by_player.get(pid, 0.0)
+
+    return listings
 
 
 @router.post("/{league_id}/buy", response_model=TransactionOut, status_code=status.HTTP_201_CREATED)
