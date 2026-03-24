@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.0](https://github.com/Jaimeneira9/Fantasy-League-of-Legends/compare/v1.0.0...v1.1.0) (2026-03-24)
+
+
+### Features
+
+* precios dinámicos, cláusulas de rescisión y explorador de jugadores ([5e1ac26](https://github.com/Jaimeneira9/Fantasy-League-of-Legends/commit/5e1ac26638c76332840a66209c41d496c7135260))
+* sistema de precios dinámicos, cláusulas de rescisión y explorador de jugadores ([8ac7835](https://github.com/Jaimeneira9/Fantasy-League-of-Legends/commit/8ac78357d515db85f8197287cef11ee0ab623796))
+
+
+### Bug Fixes
+
+* actualizar tests de scoring con nuevos pesos del engine ([06aa7d6](https://github.com/Jaimeneira9/Fantasy-League-of-Legends/commit/06aa7d6f8c034e05e55953888f7a91e67f98e309))
+* corregir imports rotos tras refactor de pricing y PlayerStatsModal ([39f44e3](https://github.com/Jaimeneira9/Fantasy-League-of-Legends/commit/39f44e36033be84448814f12e780a792c3e356f1))
+* operaciones de presupuesto atómicas via RPC para prevenir race conditions ([e46326c](https://github.com/Jaimeneira9/Fantasy-League-of-Legends/commit/e46326c93ae9c9337dbe1db623ab9607fdc3591f))
+* prevenir IDOR cross-liga en activate_clause ([72f2d5f](https://github.com/Jaimeneira9/Fantasy-League-of-Legends/commit/72f2d5f19ea1bd2694bae2def4ac66276c7af0ef))
+
 ## 1.0.0 (2026-03-23)
 
 
