@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
+gsap.registerPlugin(useGSAP);
 import Link from "next/link";
 import { api, type Roster, type RosterPlayer, type Slot, type Split } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
+import { ClauseStatus } from "@/components/ClauseStatus";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -59,6 +63,7 @@ export default function LineupPage() {
   const [split, setSplit]     = useState<Split | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
+  const startersRef = useRef<HTMLDivElement>(null);
 
   // PERF FIX: parallel fetch — roster + split in one Promise.all
   const load = useCallback(() => {
@@ -76,6 +81,17 @@ export default function LineupPage() {
   }, [leagueId]);
 
   useEffect(() => { load(); }, [load]);
+
+  useGSAP(() => {
+    gsap.from(".lineup-card", {
+      autoAlpha: 0,
+      y: 32,
+      scale: 0.96,
+      duration: 0.6,
+      ease: "power3.out",
+      stagger: 0.07,
+    });
+  }, { scope: startersRef, dependencies: [loading] });
 
   const playerBySlot = (slot: Slot) => roster?.players.find((p) => p.slot === slot) ?? null;
 
@@ -99,17 +115,19 @@ export default function LineupPage() {
               <h2 className="text-xs uppercase tracking-widest mb-3 font-semibold" style={{ color: "var(--text-muted)" }}>
                 Titulares
               </h2>
-              <div className="flex flex-wrap justify-center gap-4">
+              <div ref={startersRef} className="flex flex-wrap justify-center gap-4">
                 {STARTER_SLOTS.map(({ slot, role }) => {
                   const rp = playerBySlot(slot);
                   return (
-                    <PlayerCard
-                      key={slot}
-                      expectedRole={role}
-                      rp={rp}
-                      leagueId={leagueId}
-                      splitName={split?.name ?? undefined}
-                    />
+                    <div key={slot} className="lineup-card">
+                      <PlayerCard
+                        expectedRole={role}
+                        rp={rp}
+                        leagueId={leagueId}
+                        splitName={split?.name ?? undefined}
+                        onRefresh={load}
+                      />
+                    </div>
                   );
                 })}
               </div>
@@ -130,11 +148,13 @@ function PlayerCard({
   rp,
   leagueId,
   splitName,
+  onRefresh,
 }: {
   expectedRole: string;
   rp: RosterPlayer | null;
   leagueId: string;
   splitName?: string;
+  onRefresh?: () => void;
 }) {
   const roleColor = ROLE_COLORS[expectedRole] ?? ROLE_COLORS.coach;
 
@@ -170,6 +190,7 @@ function PlayerCard({
       leagueId={leagueId}
       splitName={splitName}
       isMvp={false}
+      onRefresh={onRefresh}
     />
   );
 }
@@ -180,6 +201,7 @@ function PlayerCardFilled({
   p,
   leagueId,
   isMvp,
+  onRefresh,
 }: {
   rp: RosterPlayer;
   p: RosterPlayer["player"];
@@ -187,6 +209,7 @@ function PlayerCardFilled({
   leagueId: string;
   splitName?: string;
   isMvp?: boolean;
+  onRefresh?: () => void;
 }) {
   const roleHex = getRoleColor(p.role);
 
@@ -387,6 +410,16 @@ function PlayerCardFilled({
         >
           Ver stats →
         </Link>
+
+        {/* Fila 5 — Clause status */}
+        <ClauseStatus
+          clauseAmount={rp.clause_amount}
+          clauseExpiresAt={rp.clause_expires_at}
+          isOwnPlayer={true}
+          leagueId={leagueId}
+          rosterPlayerId={rp.id}
+          onSuccess={onRefresh}
+        />
       </div>
 
     </div>

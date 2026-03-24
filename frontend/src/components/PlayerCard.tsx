@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getRoleColor } from "@/lib/roles";
+import { PriceTrend } from "@/components/PriceTrend";
 
 // ---------------------------------------------------------------------------
 // Team badge URL helper
@@ -43,6 +44,7 @@ export interface PlayerCardProps {
     role: string;
     current_price: number;
     image_url: string | null;
+    last_price_change_pct?: number;
   };
   matchStats?: MatchStat[];
   totalPoints?: number;
@@ -142,10 +144,11 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
             <span className="text-white/50 text-[10px] truncate">{player.team}</span>
             {showPrice && (
               <span
-                className="text-[10px] font-semibold"
+                className="text-[10px] font-semibold flex items-baseline gap-1"
                 style={{ color: "var(--color-gold)" }}
               >
                 💰 {player.current_price.toFixed(1)}M
+                <PriceTrend changePct={player.last_price_change_pct ?? 0} />
               </span>
             )}
             {totalPoints !== undefined && (

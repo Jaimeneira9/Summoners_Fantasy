@@ -84,6 +84,9 @@ def refresh_market(supabase: Client, league_id: str) -> None:
     # Expirar solo los listings cuyo closes_at ya pasó
     _expire_stale_listings(supabase, league_id)
 
+    # Limpiar cláusulas vencidas
+    _expire_clauses(supabase)
+
     # Contar activos que aún no han vencido
     now = datetime.now(timezone.utc).isoformat()
     active_resp = (
@@ -126,6 +129,15 @@ def run_all_leagues_refresh(supabase: Client) -> None:
 # ---------------------------------------------------------------------------
 # Helpers privados
 # ---------------------------------------------------------------------------
+
+def _expire_clauses(supabase: Client) -> None:
+    """Limpia cláusulas vencidas — el jugador queda sin protección."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    supabase.table("roster_players").update({
+        "clause_amount": None,
+        "clause_expires_at": None,
+    }).lte("clause_expires_at", now_iso).not_.is_("clause_expires_at", "null").execute()
+
 
 def _expire_stale_listings(supabase: Client, league_id: str) -> None:
     """Expira solo los listings cuyo closes_at ya ha pasado."""

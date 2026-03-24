@@ -2,15 +2,20 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { api, type Listing, type SellOffer, type MyBid, type Split, type League } from "@/lib/api";
+import gsap from "gsap";
+import { useGSAP } from "@gsap/react";
+gsap.registerPlugin(useGSAP);
+import { api, type Listing, type SellOffer, type MyBid, type Split, type League, type ScoutPlayer } from "@/lib/api";
 import { ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
+import { PriceTrend } from "@/components/PriceTrend";
+import { PlayerStatsModal } from "@/components/PlayerStatsModal";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type Tab = "mercado" | "mis-pujas" | "ofertas";
+type Tab = "mercado" | "mis-pujas" | "ofertas" | "explorar";
 
 // ---------------------------------------------------------------------------
 // Countdown hook
@@ -41,6 +46,7 @@ const URL_TAB_MAP: Record<string, Tab> = {
   live:   "mercado",
   bids:   "mis-pujas",
   offers: "ofertas",
+  scout:  "explorar",
 };
 
 export default function MarketPage() {
@@ -48,9 +54,8 @@ export default function MarketPage() {
   const searchParams = useSearchParams();
 
   const tabFromUrl = searchParams.get("tab");
-  const initialTab: Tab = (tabFromUrl ? URL_TAB_MAP[tabFromUrl] : null) ?? "mercado";
+  const tab: Tab = (tabFromUrl ? URL_TAB_MAP[tabFromUrl] : null) ?? "mercado";
 
-  const [tab, setTab]               = useState<Tab>(initialTab);
   const [budget, setBudget]         = useState<number | null>(null);
   const [league, setLeague]         = useState<League | null>(null);
   const [split, setSplit]           = useState<Split | null>(null);
@@ -71,12 +76,6 @@ export default function MarketPage() {
       })
       .catch(() => {});
   }, [leagueId]);
-
-  const TABS: { key: Tab; label: string }[] = [
-    { key: "mercado",   label: "Mercado"   },
-    { key: "mis-pujas", label: "Mis pujas" },
-    { key: "ofertas",   label: "Ofertas"   },
-  ];
 
   return (
     <div className="min-h-screen" style={{ background: "#0A0A0A", color: "#F0E8D0" }}>
@@ -153,25 +152,6 @@ export default function MarketPage() {
             )}
           </div>
 
-          {/* Tabs */}
-          <nav className="flex gap-0">
-            {TABS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className="px-4 py-3 text-sm border-b-2 transition-all duration-200 -mb-px whitespace-nowrap"
-                style={{
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  fontWeight: tab === t.key ? 700 : 400,
-                  borderBottomColor: tab === t.key ? "#FCD400" : "transparent",
-                  color: tab === t.key ? "#FCD400" : "#555555",
-                  background: "transparent",
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </nav>
         </div>
       </div>
 
@@ -180,6 +160,7 @@ export default function MarketPage() {
         {tab === "mercado"   && <MarketTab  leagueId={leagueId} budget={budget} splitName={split?.name} onBid={refreshBudget} />}
         {tab === "mis-pujas" && <MyBidsTab  leagueId={leagueId} />}
         {tab === "ofertas"   && <OffersTab  leagueId={leagueId} />}
+        {tab === "explorar"  && <ScoutTab   leagueId={leagueId} />}
       </main>
 
     </div>
@@ -206,6 +187,7 @@ function MarketTab({
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [search, setSearch]     = useState("");
   const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -230,6 +212,16 @@ function MarketTab({
   const filtered = listings
     .filter((l) => roleFilter === "all" || l.players.role === roleFilter)
     .filter((l) => search === "" || l.players.name.toLowerCase().includes(search.toLowerCase()) || l.players.team.toLowerCase().includes(search.toLowerCase()));
+
+  useGSAP(() => {
+    gsap.from(".market-card", {
+      autoAlpha: 0,
+      y: 24,
+      duration: 0.5,
+      ease: "power2.out",
+      stagger: 0.05,
+    });
+  }, { scope: gridRef, dependencies: [roleFilter, filtered.length] });
 
   if (loading) return <CardSkeleton />;
   if (error)   return <ErrorState message={error} onRetry={load} />;
@@ -294,19 +286,20 @@ function MarketTab({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4">
+      <div ref={gridRef} className="flex flex-wrap gap-4">
         {filtered.map((l) => (
-          <PlayerCard
-            key={l.id}
-            listing={l}
-            leagueId={leagueId}
-            budget={budget}
-            splitName={splitName}
-            onBid={() => { onBid(); setExpandedCardId(null); load(); }}
-            expanded={expandedCardId === l.id}
-            onExpand={() => setExpandedCardId(l.id)}
-            onClose={() => setExpandedCardId(null)}
-          />
+          <div key={l.id} className="market-card">
+            <PlayerCard
+              listing={l}
+              leagueId={leagueId}
+              budget={budget}
+              splitName={splitName}
+              onBid={() => { onBid(); setExpandedCardId(null); load(); }}
+              expanded={expandedCardId === l.id}
+              onExpand={() => setExpandedCardId(l.id)}
+              onClose={() => setExpandedCardId(null)}
+            />
+          </div>
         ))}
       </div>
 
@@ -548,9 +541,13 @@ function PlayerCard({
               fontSize: "12px",
               color: "#777777",
               marginLeft: "auto",
+              display: "flex",
+              alignItems: "baseline",
+              gap: "4px",
             }}
           >
             {p.current_price.toFixed(1)}M
+            <PriceTrend changePct={p.last_price_change_pct ?? 0} />
           </span>
         </div>
 
@@ -1006,6 +1003,453 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
         </button>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scout tab
+// ---------------------------------------------------------------------------
+type SortField =
+  | "total_points"
+  | "current_price"
+  | "kda"
+  | "avg_kills"
+  | "avg_deaths"
+  | "avg_assists"
+  | "avg_cs_per_min"
+  | "avg_gold_diff_15"
+  | "avg_xp_diff_15"
+  | "avg_damage_share"
+  | "avg_vision_score";
+type SortDir = "asc" | "desc";
+
+function ScoutTab({ leagueId }: { leagueId: string }) {
+  const [players, setPlayers]       = useState<ScoutPlayer[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [error, setError]           = useState<string | null>(null);
+  const [roleFilter, setRoleFilter] = useState<string>("all");
+  const [teamFilter, setTeamFilter] = useState<string>("all");
+  const [sortField, setSortField]   = useState<SortField>("total_points");
+  const [sortDir, setSortDir]       = useState<SortDir>("desc");
+  const [modalPlayerId, setModalPlayerId] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    api.players.scout(leagueId)
+      .then(setPlayers)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [leagueId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const roles = ["all", "top", "jungle", "mid", "adc", "support"];
+  const roleLabels: Record<string, string> = {
+    all: "TODOS", top: "TOP", jungle: "JGL", mid: "MID", adc: "ADC", support: "SUP",
+  };
+
+  const teams = ["all", ...Array.from(new Set(players.map((p) => p.team))).sort()];
+
+  const kda = (p: ScoutPlayer) => (p.avg_kills + p.avg_assists) / Math.max(p.avg_deaths, 1);
+
+  const sortOptions: { value: SortField; label: string }[] = [
+    { value: "total_points",     label: "Puntos totales" },
+    { value: "current_price",    label: "Precio" },
+    { value: "kda",              label: "KDA" },
+    { value: "avg_kills",        label: "Kills" },
+    { value: "avg_deaths",       label: "Deaths (menor)" },
+    { value: "avg_assists",      label: "Assists" },
+    { value: "avg_cs_per_min",   label: "CS/min" },
+    { value: "avg_gold_diff_15", label: "Gold Diff @15" },
+    { value: "avg_xp_diff_15",   label: "XP Diff @15" },
+    { value: "avg_damage_share", label: "Damage Share" },
+    { value: "avg_vision_score", label: "Vision Score" },
+  ];
+
+  const getSortValue = (p: ScoutPlayer): number => {
+    if (sortField === "kda") return kda(p);
+    if (sortField === "avg_deaths") return -p.avg_deaths; // menor es mejor → invertimos para que desc = mejores primero
+    return p[sortField] as number;
+  };
+
+  const filtered = players
+    .filter((p) => roleFilter === "all" || p.role === roleFilter)
+    .filter((p) => teamFilter === "all" || p.team === teamFilter)
+    .sort((a, b) => {
+      const diff = getSortValue(a) - getSortValue(b);
+      return sortDir === "desc" ? -diff : diff;
+    });
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  };
+
+  const modalPlayer = modalPlayerId ? players.find((p) => p.id === modalPlayerId) : null;
+
+  if (loading) return <ListSkeleton rows={8} />;
+  if (error)   return <ErrorState message={error} onRetry={load} />;
+
+  return (
+    <div>
+      {/* Filtros */}
+      <div className="flex flex-col gap-3 mb-6">
+        {/* Fila 1: roles + equipo */}
+        <div className="flex flex-wrap gap-2 items-center">
+          {/* Pills de rol */}
+          {roles.map((r) => {
+            const active = roleFilter === r;
+            return (
+              <button
+                key={r}
+                onClick={() => setRoleFilter(r)}
+                className="px-3 py-1.5 text-xs transition-all duration-150 active:scale-95"
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontWeight: active ? 700 : 400,
+                  borderRadius: "6px",
+                  background: active ? "#FCD400" : "#1A1A1A",
+                  color: active ? "#111111" : "#555555",
+                  border: active ? "1px solid #FCD400" : "1px solid #2A2A2A",
+                }}
+              >
+                {roleLabels[r] ?? r.toUpperCase()}
+              </button>
+            );
+          })}
+
+          {/* Separador visual */}
+          <div style={{ width: "1px", height: "20px", background: "#2A2A2A" }} />
+
+          {/* Dropdown de equipo */}
+          <select
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+            className="text-xs outline-none"
+            style={{
+              background: "#1A1A1A",
+              border: "1px solid #2A2A2A",
+              borderRadius: "6px",
+              color: "#888888",
+              padding: "6px 10px",
+              fontFamily: "'Space Grotesk', sans-serif",
+              cursor: "pointer",
+            }}
+          >
+            {teams.map((t) => (
+              <option key={t} value={t} style={{ background: "#1A1A1A" }}>
+                {t === "all" ? "Todos los equipos" : t}
+              </option>
+            ))}
+          </select>
+
+          {/* Sort dropdown */}
+          <div className="flex items-center gap-1 ml-auto">
+            <select
+              value={sortField}
+              onChange={(e) => { setSortField(e.target.value as SortField); setSortDir("desc"); }}
+              className="text-xs outline-none"
+              style={{
+                background: "#1A1A1A",
+                border: "1px solid #2A2A2A",
+                borderRadius: "6px",
+                color: "#888888",
+                padding: "6px 10px",
+                fontFamily: "'Space Grotesk', sans-serif",
+                cursor: "pointer",
+              }}
+            >
+              {sortOptions.map((o) => (
+                <option key={o.value} value={o.value} style={{ background: "#1A1A1A" }}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+              className="transition-all active:scale-95"
+              style={{
+                background: "#1A1A1A",
+                border: "1px solid #2A2A2A",
+                borderRadius: "6px",
+                padding: "6px 8px",
+                color: "#888888",
+                fontSize: "12px",
+                fontFamily: "'Space Grotesk', sans-serif",
+                cursor: "pointer",
+              }}
+              title={sortDir === "desc" ? "Descendente" : "Ascendente"}
+            >
+              {sortDir === "desc" ? "↓" : "↑"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla */}
+      {filtered.length === 0 ? (
+        <div className="py-16 text-center">
+          <p style={{ fontFamily: "'Space Grotesk', sans-serif", color: "#555555", fontSize: "14px" }}>
+            Sin jugadores para este filtro.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {/* Header */}
+          <div
+            className="flex items-center px-4 py-1.5"
+            style={{
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontSize: "10px",
+              fontWeight: 700,
+              color: "#333333",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            <span style={{ flex: 1 }}>Jugador</span>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <button onClick={() => toggleSort("total_points")} className="w-12 text-center hover:text-[#888888] transition-colors">
+                PTS {sortField === "total_points" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+              </button>
+              <div style={{ width: "1px" }} />
+              <button onClick={() => toggleSort("kda")} className="w-12 text-center hover:text-[#888888] transition-colors">
+                KDA {sortField === "kda" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+              </button>
+              <div style={{ width: "1px" }} />
+              <button onClick={() => toggleSort("avg_cs_per_min")} className="w-12 text-center hover:text-[#888888] transition-colors">
+                CS/m {sortField === "avg_cs_per_min" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+              </button>
+              <div style={{ width: "1px" }} />
+              <button onClick={() => toggleSort("avg_gold_diff_15")} className="hidden sm:block w-14 text-center hover:text-[#888888] transition-colors">
+                GD15 {sortField === "avg_gold_diff_15" ? (sortDir === "desc" ? "↓" : "↑") : ""}
+              </button>
+            </div>
+          </div>
+
+          {filtered.map((p) => (
+            <ScoutRow
+              key={p.id}
+              player={p}
+              onOpen={() => setModalPlayerId(p.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Modal */}
+      {modalPlayerId && modalPlayer && (
+        <PlayerStatsModal
+          playerId={modalPlayerId}
+          playerHint={{
+            name: modalPlayer.name,
+            team: modalPlayer.team,
+            role: modalPlayer.role,
+            image_url: modalPlayer.image_url,
+          }}
+          onClose={() => setModalPlayerId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ScoutRow({ player: p, onOpen }: { player: ScoutPlayer; onOpen: () => void }) {
+  const roleColorHex = getRoleColor(p.role);
+  const kdaVal = (p.avg_kills + p.avg_assists) / Math.max(p.avg_deaths, 1);
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full text-left group"
+    >
+      <div
+        className="flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-150"
+        style={{
+          background: "#111111",
+          border: "1px solid #1A1A1A",
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "#2A2A2A"; (e.currentTarget as HTMLDivElement).style.background = "#141414"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.borderColor = "#1A1A1A"; (e.currentTarget as HTMLDivElement).style.background = "#111111"; }}
+      >
+        {/* Foto grande */}
+        <div
+          className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
+          style={{ background: roleColorHex + "22", border: `1px solid ${roleColorHex}33` }}
+        >
+          {p.image_url
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover object-top" />
+            : (
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "22px", fontWeight: 700, color: roleColorHex }}>
+                {p.name[0]?.toUpperCase()}
+              </span>
+            )
+          }
+        </div>
+
+        {/* Nombre + equipo + badges */}
+        <div className="min-w-0 flex-1">
+          {/* Fila 1: nombre + badges */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className="truncate"
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontSize: "18px",
+                fontWeight: 700,
+                color: "#F0E8D0",
+                lineHeight: 1.2,
+              }}
+            >
+              {p.name}
+            </span>
+            {/* Rol badge */}
+            <span
+              className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+              style={{
+                background: roleColorHex + "22",
+                color: roleColorHex,
+                border: `1px solid ${roleColorHex}44`,
+                fontFamily: "'Space Grotesk', sans-serif",
+                letterSpacing: "0.05em",
+              }}
+            >
+              {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
+            </span>
+            {/* Owner badge */}
+            {p.owner_name && (
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
+                style={{
+                  background: "#1F2A1A",
+                  color: "#7DBF5A",
+                  border: "1px solid #3A5A2A",
+                  fontFamily: "'Space Grotesk', sans-serif",
+                }}
+              >
+                @{p.owner_name}
+              </span>
+            )}
+          </div>
+          {/* Fila 2: equipo */}
+          <div className="flex items-center gap-1.5 mt-1">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={getTeamBadgeUrl(p.team)}
+              alt={p.team}
+              style={{ width: 14, height: 14, objectFit: "contain" }}
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+            <span
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontSize: "12px",
+                color: "#555555",
+              }}
+            >
+              {p.team}
+            </span>
+            <span style={{ color: "#2A2A2A", fontSize: "11px" }}>·</span>
+            <span
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontSize: "12px",
+                color: "#444444",
+              }}
+            >
+              {p.current_price.toFixed(1)}M
+              {p.last_price_change_pct !== 0 && (
+                <PriceTrend changePct={p.last_price_change_pct ?? 0} />
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Stats grid — 3 cols mobile / 5 cols desktop; últimas 2 ocultas en mobile */}
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-x-3 gap-y-1 flex-shrink-0">
+          {/* PTS */}
+          <div className="flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>PTS</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#FCD400", lineHeight: 1 }}>
+              {p.total_points > 0 ? Math.round(p.total_points) : "—"}
+            </span>
+          </div>
+          {/* KDA */}
+          <div className="flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>KDA</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+              {kdaVal.toFixed(1)}
+            </span>
+          </div>
+          {/* Kills */}
+          <div className="flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Kills</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+              {p.avg_kills > 0 ? p.avg_kills.toFixed(1) : "—"}
+            </span>
+          </div>
+          {/* Muertes */}
+          <div className="flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Muertes</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_deaths > 3 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
+              {p.avg_deaths > 0 ? p.avg_deaths.toFixed(1) : "—"}
+            </span>
+          </div>
+          {/* Asist */}
+          <div className="flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Asist</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+              {p.avg_assists > 0 ? p.avg_assists.toFixed(1) : "—"}
+            </span>
+          </div>
+          {/* CS/m */}
+          <div className="flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>CS/m</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+              {p.avg_cs_per_min > 0 ? p.avg_cs_per_min.toFixed(1) : "—"}
+            </span>
+          </div>
+          {/* GD15 */}
+          <div className="flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>GD15</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_gold_diff_15 > 0 ? "#4ade80" : p.avg_gold_diff_15 < 0 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
+              {p.avg_gold_diff_15 !== 0
+                ? (p.avg_gold_diff_15 > 0 ? "+" : "") + Math.round(p.avg_gold_diff_15)
+                : "—"}
+            </span>
+          </div>
+          {/* XPD15 */}
+          <div className="flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>XPD15</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_xp_diff_15 > 0 ? "#4ade80" : p.avg_xp_diff_15 < 0 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
+              {p.avg_xp_diff_15 !== 0
+                ? (p.avg_xp_diff_15 > 0 ? "+" : "") + Math.round(p.avg_xp_diff_15)
+                : "—"}
+            </span>
+          </div>
+          {/* Dmg% — oculto en mobile */}
+          <div className="hidden sm:flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Dmg%</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+              {p.avg_damage_share > 0 ? (p.avg_damage_share * 100).toFixed(1) + "%" : "—"}
+            </span>
+          </div>
+          {/* Visión — oculto en mobile */}
+          <div className="hidden sm:flex flex-col items-center justify-center">
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Visión</span>
+            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+              {p.avg_vision_score > 0 ? Math.round(p.avg_vision_score) : "—"}
+            </span>
+          </div>
+        </div>
+      </div>
+    </button>
   );
 }
 

@@ -215,7 +215,7 @@ def _update_price(supabase: Client, player_id: str) -> None:
     try:
         player_resp = (
             supabase.table("players")
-            .select("current_price,avg_points")
+            .select("current_price,avg_points,avg_points_baseline")
             .eq("id", player_id)
             .single()
             .execute()
@@ -226,21 +226,42 @@ def _update_price(supabase: Client, player_id: str) -> None:
 
         current_price: float = float(player.get("current_price") or 0)
         avg_points: float = float(player.get("avg_points") or 0)
+        baseline_raw = player.get("avg_points_baseline")
+        baseline: float | None = float(baseline_raw) if baseline_raw is not None else None
 
         if current_price <= 0:
             logger.warning("Player %s has no valid current_price — skipping price update", player_id)
             return
 
-        # Sin datos históricos de baseline usamos avg_points como baseline
-        # (primera vez que hay datos, el precio no cambia; se estabilizará con el tiempo)
-        new_price = calculate_new_price(
+        # Calcular ownership global
+        total_resp = (
+            supabase.table("rosters")
+            .select("id", count="exact")
+            .execute()
+        )
+        total: int = total_resp.count or 0
+
+        owned_resp = (
+            supabase.table("roster_players")
+            .select("id", count="exact")
+            .eq("player_id", player_id)
+            .execute()
+        )
+        owned: int = owned_resp.count or 0
+
+        new_price, delta = calculate_new_price(
             current_price=current_price,
-            recent_avg_points=avg_points,
-            baseline_avg_points=avg_points,  # neutro en la primera iteración
-            demand_ratio=1.0,               # demanda equilibrada por defecto
+            recent_points=avg_points,
+            baseline_avg_points=baseline,
+            ownership_count=owned,
+            total_rosters=total,
         )
 
-        supabase.table("players").update({"current_price": new_price}).eq("id", player_id).execute()
+        supabase.table("players").update({
+            "current_price": new_price,
+            "last_price_change_pct": delta,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("id", player_id).execute()
 
         # Registrar en historial de precios
         supabase.table("price_history").insert({
@@ -248,7 +269,7 @@ def _update_price(supabase: Client, player_id: str) -> None:
             "price": new_price,
         }).execute()
 
-        logger.debug("Updated price for player %s: %.2f → %.2f", player_id, current_price, new_price)
+        logger.debug("Updated price for player %s: %.2f → %.2f (delta=%.4f)", player_id, current_price, new_price, delta)
 
     except Exception as exc:
         logger.error("Failed to update price for player %s: %s", player_id, exc)

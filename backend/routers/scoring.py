@@ -13,6 +13,7 @@ class LeaderboardEntry(BaseModel):
     rank: int
     member_id: UUID
     username: str | None = None
+    avatar_url: str | None = None
     total_points: float
     remaining_budget: float
     player_count: int
@@ -53,11 +54,11 @@ async def get_leaderboard(
     if user_ids:
         profiles_resp = (
             supabase.table("profiles")
-            .select("id, username")
+            .select("id, username, avatar_url")
             .in_("id", user_ids)
             .execute()
         )
-        profiles_map = {p["id"]: p["username"] for p in (profiles_resp.data or [])}
+        profiles_map = {p["id"]: p for p in (profiles_resp.data or [])}
 
     player_counts: dict[str, int] = {}
     for m in members:
@@ -83,7 +84,8 @@ async def get_leaderboard(
         LeaderboardEntry(
             rank=i + 1,
             member_id=m["id"],
-            username=profiles_map.get(m.get("user_id", ""), None),
+            username=profiles_map.get(m.get("user_id", ""), {}).get("username"),
+            avatar_url=profiles_map.get(m.get("user_id", ""), {}).get("avatar_url"),
             total_points=float(m["total_points"] or 0),
             remaining_budget=float(m["remaining_budget"] or 0),
             player_count=player_counts.get(m["id"], 0),
@@ -127,7 +129,7 @@ async def get_player_score_history(
             "game_id": row["game_id"],
             "series_date": series_info.get("date"),
         })
-    games_with_date.sort(key=lambda x: x["series_date"] or "", reverse=True)
+    games_with_date.sort(key=lambda x: x["series_date"] or "", reverse=False)
     ordered_game_ids = [g["game_id"] for g in games_with_date[:10]]
 
     # Stats recientes desde player_game_stats

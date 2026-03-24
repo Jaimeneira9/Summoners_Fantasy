@@ -40,6 +40,7 @@ export type PlayerBrief = {
   current_price: number;
   total_season_points?: number | null;
   split_points?: number | null;
+  last_price_change_pct?: number;
 };
 
 export type Listing = {
@@ -58,6 +59,7 @@ export type LeaderboardEntry = {
   rank: number;
   member_id: string;
   username: string | null;
+  avatar_url: string | null;
   total_points: number;
   remaining_budget: number;
   player_count: number;
@@ -142,6 +144,8 @@ export type RosterPlayer = {
   for_sale: boolean;
   is_protected: boolean;
   split_points?: number | null;
+  clause_amount: number | null;
+  clause_expires_at: string | null;
   player: PlayerBrief & { id: string };
 };
 
@@ -153,6 +157,27 @@ export type Split = {
   end_date: string | null;
   reset_date: string | null;
   is_active: boolean;
+};
+
+export type ScoutPlayer = {
+  id: string;
+  name: string;
+  team: string;
+  role: string;
+  image_url: string | null;
+  current_price: number;
+  last_price_change_pct: number;
+  avg_kills: number;
+  avg_deaths: number;
+  avg_assists: number;
+  avg_cs_per_min: number;
+  avg_gold_diff_15: number;
+  avg_xp_diff_15: number;
+  avg_damage_share: number;
+  avg_vision_score: number;
+  avg_points: number;
+  total_points: number;
+  owner_name: string | null;
 };
 
 export type PlayerSplitHistory = {
@@ -257,9 +282,22 @@ export const api = {
     list: () => req<Split[]>("/splits/"),
     playerHistory: (playerId: string) => req<PlayerSplitHistory[]>(`/splits/player/${playerId}/history`),
   },
+  players: {
+    scout: (leagueId: string) =>
+      req<ScoutPlayer[]>(`/players/scout?league_id=${leagueId}`),
+  },
   activity: {
     feed: (leagueId: string, limit = 50) =>
       req<ActivityEvent[]>(`/activity/${leagueId}?limit=${limit}`),
+  },
+  clause: {
+    activate: (leagueId: string, rosterPlayerId: string) =>
+      req(`/market/${leagueId}/clause/${rosterPlayerId}/activate`, { method: "POST" }),
+    upgrade: (leagueId: string, rosterPlayerId: string, amount: number) =>
+      req(`/market/${leagueId}/clause/${rosterPlayerId}/upgrade`, {
+        method: "POST",
+        body: JSON.stringify({ amount }),
+      }),
   },
   bids: {
     place: (leagueId: string, listingId: string, bidAmount: number) =>

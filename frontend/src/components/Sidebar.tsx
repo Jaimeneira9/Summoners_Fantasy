@@ -79,6 +79,7 @@ export default function Sidebar({ leagueId, leagueName }: SidebarProps) {
               { label: "En vivo", tab: "live" },
               { label: "Pujas", tab: "bids" },
               { label: "Ofertas", tab: "offers" },
+              { label: "Explorar", tab: "scout" },
             ].map(({ label, tab }) => {
               const isActive =
                 pathname.includes("/market") && searchParams.get("tab") === tab;

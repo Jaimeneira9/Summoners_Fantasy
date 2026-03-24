@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -36,6 +36,7 @@ class PlayerBrief(BaseModel):
     image_url: str | None
     current_price: float
     split_points: float = 0.0
+    last_price_change_pct: float = 0.0
 
 
 class ListingOut(BaseModel):
@@ -178,7 +179,7 @@ async def get_listings(
         supabase.table("market_listings")
         .select(
             "id, player_id, seller_id, league_id, ask_price, status, listed_at, closes_at,"
-            " players(name, team, role, image_url, current_price)"
+            " players(name, team, role, image_url, current_price, last_price_change_pct)"
         )
         .eq("league_id", str(league_id))
         .eq("status", "active")
@@ -279,30 +280,31 @@ async def buy_player(
     slot = _auto_assign_slot(supabase, roster_id, player_role)
 
     # Add player to roster
+    ask_price = float(listing["ask_price"])
     supabase.table("roster_players").insert({
         "roster_id": roster_id,
         "player_id": listing["player_id"],
         "slot": slot,
-        "price_paid": float(listing["ask_price"]),
+        "price_paid": ask_price,
+        "clause_expires_at": (datetime.now(timezone.utc) + timedelta(days=14)).isoformat(),
+        "clause_amount": ask_price,
     }).execute()
 
-    # Deduct buyer budget
-    supabase.table("league_members").update({
-        "remaining_budget": float(member["remaining_budget"]) - float(listing["ask_price"])
-    }).eq("id", member["id"]).execute()
+    # Deduct buyer budget (atomic — verifica y descuenta en una sola transacción)
+    result = supabase.rpc("deduct_budget", {
+        "p_member_id": member["id"],
+        "p_amount": float(ask_price)
+    }).execute()
 
-    # Pay seller (if not a system listing)
+    if not result.data:
+        raise HTTPException(status_code=400, detail="Presupuesto insuficiente")
+
+    # Pay seller (if not a system listing) — atómico, sin read-modify-write
     if listing["seller_id"]:
-        seller_resp = (
-            supabase.table("league_members")
-            .select("remaining_budget")
-            .eq("id", listing["seller_id"])
-            .execute()
-        )
-        if seller_resp.data:
-            supabase.table("league_members").update({
-                "remaining_budget": float(seller_resp.data[0]["remaining_budget"]) + float(listing["ask_price"])
-            }).eq("id", listing["seller_id"]).execute()
+        supabase.rpc("add_budget", {
+            "p_member_id": listing["seller_id"],
+            "p_amount": float(ask_price)
+        }).execute()
 
     # Mark listing sold
     supabase.table("market_listings").update({"status": "sold"}).eq("id", str(body.listing_id)).execute()
@@ -414,7 +416,7 @@ async def get_sell_offers(
         supabase.table("sell_offers")
         .select(
             "id, ask_price, status, expires_at,"
-            " players(name, team, role, image_url, current_price)"
+            " players(name, team, role, image_url, current_price, last_price_change_pct)"
         )
         .eq("league_id", str(league_id))
         .eq("member_id", member["id"])
@@ -543,10 +545,248 @@ async def get_candidates(
         supabase.table("market_candidates")
         .select(
             "id, player_id, ask_price, added_at,"
-            " players(name, team, role, image_url, current_price)"
+            " players(name, team, role, image_url, current_price, last_price_change_pct)"
         )
         .eq("league_id", str(league_id))
         .eq("seller_id", member["id"])
         .execute()
     )
     return resp.data or []
+
+
+# ---------------------------------------------------------------------------
+# Endpoints: cláusulas de rescisión
+# ---------------------------------------------------------------------------
+
+class ClauseUpgradeRequest(BaseModel):
+    amount: float = Field(..., gt=0)
+
+
+@router.post("/{league_id}/clause/{roster_player_id}/activate", status_code=status.HTTP_200_OK)
+async def activate_clause(
+    league_id: str,
+    roster_player_id: str,
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Activa la cláusula de rescisión: paga el importe y ficha al jugador."""
+    buyer_member = _get_member(supabase, league_id, user["id"])
+
+    # Fetch roster_player con join a rosters → league_members para verificar que
+    # el jugador pertenece a la liga del parámetro de ruta (previene cross-league exploit)
+    rp_resp = (
+        supabase.table("roster_players")
+        .select("id, player_id, clause_expires_at, clause_amount, rosters(member_id, league_members(league_id))")
+        .eq("id", roster_player_id)
+        .eq("rosters.league_members.league_id", league_id)
+        .execute()
+    )
+    rp = rp_resp.data[0] if rp_resp.data else None
+    if not rp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jugador no encontrado")
+
+    # Validar que el jugador pertenece a esta liga (defensa en profundidad contra
+    # el caso en que PostgREST devuelva el row con el join nulo en vez de excluirlo)
+    owner_league_id = (rp["rosters"].get("league_members") or {}).get("league_id")
+    if owner_league_id != league_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jugador no encontrado")
+
+    owner_member_id: str = rp["rosters"]["member_id"]
+
+    # El activador no puede ser el propietario actual
+    if owner_member_id == buyer_member["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No podés activar la cláusula de un jugador que ya es tuyo",
+        )
+
+    # Validar que la cláusula existe y no ha expirado
+    if not rp.get("clause_expires_at"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este jugador no tiene cláusula activa",
+        )
+    now = datetime.now(timezone.utc)
+    clause_expires = datetime.fromisoformat(rp["clause_expires_at"])
+    if clause_expires.tzinfo is None:
+        clause_expires = clause_expires.replace(tzinfo=timezone.utc)
+    if clause_expires <= now:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La cláusula de este jugador ha expirado",
+        )
+
+    clause_amount = float(rp["clause_amount"])
+    player_id: str = rp["player_id"]
+
+    # Obtener precio actual del jugador (para la nueva cláusula)
+    player_resp = (
+        supabase.table("players")
+        .select("current_price, role")
+        .eq("id", player_id)
+        .execute()
+    )
+    if not player_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jugador no encontrado en la BD")
+    player = player_resp.data[0]
+
+    # Obtener roster del comprador
+    buyer_roster = _get_roster(supabase, buyer_member["id"])
+    buyer_roster_id: str = buyer_roster["id"]
+
+    # Verificar que el comprador no tiene ya este jugador
+    owned_resp = (
+        supabase.table("roster_players")
+        .select("id")
+        .eq("roster_id", buyer_roster_id)
+        .eq("player_id", player_id)
+        .execute()
+    )
+    if owned_resp.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya tenés este jugador en tu equipo",
+        )
+
+    # Determinar slot libre para el comprador
+    bench_slot: str | None = None
+    occupied_resp = (
+        supabase.table("roster_players")
+        .select("slot")
+        .eq("roster_id", buyer_roster_id)
+        .execute()
+    )
+    occupied = {row["slot"] for row in (occupied_resp.data or [])}
+    for candidate_slot in ["bench_1", "bench_2"]:
+        if candidate_slot not in occupied:
+            bench_slot = candidate_slot
+            break
+    if bench_slot is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Tu equipo está completo. Liberá un slot antes de activar la cláusula.",
+        )
+
+    new_clause_expires = (now + timedelta(days=14)).isoformat()
+
+    # Ejecutar transferencia
+    # 1. Descuento atómico — verifica y descuenta en una sola transacción
+    result = supabase.rpc("deduct_budget", {
+        "p_member_id": buyer_member["id"],
+        "p_amount": clause_amount
+    }).execute()
+
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Presupuesto insuficiente para activar la cláusula",
+        )
+
+    # 2. Acreditar al vendedor (propietario actual) — atómico, sin read-modify-write
+    supabase.rpc("add_budget", {
+        "p_member_id": owner_member_id,
+        "p_amount": clause_amount
+    }).execute()
+
+    # 3. Eliminar del roster actual
+    supabase.table("roster_players").delete().eq("id", roster_player_id).execute()
+
+    # 4. Insertar en el roster del comprador
+    supabase.table("roster_players").insert({
+        "roster_id": buyer_roster_id,
+        "player_id": player_id,
+        "slot": bench_slot,
+        "price_paid": clause_amount,
+        "clause_expires_at": new_clause_expires,
+        "clause_amount": float(player["current_price"]),
+    }).execute()
+
+    # 5. Registrar transacción
+    supabase.table("transactions").insert({
+        "league_id": league_id,
+        "buyer_id": buyer_member["id"],
+        "seller_id": owner_member_id,
+        "player_id": player_id,
+        "type": "clause",
+        "price": clause_amount,
+    }).execute()
+
+    return {
+        "ok": True,
+        "clause_amount": clause_amount,
+        "new_clause_expires_at": new_clause_expires,
+    }
+
+
+@router.post("/{league_id}/clause/{roster_player_id}/upgrade", status_code=status.HTTP_200_OK)
+async def upgrade_clause(
+    league_id: str,
+    roster_player_id: str,
+    body: ClauseUpgradeRequest,
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Sube el importe de la cláusula pagando una cantidad: nueva_cláusula = vieja + amount * 0.5."""
+    member = _get_member(supabase, league_id, user["id"])
+    roster = _get_roster(supabase, member["id"])
+
+    # Verificar que el roster_player pertenece al usuario en esta liga
+    rp_resp = (
+        supabase.table("roster_players")
+        .select("id, clause_amount, clause_expires_at")
+        .eq("id", roster_player_id)
+        .eq("roster_id", roster["id"])
+        .execute()
+    )
+    rp = rp_resp.data[0] if rp_resp.data else None
+    if not rp:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Jugador no encontrado en tu equipo",
+        )
+
+    amount = float(body.amount)
+
+    now = datetime.now(timezone.utc)
+
+    # Si ya tiene cláusula activa, validar que no haya expirado
+    if rp.get("clause_expires_at"):
+        clause_expires = datetime.fromisoformat(rp["clause_expires_at"])
+        if clause_expires.tzinfo is None:
+            clause_expires = clause_expires.replace(tzinfo=timezone.utc)
+        if clause_expires <= now:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La cláusula de este jugador ha expirado",
+            )
+
+    current_clause = float(rp.get("clause_amount") or 0)
+    new_clause = current_clause + amount * 0.5
+
+    # Descuento atómico — verifica y descuenta en una sola transacción
+    result = supabase.rpc("deduct_budget", {
+        "p_member_id": member["id"],
+        "p_amount": amount
+    }).execute()
+
+    if not result.data:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Presupuesto insuficiente para subir la cláusula",
+        )
+
+    # Actualizar cláusula; si no existía, setear también clause_expires_at
+    update_payload: dict = {"clause_amount": new_clause}
+    if not rp.get("clause_expires_at"):
+        update_payload["clause_expires_at"] = (
+            now + timedelta(days=14)
+        ).isoformat()
+
+    supabase.table("roster_players").update(update_payload).eq("id", roster_player_id).execute()
+
+    return {
+        "ok": True,
+        "old_clause": current_clause,
+        "amount_paid": amount,
+        "new_clause": new_clause,
+    }

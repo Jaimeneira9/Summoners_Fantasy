@@ -31,6 +31,7 @@ class PlayerBrief(BaseModel):
     role: str
     image_url: str | None
     current_price: float
+    last_price_change_pct: float = 0.0
 
 
 class RosterPlayerOut(BaseModel):
@@ -40,6 +41,8 @@ class RosterPlayerOut(BaseModel):
     for_sale: bool
     is_protected: bool = False
     split_points: float = 0.0
+    clause_amount: float | None = None
+    clause_expires_at: str | None = None
     player: PlayerBrief
 
 
@@ -98,7 +101,7 @@ async def get_roster(
     if roster_resp.data:
         rp_resp = (
             supabase.table("roster_players")
-            .select("id, slot, price_paid, for_sale, is_protected, players(id, name, team, role, image_url, current_price)")
+            .select("id, slot, price_paid, for_sale, is_protected, clause_amount, clause_expires_at, players(id, name, team, role, image_url, current_price, last_price_change_pct)")
             .eq("roster_id", roster_resp.data[0]["id"])
             .execute()
         )
@@ -130,6 +133,8 @@ async def get_roster(
                 for_sale=row["for_sale"],
                 is_protected=bool(row.get("is_protected", False)),
                 split_points=split_points_by_player.get(player_id, 0.0),
+                clause_amount=float(row["clause_amount"]) if row.get("clause_amount") is not None else None,
+                clause_expires_at=row.get("clause_expires_at"),
                 player=PlayerBrief(**row["players"]),
             ))
 

@@ -303,7 +303,7 @@ function StandingRow({
   onClick: () => void;
 }) {
   const isFirst = entry.rank === 1;
-  const initials = getInitials(null);
+  const initials = getInitials(entry.username);
 
   // Styles for the position badge
   const posBadgeStyle: React.CSSProperties = isMe
@@ -404,11 +404,17 @@ function StandingRow({
 
       {/* MANAGER — flex-grow */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
-        <div style={avatarStyle}>{initials}</div>
+        <div style={avatarStyle}>
+          {entry.avatar_url
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={entry.avatar_url} alt={entry.username ?? "avatar"} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+            : initials
+          }
+        </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={usernameStyle} className="truncate">
-              {"Manager"}
+              {entry.username ?? "Manager"}
             </span>
             {isMe && (
               <span

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { api, type PlayerSplitHistory } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getRoleColor } from "@/lib/roles";
+import { ClauseStatus } from "@/components/ClauseStatus";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +36,14 @@ type PlayerHistory = {
   total_points: number;
 };
 
+export interface ClauseInfo {
+  rosterPlayerId: string;
+  leagueId: string;
+  clauseAmount: number | null;
+  clauseExpiresAt: string | null;
+  isOwnPlayer: boolean;
+}
+
 export interface PlayerStatsModalProps {
   playerId: string;
   playerHint?: {
@@ -44,6 +53,10 @@ export interface PlayerStatsModalProps {
     image_url: string | null;
   };
   onClose: () => void;
+  /** If provided, renders clause controls at the bottom of the modal */
+  clauseInfo?: ClauseInfo;
+  /** Called after a successful clause action so the parent can refresh */
+  onClauseAction?: () => void;
 }
 
 type StatsTab = "jornada" | "split";
@@ -439,7 +452,7 @@ function TabSplit({ splits }: { splits: PlayerSplitHistory[] }) {
   const rows: StatRow[] = [
     { label: "Partidas jugadas", value: s.games_played.toString() },
     ...(winRate != null ? [{ label: "Win rate", value: `${winRate}%` }] : []),
-    { label: "KDA promedio", value: s.kda != null ? s.kda.toFixed(2) : "—", highlight: true },
+    { label: "KDA promedio", value: s.kda != null && isFinite(s.kda) ? s.kda.toFixed(2) : "—", highlight: true },
     { label: "CS/min", value: s.cspm != null ? s.cspm.toFixed(2) : "—" },
     { label: "DPM", value: s.dpm != null ? Math.round(s.dpm).toLocaleString("es-ES") : "—" },
     {
@@ -489,7 +502,7 @@ function TabSplit({ splits }: { splits: PlayerSplitHistory[] }) {
       </div>
 
       {/* KDA highlight tiles */}
-      {s.kda != null && (
+      {s.kda != null && isFinite(s.kda) && (
         <div className="grid grid-cols-3 gap-2">
           <div
             className="rounded-xl px-3 py-3 text-center"
@@ -563,7 +576,7 @@ function TabSplit({ splits }: { splits: PlayerSplitHistory[] }) {
               <div className="flex items-center gap-3 text-xs font-datatype">
                 <span className="text-white/50">{prev.games_played}G</span>
                 <span className="text-green-400">
-                  {prev.kda != null ? prev.kda.toFixed(2) : "—"} KDA
+                  {prev.kda != null && isFinite(prev.kda) ? prev.kda.toFixed(2) : "—"} KDA
                 </span>
               </div>
             </div>
@@ -733,7 +746,7 @@ function HeroSection({
 // Main Modal
 // ---------------------------------------------------------------------------
 
-export function PlayerStatsModal({ playerId, playerHint, onClose }: PlayerStatsModalProps) {
+export function PlayerStatsModal({ playerId, playerHint, onClose, clauseInfo, onClauseAction }: PlayerStatsModalProps) {
   const [data, setData]     = useState<PlayerHistory | null>(null);
   const [splits, setSplits] = useState<PlayerSplitHistory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -872,6 +885,36 @@ export function PlayerStatsModal({ playerId, playerHint, onClose }: PlayerStatsM
                 />
               )}
               {tab === "split" && <TabSplit splits={splits} />}
+
+              {/* ── Clause section ── */}
+              {clauseInfo && (
+                <div
+                  className="mx-4 sm:mx-5 mb-5 px-4 py-3 rounded-2xl"
+                  style={{
+                    background: clauseInfo.isOwnPlayer
+                      ? "rgba(56,189,248,0.04)"
+                      : "rgba(252,212,0,0.04)",
+                    border: clauseInfo.isOwnPlayer
+                      ? "1px solid rgba(56,189,248,0.12)"
+                      : "1px solid rgba(252,212,0,0.12)",
+                  }}
+                >
+                  <p
+                    className="text-[10px] uppercase tracking-widest font-semibold mb-2"
+                    style={{ color: "#8892aa" }}
+                  >
+                    Cláusula de rescisión
+                  </p>
+                  <ClauseStatus
+                    clauseAmount={clauseInfo.clauseAmount}
+                    clauseExpiresAt={clauseInfo.clauseExpiresAt}
+                    isOwnPlayer={clauseInfo.isOwnPlayer}
+                    leagueId={clauseInfo.leagueId}
+                    rosterPlayerId={clauseInfo.rosterPlayerId}
+                    onSuccess={onClauseAction}
+                  />
+                </div>
+              )}
             </div>
           </>
         )}
