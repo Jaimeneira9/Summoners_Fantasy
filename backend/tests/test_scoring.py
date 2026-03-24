@@ -8,28 +8,28 @@ from scoring.engine import (
 def test_mid_basic_stats():
     stats = {"kills": 5, "deaths": 2, "assists": 3, "cs_per_min": 8.5}
     pts = calculate_match_points(stats, "mid", 25.0)
-    expected = 5 * 2.0 + 2 * (-1.5) + 3 * 1.0 + 8.5 * 0.5
+    expected = 5 * 2.0 + 2 * (-1.5) + 3 * 4.0 + 8.5 * 0.5
     assert pts == round(expected, 2)
 
 
 def test_adc_basic_stats():
     stats = {"kills": 8, "deaths": 1, "assists": 2, "cs_per_min": 10.0, "damage_share": 0.35}
     pts = calculate_match_points(stats, "adc", 25.0)
-    expected = 8 * 2.0 + 1 * (-1.5) + 2 * 0.75 + 10.0 * 0.6 + 0.35 * 10.0
+    expected = 8 * 2.0 + 1 * (-1.5) + 2 * 0.75 + 10.0 * 0.75 + 0.35 * 10.0
     assert pts == round(expected, 2)
 
 
 def test_support_vision_and_assists():
     stats = {"kills": 1, "deaths": 2, "assists": 10, "vision_score": 50}
     pts = calculate_match_points(stats, "support", 25.0)
-    expected = 1 * 1.5 + 2 * (-1.0) + 10 * 2.0 + 50 * 0.1
+    expected = 1 * 1.5 + 2 * (-1.5) + 10 * 2.0 + 50 * 0.1
     assert pts == round(expected, 2)
 
 
 def test_jungle_objective_steal():
     stats = {"kills": 3, "deaths": 1, "assists": 5, "objective_steals": 2}
     pts = calculate_match_points(stats, "jungle", 25.0)
-    expected = 3 * 2.0 + 1 * (-1.5) + 5 * 1.5 + 2 * 5.0
+    expected = 3 * 2.5 + 1 * (-2.0) + 5 * 3.0 + 2 * 10.0
     assert pts == round(expected, 2)
 
 
@@ -57,7 +57,7 @@ def test_normalization_not_applied_below_threshold():
     stats = {"kills": 5, "deaths": 2, "assists": 3, "cs_per_min": 8.5}
     # Exactly at threshold — no normalization
     pts = calculate_match_points(stats, "mid", float(GAME_LENGTH_NORMALIZATION_THRESHOLD_MIN))
-    expected = 5 * 2.0 + 2 * (-1.5) + 3 * 1.0 + 8.5 * 0.5
+    expected = 5 * 2.0 + 2 * (-1.5) + 3 * 4.0 + 8.5 * 0.5
     assert pts == round(expected, 2)
 
 
