@@ -86,7 +86,7 @@ export type PlayerMatchStat = {
   vision_score: number;
   fantasy_points: number;
   result?: number | null;
-  damage_share: number | null;
+  dpm: number | null;
   gold_diff_at_15: number | null;
   xp_diff_15?: number | null;
   turret_damage?: number | null;
