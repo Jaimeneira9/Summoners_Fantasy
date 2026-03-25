@@ -10,7 +10,7 @@ import { ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
 import { PriceTrend } from "@/components/PriceTrend";
-import { PlayerStatsModal } from "@/components/PlayerStatsModal";
+import { ActionPopup } from "@/components/ActionPopup";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -186,7 +186,10 @@ function MarketTab({
   const [error, setError]       = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [search, setSearch]     = useState("");
-  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
+  const router = useRouter();
+  const [popupListing, setPopupListing]     = useState<Listing | null>(null);
+  const [popupLoading, setPopupLoading]     = useState(false);
+  const [popupError, setPopupError]         = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
@@ -294,14 +297,46 @@ function MarketTab({
               leagueId={leagueId}
               budget={budget}
               splitName={splitName}
-              onBid={() => { onBid(); setExpandedCardId(null); load(); }}
-              expanded={expandedCardId === l.id}
-              onExpand={() => setExpandedCardId(l.id)}
-              onClose={() => setExpandedCardId(null)}
+              onOpenPopup={() => { setPopupListing(l); setPopupError(null); }}
+              onOpenStats={() => router.push(`/leagues/${leagueId}/stats/${l.player_id}`)}
             />
           </div>
         ))}
       </div>
+
+      {/* Bid popup */}
+      {popupListing && (
+        <ActionPopup
+          isOpen={!!popupListing}
+          onClose={() => { setPopupListing(null); setPopupError(null); }}
+          title={`Fichar a ${popupListing.players.name}`}
+          playerName={popupListing.players.name}
+          playerRole={popupListing.players.role}
+          playerTeam={popupListing.players.team}
+          playerImage={popupListing.players.image_url ?? undefined}
+          mode="input"
+          minAmount={popupListing.ask_price}
+          confirmLabel="Pujar"
+          previewText={(amount) => `Puja de ${amount.toFixed(1)}M`}
+          onConfirm={async (amount) => {
+            if (!amount) return;
+            setPopupLoading(true);
+            setPopupError(null);
+            try {
+              await api.bids.place(leagueId, popupListing.id, amount);
+              setPopupListing(null);
+              onBid();
+              load();
+            } catch (e) {
+              setPopupError(e instanceof Error ? e.message : "Error al pujar");
+            } finally {
+              setPopupLoading(false);
+            }
+          }}
+          isLoading={popupLoading}
+          error={popupError}
+        />
+      )}
 
       {filtered.length === 0 && listings.length > 0 && (
         <div className="py-16 text-center">
@@ -313,6 +348,7 @@ function MarketTab({
           </p>
         </div>
       )}
+
     </div>
   );
 }
@@ -325,27 +361,18 @@ function PlayerCard({
   leagueId,
   budget,
   splitName,
-  onBid,
-  expanded,
-  onExpand,
-  onClose,
+  onOpenPopup,
+  onOpenStats,
 }: {
   listing: Listing;
   leagueId: string;
   budget: number | null;
   splitName?: string;
-  onBid: () => void;
-  expanded: boolean;
-  onExpand: () => void;
-  onClose: () => void;
+  onOpenPopup: () => void;
+  onOpenStats: () => void;
 }) {
-  const [bidAmount, setBidAmount] = useState(listing.ask_price.toFixed(1));
-  const [busy, setBusy]         = useState(false);
-  const [err, setErr]           = useState<string | null>(null);
   const [success, setSuccess]   = useState(false);
 
-  const router    = useRouter();
-  const inputRef  = useRef<HTMLInputElement>(null);
   const countdown = useCountdown(listing.closes_at);
   const closed    = countdown === "Cerrado";
   const p         = listing.players;
@@ -360,27 +387,9 @@ function PlayerCard({
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
 
-  const handleBid = async () => {
-    const amount = parseFloat(bidAmount);
-    if (isNaN(amount) || amount <= 0) { setErr("Cantidad inválida"); return; }
-    setBusy(true); setErr(null);
-    try {
-      await api.bids.place(leagueId, listing.id, amount);
-      setSuccess(true);
-      onClose();
-      setTimeout(() => setSuccess(false), 3000);
-      onBid();
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : "Error al pujar");
-    } finally { setBusy(false); }
-  };
-
-  const handleCardClick = () => {
-    router.push(`/leagues/${leagueId}/stats/${listing.player_id}`);
-  };
-
   // suppress unused warning
   void splitName;
+  void leagueId;
 
   return (
     <div
@@ -406,7 +415,7 @@ function PlayerCard({
       >
         <button
           type="button"
-          onClick={handleCardClick}
+          onClick={onOpenStats}
           className="absolute inset-0 focus:outline-none"
           aria-label={`Ver estadísticas de ${p.name}`}
         >
@@ -490,7 +499,7 @@ function PlayerCard({
         {/* Fila 2 — Player name */}
         <button
           type="button"
-          onClick={handleCardClick}
+          onClick={onOpenStats}
           className="text-left focus:outline-none"
         >
           <p
@@ -566,91 +575,30 @@ function PlayerCard({
           </p>
         )}
 
-        {/* Fila 4 — Bid button / form */}
+        {/* Fila 4 — Bid button */}
         <div style={{ marginTop: "auto", paddingTop: "4px" }}>
-          {!expanded ? (
-            <button
-              onClick={() => { onExpand(); setTimeout(() => inputRef.current?.focus(), 50); }}
-              disabled={closed}
-              className="w-full transition-all duration-150 active:scale-95"
-              style={{
-                borderRadius: "6px",
-                padding: "6px 12px",
-                fontSize: "12px",
-                fontFamily: "'Space Grotesk', sans-serif",
-                fontWeight: 700,
-                cursor: closed ? "not-allowed" : "pointer",
-                opacity: closed ? 0.4 : 1,
-                ...(success
-                  ? { background: "transparent", border: "1px solid rgba(34,197,94,0.4)", color: "rgb(22,163,74)" }
-                  : hasBudget && !closed
-                    ? { background: "#FCD400", border: "1px solid #FCD400", color: "#111111" }
-                    : { background: "transparent", border: "1px solid #333333", color: "#555555" }
-                ),
-              }}
-            >
-              {success ? "✓ Puja enviada" : closed ? "Cerrado" : "Fichar"}
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-center gap-1">
-                <input
-                  ref={inputRef}
-                  type="number"
-                  step="0.5"
-                  min={listing.ask_price}
-                  value={bidAmount}
-                  onChange={(e) => setBidAmount(e.target.value)}
-                  className="flex-1 min-w-0 text-xs rounded outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                  style={{
-                    background: "#1A1A1A",
-                    border: "1px solid #2A2A2A",
-                    color: "#F0E8D0",
-                    padding: "6px 8px",
-                    fontFamily: "'Space Grotesk', sans-serif",
-                    fontSize: "12px",
-                  }}
-                  onFocus={(e) => { e.currentTarget.style.borderColor = "#FCD400"; }}
-                  onBlur={(e) => { e.currentTarget.style.borderColor = "#2A2A2A"; }}
-                />
-                <span
-                  style={{
-                    fontSize: "11px",
-                    color: "#555555",
-                    flexShrink: 0,
-                    fontFamily: "'Space Grotesk', sans-serif",
-                  }}
-                >
-                  M
-                </span>
-              </div>
-              {err && <p className="text-red-400 text-[10px]">{err}</p>}
-              <div className="flex gap-1.5">
-                <button
-                  onClick={() => { onClose(); setErr(null); }}
-                  className="flex-1 py-1 text-xs transition-colors"
-                  style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
-                >
-                  ✕
-                </button>
-                <button
-                  onClick={handleBid}
-                  disabled={busy}
-                  className="flex-[2] py-1.5 text-xs font-bold rounded transition-all active:scale-95 disabled:opacity-40"
-                  style={{
-                    background: "#FCD400",
-                    color: "#111111",
-                    borderRadius: "6px",
-                    fontFamily: "'Space Grotesk', sans-serif",
-                    fontWeight: 700,
-                    fontSize: "12px",
-                  }}
-                >
-                  {busy ? "…" : "Confirmar"}
-                </button>
-              </div>
-            </div>
-          )}
+          <button
+            onClick={() => { if (!closed) { setSuccess(false); onOpenPopup(); } }}
+            disabled={closed}
+            className="w-full transition-all duration-150 active:scale-95"
+            style={{
+              borderRadius: "6px",
+              padding: "6px 12px",
+              fontSize: "12px",
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontWeight: 700,
+              cursor: closed ? "not-allowed" : "pointer",
+              opacity: closed ? 0.4 : 1,
+              ...(success
+                ? { background: "transparent", border: "1px solid rgba(34,197,94,0.4)", color: "rgb(22,163,74)" }
+                : hasBudget && !closed
+                  ? { background: "#FCD400", border: "1px solid #FCD400", color: "#111111" }
+                  : { background: "transparent", border: "1px solid #333333", color: "#555555" }
+              ),
+            }}
+          >
+            {success ? "✓ Puja enviada" : closed ? "Cerrado" : "Fichar"}
+          </button>
         </div>
       </div>
     </div>
@@ -1019,11 +967,12 @@ type SortField =
   | "avg_cs_per_min"
   | "avg_gold_diff_15"
   | "avg_xp_diff_15"
-  | "avg_damage_share"
+  | "avg_dpm"
   | "avg_vision_score";
 type SortDir = "asc" | "desc";
 
 function ScoutTab({ leagueId }: { leagueId: string }) {
+  const router = useRouter();
   const [players, setPlayers]       = useState<ScoutPlayer[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
@@ -1031,7 +980,6 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
   const [teamFilter, setTeamFilter] = useState<string>("all");
   const [sortField, setSortField]   = useState<SortField>("total_points");
   const [sortDir, setSortDir]       = useState<SortDir>("desc");
-  const [modalPlayerId, setModalPlayerId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -1050,7 +998,9 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
 
   const teams = ["all", ...Array.from(new Set(players.map((p) => p.team))).sort()];
 
-  const kda = (p: ScoutPlayer) => (p.avg_kills + p.avg_assists) / Math.max(p.avg_deaths, 1);
+  const kda = (p: ScoutPlayer) => p.total_deaths > 0
+    ? (p.total_kills + p.total_assists) / p.total_deaths
+    : p.total_kills + p.total_assists;
 
   const sortOptions: { value: SortField; label: string }[] = [
     { value: "total_points",     label: "Puntos totales" },
@@ -1062,7 +1012,7 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
     { value: "avg_cs_per_min",   label: "CS/min" },
     { value: "avg_gold_diff_15", label: "Gold Diff @15" },
     { value: "avg_xp_diff_15",   label: "XP Diff @15" },
-    { value: "avg_damage_share", label: "Damage Share" },
+    { value: "avg_dpm",          label: "Daño/min" },
     { value: "avg_vision_score", label: "Vision Score" },
   ];
 
@@ -1079,17 +1029,6 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
       const diff = getSortValue(a) - getSortValue(b);
       return sortDir === "desc" ? -diff : diff;
     });
-
-  const toggleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    } else {
-      setSortField(field);
-      setSortDir("desc");
-    }
-  };
-
-  const modalPlayer = modalPlayerId ? players.find((p) => p.id === modalPlayerId) : null;
 
   if (loading) return <ListSkeleton rows={8} />;
   if (error)   return <ErrorState message={error} onRetry={load} />;
@@ -1212,55 +1151,27 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
             }}
           >
             <span style={{ flex: 1 }}>Jugador</span>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <button onClick={() => toggleSort("total_points")} className="w-12 text-center hover:text-[#888888] transition-colors">
-                PTS {sortField === "total_points" ? (sortDir === "desc" ? "↓" : "↑") : ""}
-              </button>
-              <div style={{ width: "1px" }} />
-              <button onClick={() => toggleSort("kda")} className="w-12 text-center hover:text-[#888888] transition-colors">
-                KDA {sortField === "kda" ? (sortDir === "desc" ? "↓" : "↑") : ""}
-              </button>
-              <div style={{ width: "1px" }} />
-              <button onClick={() => toggleSort("avg_cs_per_min")} className="w-12 text-center hover:text-[#888888] transition-colors">
-                CS/m {sortField === "avg_cs_per_min" ? (sortDir === "desc" ? "↓" : "↑") : ""}
-              </button>
-              <div style={{ width: "1px" }} />
-              <button onClick={() => toggleSort("avg_gold_diff_15")} className="hidden sm:block w-14 text-center hover:text-[#888888] transition-colors">
-                GD15 {sortField === "avg_gold_diff_15" ? (sortDir === "desc" ? "↓" : "↑") : ""}
-              </button>
-            </div>
           </div>
 
           {filtered.map((p) => (
             <ScoutRow
               key={p.id}
               player={p}
-              onOpen={() => setModalPlayerId(p.id)}
+              onOpen={() => router.push(`/leagues/${leagueId}/stats/${p.id}`)}
             />
           ))}
         </div>
       )}
 
-      {/* Modal */}
-      {modalPlayerId && modalPlayer && (
-        <PlayerStatsModal
-          playerId={modalPlayerId}
-          playerHint={{
-            name: modalPlayer.name,
-            team: modalPlayer.team,
-            role: modalPlayer.role,
-            image_url: modalPlayer.image_url,
-          }}
-          onClose={() => setModalPlayerId(null)}
-        />
-      )}
     </div>
   );
 }
 
 function ScoutRow({ player: p, onOpen }: { player: ScoutPlayer; onOpen: () => void }) {
   const roleColorHex = getRoleColor(p.role);
-  const kdaVal = (p.avg_kills + p.avg_assists) / Math.max(p.avg_deaths, 1);
+  const kdaVal = p.total_deaths > 0
+    ? (p.total_kills + p.total_assists) / p.total_deaths
+    : p.total_kills + p.total_assists;
 
   return (
     <button
@@ -1433,11 +1344,11 @@ function ScoutRow({ player: p, onOpen }: { player: ScoutPlayer; onOpen: () => vo
                 : "—"}
             </span>
           </div>
-          {/* Dmg% — oculto en mobile */}
+          {/* DPM — oculto en mobile */}
           <div className="hidden sm:flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Dmg%</span>
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>DPM</span>
             <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_damage_share > 0 ? (p.avg_damage_share * 100).toFixed(1) + "%" : "—"}
+              {p.avg_dpm > 0 ? Math.round(p.avg_dpm) : "—"}
             </span>
           </div>
           {/* Visión — oculto en mobile */}

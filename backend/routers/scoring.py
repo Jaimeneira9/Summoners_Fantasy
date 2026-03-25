@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
+from scoring.engine import ROLE_WEIGHTS, STATS_TO_NORMALIZE
 
 router = APIRouter()
 
@@ -135,7 +136,7 @@ async def get_player_score_history(
     # Stats recientes desde player_game_stats
     stats_resp = (
         supabase.table("player_game_stats")
-        .select("kills, deaths, assists, cs_per_min, vision_score, game_points, damage_share, gold_diff_15, game_id")
+        .select("kills, deaths, assists, cs_per_min, vision_score, game_points, dpm, gold_diff_15, xp_diff_15, turret_damage, objective_steals, game_id, result")
         .eq("player_id", str(player_id))
         .in_("game_id", ordered_game_ids)
         .execute()
@@ -190,6 +191,31 @@ async def get_player_score_history(
         competition_obj = series_data.get("competitions") or {}
         competition_name = competition_obj.get("name") or ""
 
+        # Calcular breakdown de puntos por stat
+        role = player.get("role", "")
+        role_weights = ROLE_WEIGHTS.get(role, {})
+        can_normalize = duration > 0
+        stat_values = {
+            "kills": s.get("kills") or 0,
+            "deaths": s.get("deaths") or 0,
+            "assists": s.get("assists") or 0,
+            "cs_per_min": float(s.get("cs_per_min") or 0),
+            "vision_score": s.get("vision_score") or 0,
+            "dpm": float(s.get("dpm") or 0),
+            "gold_diff_15": s.get("gold_diff_15") or 0,
+            "xp_diff_15": s.get("xp_diff_15") or 0,
+            "turret_damage": s.get("turret_damage") or 0,
+            "objective_steals": s.get("objective_steals") or 0,
+        }
+        stat_breakdown: dict[str, float] = {}
+        for stat, weight in role_weights.items():
+            raw = stat_values.get(stat, 0)
+            if can_normalize and stat in STATS_TO_NORMALIZE:
+                value = raw / duration
+            else:
+                value = raw
+            stat_breakdown[stat] = round(value * weight, 2)
+
         stats.append({
             "kills": s["kills"],
             "deaths": s["deaths"],
@@ -197,10 +223,14 @@ async def get_player_score_history(
             "cs_per_min": round(float(s["cs_per_min"] or 0), 2),
             "vision_score": s["vision_score"],
             "fantasy_points": s["game_points"],
-            "damage_share": s.get("damage_share"),
+            "result": s.get("result"),
+            "dpm": s.get("dpm"),
             "gold_diff_at_15": s.get("gold_diff_15"),
+            "xp_diff_15": s.get("xp_diff_15"),
+            "turret_damage": s.get("turret_damage"),
             "competition_id": competition_id,
             "competition_name": competition_name,
+            "stat_breakdown": stat_breakdown,
             "matches": {
                 "scheduled_at": series_data.get("date"),
                 "team_1": team_1,

@@ -85,10 +85,14 @@ export type PlayerMatchStat = {
   cs_per_min: number;
   vision_score: number;
   fantasy_points: number;
-  damage_share: number | null;
+  result?: number | null;
+  dpm: number | null;
   gold_diff_at_15: number | null;
+  xp_diff_15?: number | null;
+  turret_damage?: number | null;
   competition_id: string;
   competition_name: string;
+  stat_breakdown?: Record<string, number>;
   matches?: { scheduled_at: string | null; team_1: string; team_2: string } | null;
 };
 
@@ -170,10 +174,13 @@ export type ScoutPlayer = {
   avg_kills: number;
   avg_deaths: number;
   avg_assists: number;
+  total_kills: number;
+  total_deaths: number;
+  total_assists: number;
   avg_cs_per_min: number;
   avg_gold_diff_15: number;
   avg_xp_diff_15: number;
-  avg_damage_share: number;
+  avg_dpm: number;
   avg_vision_score: number;
   avg_points: number;
   total_points: number;

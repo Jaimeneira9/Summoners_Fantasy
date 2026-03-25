@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getRoleColor } from "@/lib/roles";
 import { PriceTrend } from "@/components/PriceTrend";
@@ -53,7 +52,7 @@ export interface PlayerCardProps {
   leagueId?: string;
 }
 
-export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = true, leagueId }: PlayerCardProps) {
+export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = true }: PlayerCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [selectedWeek, setSelectedWeek] = useState<number | null>(
     matchStats.length > 0 ? matchStats[matchStats.length - 1].week : null
@@ -293,26 +292,6 @@ export function PlayerCard({ player, matchStats = [], totalPoints, showPrice = t
             <p className="text-white/30 text-xs text-center px-3 py-6">Sin datos para esta jornada</p>
           )}
 
-          {/* Ver stats link */}
-          {leagueId && (
-            <div
-              className="px-4 py-3 border-t flex justify-end"
-              style={{ borderColor: "rgba(255,255,255,0.07)" }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Link
-                href={`/leagues/${leagueId}/stats/${player.id}`}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
-                style={{
-                  background: "var(--color-primary-bg, rgba(252,212,0,0.1))",
-                  border: "1px solid rgba(252,212,0,0.25)",
-                  color: "var(--color-primary)",
-                }}
-              >
-                Ver stats completas →
-              </Link>
-            </div>
-          )}
         </div>
       )}
     </div>

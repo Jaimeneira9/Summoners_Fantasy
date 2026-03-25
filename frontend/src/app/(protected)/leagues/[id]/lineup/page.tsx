@@ -1,16 +1,16 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 gsap.registerPlugin(useGSAP);
-import Link from "next/link";
 import { api, type Roster, type RosterPlayer, type Slot, type Split } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
-import { ClauseStatus } from "@/components/ClauseStatus";
+import { ActionPopup } from "@/components/ActionPopup";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -59,6 +59,7 @@ function SplitResetWarning({ split, leagueId }: { split: Split | null; leagueId:
 // ---------------------------------------------------------------------------
 export default function LineupPage() {
   const { id: leagueId } = useParams<{ id: string }>();
+  const router = useRouter();
   const [roster, setRoster]   = useState<Roster | null>(null);
   const [split, setSplit]     = useState<Split | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,6 +127,7 @@ export default function LineupPage() {
                         leagueId={leagueId}
                         splitName={split?.name ?? undefined}
                         onRefresh={load}
+                        onOpenStats={(playerId) => router.push(`/leagues/${leagueId}/stats/${playerId}`)}
                       />
                     </div>
                   );
@@ -136,6 +138,7 @@ export default function LineupPage() {
           </>
         )}
       </main>
+
     </div>
   );
 }
@@ -143,18 +146,21 @@ export default function LineupPage() {
 // ---------------------------------------------------------------------------
 // PlayerCard — gaming trading card style with inline stats overlay
 // ---------------------------------------------------------------------------
+
 function PlayerCard({
   expectedRole,
   rp,
   leagueId,
   splitName,
   onRefresh,
+  onOpenStats,
 }: {
   expectedRole: string;
   rp: RosterPlayer | null;
   leagueId: string;
   splitName?: string;
   onRefresh?: () => void;
+  onOpenStats?: (playerId: string) => void;
 }) {
   const roleColor = ROLE_COLORS[expectedRole] ?? ROLE_COLORS.coach;
 
@@ -191,6 +197,7 @@ function PlayerCard({
       splitName={splitName}
       isMvp={false}
       onRefresh={onRefresh}
+      onOpenStats={onOpenStats ? () => onOpenStats(p.id) : undefined}
     />
   );
 }
@@ -202,6 +209,7 @@ function PlayerCardFilled({
   leagueId,
   isMvp,
   onRefresh,
+  onOpenStats,
 }: {
   rp: RosterPlayer;
   p: RosterPlayer["player"];
@@ -210,8 +218,34 @@ function PlayerCardFilled({
   splitName?: string;
   isMvp?: boolean;
   onRefresh?: () => void;
+  onOpenStats?: () => void;
 }) {
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [popupLoading, setPopupLoading] = useState(false);
+  const [popupError, setPopupError] = useState<string | null>(null);
+
   const roleHex = getRoleColor(p.role);
+
+  // Helpers para cláusula
+  const clauseDays = rp.clause_expires_at
+    ? Math.ceil((new Date(rp.clause_expires_at).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+    : 0;
+  const clauseActive = clauseDays > 0 && rp.clause_amount != null;
+
+  const handleUpgrade = async (amount?: number) => {
+    if (!amount) return;
+    setPopupLoading(true);
+    setPopupError(null);
+    try {
+      await api.clause.upgrade(leagueId, rp.id, amount);
+      setPopupOpen(false);
+      onRefresh?.();
+    } catch (e) {
+      setPopupError(e instanceof Error ? e.message : "Error al subir cláusula");
+    } finally {
+      setPopupLoading(false);
+    }
+  };
 
   // Build image URL — fallback to Supabase storage if image_url is null
   const imageUrl =
@@ -313,6 +347,32 @@ function PlayerCardFilled({
             venta
           </div>
         )}
+        {/* Clause badge */}
+        {clauseActive && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setPopupOpen(true); }}
+            style={{
+              position: "absolute",
+              bottom: "8px",
+              right: "8px",
+              display: "flex",
+              alignItems: "center",
+              gap: "3px",
+              fontSize: "10px",
+              fontWeight: 700,
+              color: "#5eead4",
+              background: "rgba(20,184,166,0.15)",
+              border: "1px solid rgba(20,184,166,0.3)",
+              padding: "2px 6px",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontFamily: "'Space Grotesk', sans-serif",
+              lineHeight: 1.4,
+            }}
+          >
+            🔒 {clauseDays}d
+          </button>
+        )}
       </div>
 
       {/* INFO ZONE */}
@@ -396,32 +456,49 @@ function PlayerCardFilled({
           </span>
         </div>
 
-        {/* Fila 4 — Stats link */}
-        <Link
-          href={`/leagues/${leagueId}/stats/${p.id}`}
-          style={{
-            fontSize: "11px",
-            color: "#FCD400",
-            fontFamily: "'Space Grotesk', sans-serif",
-            textDecoration: "none",
-          }}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = "underline"; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.textDecoration = "none"; }}
-        >
-          Ver stats →
-        </Link>
+        {/* Fila 4 — Stats button */}
+        {onOpenStats && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpenStats(); }}
+            style={{
+              fontSize: "11px",
+              color: "#FCD400",
+              fontFamily: "'Space Grotesk', sans-serif",
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            Ver stats →
+          </button>
+        )}
 
-        {/* Fila 5 — Clause status */}
-        <ClauseStatus
-          clauseAmount={rp.clause_amount}
-          clauseExpiresAt={rp.clause_expires_at}
-          isOwnPlayer={true}
-          leagueId={leagueId}
-          rosterPlayerId={rp.id}
-          onSuccess={onRefresh}
-        />
       </div>
 
+      {/* Clause upgrade popup */}
+      <ActionPopup
+        isOpen={popupOpen}
+        onClose={() => { setPopupOpen(false); setPopupError(null); }}
+        title={clauseActive ? `Subir cláusula de ${p.name}` : `Asignar cláusula a ${p.name}`}
+        playerName={p.name}
+        playerRole={p.role}
+        playerTeam={p.team}
+        playerImage={imageUrl}
+        mode="input"
+        minAmount={0.5}
+        confirmLabel={clauseActive ? "Subir cláusula" : "Asignar cláusula"}
+        previewText={(amount) =>
+          clauseActive
+            ? `Pagás ${amount.toFixed(1)}M · Cláusula sube ${(amount * 0.5).toFixed(1)}M`
+            : `Pagás ${amount.toFixed(1)}M · Cláusula de ${(amount * 0.5).toFixed(1)}M`
+        }
+        onConfirm={handleUpgrade}
+        isLoading={popupLoading}
+        error={popupError}
+      />
     </div>
   );
 }

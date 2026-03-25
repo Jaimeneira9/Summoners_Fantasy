@@ -44,7 +44,7 @@ function getPlayerPhotoUrl(name: string): string {
 }
 
 function calcKDA(kills: number, deaths: number, assists: number): string {
-  if (deaths === 0) return "∞";
+  if (deaths === 0) return "PERFECT";
   return ((kills + assists) / deaths).toFixed(2);
 }
 
@@ -96,12 +96,15 @@ export default function PlayerStatsPage() {
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     Promise.all([
       api.scoring.playerHistory(playerId),
       api.splits.playerHistory(playerId),
       api.splits.list(),
     ])
       .then(([history, splitHistory, splitList]) => {
+        if (cancelled) return;
         const h = history as PlayerHistoryResponse;
         setHistoryData(h);
         setSplitHistory(splitHistory as PlayerSplitHistory[]);
@@ -121,8 +124,10 @@ export default function PlayerStatsPage() {
           setSelectedWeek(filteredStats.length);
         }
       })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e: Error) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
   }, [playerId]);
 
   // ---------------------------------------------------------------------------
@@ -151,41 +156,48 @@ export default function PlayerStatsPage() {
         {
           label: "KDA",
           value: calcKDA(selectedStat.kills, selectedStat.deaths, selectedStat.assists),
-          barPct: (() => {
-            const kda = selectedStat.deaths === 0 ? 10 : (selectedStat.kills + selectedStat.assists) / selectedStat.deaths;
+          barPct: selectedStat.deaths === 0 ? null : (() => {
+            const kda = (selectedStat.kills + selectedStat.assists) / selectedStat.deaths;
             return kda >= 5 ? 80 : barWidth(kda, 10);
           })(),
+          deathColor: selectedStat.deaths === 0 ? "#FCD400" : undefined,
         },
         {
           label: "Kills",
           value: String(selectedStat.kills),
           barPct: barWidth(selectedStat.kills, 10),
+          breakdownKey: "kills",
         },
         {
           label: "Deaths",
           value: String(selectedStat.deaths),
           barPct: Math.max(0, 100 - (selectedStat.deaths / 10) * 100),
           deathColor: selectedStat.deaths <= 2 ? "#4CAF50" : selectedStat.deaths >= 5 ? "#EF5350" : "#FFF",
+          breakdownKey: "deaths",
         },
         {
           label: "Assists",
           value: String(selectedStat.assists),
           barPct: barWidth(selectedStat.assists, 15),
+          breakdownKey: "assists",
         },
         {
           label: "CS/min",
           value: selectedStat.cs_per_min != null ? selectedStat.cs_per_min.toFixed(1) : "—",
           barPct: selectedStat.cs_per_min != null ? barWidth(selectedStat.cs_per_min, 10) : null,
+          breakdownKey: "cs_per_min",
         },
         {
           label: "Daño/min",
-          value: selectedStat.damage_share != null ? `${(selectedStat.damage_share * 100).toFixed(0)}%` : "—",
-          barPct: selectedStat.damage_share != null ? barWidth(selectedStat.damage_share * 100, 40) : null,
+          value: selectedStat.dpm != null ? String(Math.round(selectedStat.dpm)) : "—",
+          barPct: selectedStat.dpm != null ? barWidth(selectedStat.dpm, 1200) : null,
+          breakdownKey: "dpm",
         },
         {
           label: "Visión",
           value: selectedStat.vision_score != null ? String(selectedStat.vision_score) : "—",
           barPct: selectedStat.vision_score != null ? barWidth(selectedStat.vision_score, 50) : null,
+          breakdownKey: "vision_score",
         },
         {
           label: "Gold @15",
@@ -195,13 +207,14 @@ export default function PlayerStatsPage() {
           barPct: selectedStat.gold_diff_at_15 != null
             ? Math.min(Math.max(50 + (selectedStat.gold_diff_at_15 / 2000) * 50, 0), 100)
             : null,
+          breakdownKey: "gold_diff_15",
         },
       ]
     : null;
 
   // Active week badge info
   const activeStat = matchStats.find((s) => s.week === selectedWeek);
-  const activeIsWin = activeStat ? activeStat.fantasy_points > 12 : false;
+  const activeIsWin = activeStat ? activeStat.result === 1 : false;
   const activeRival = activeStat?.matches
     ? (activeStat.matches.team_1 === player?.team
         ? activeStat.matches.team_2
@@ -460,6 +473,7 @@ export default function PlayerStatsPage() {
                   flex: 1,
                   display: "flex",
                   flexDirection: "column",
+                  alignItems: "center",
                   gap: 4,
                   cursor: "default",
                 }}
@@ -482,8 +496,21 @@ export default function PlayerStatsPage() {
                 }}>
                   {card.value}
                 </div>
+                {card.breakdownKey && selectedStat?.stat_breakdown?.[card.breakdownKey] != null && (() => {
+                  const pts = selectedStat.stat_breakdown![card.breakdownKey];
+                  return (
+                    <div style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: pts >= 0 ? "#4ade80" : "#f87171",
+                      fontFamily: "'Space Grotesk', sans-serif",
+                    }}>
+                      {pts >= 0 ? `+${pts.toFixed(1)}` : pts.toFixed(1)} pts
+                    </div>
+                  );
+                })()}
                 {card.barPct != null && (
-                  <div style={{ height: 3, background: "#1E1E1E", borderRadius: 2, marginTop: 6 }}>
+                  <div style={{ height: 3, background: "#1E1E1E", borderRadius: 2, marginTop: 4 }}>
                     <div style={{
                       height: "100%",
                       width: `${card.barPct}%`,
@@ -622,7 +649,7 @@ export default function PlayerStatsPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                 {[...matchStats].reverse().map((stat) => {
                   const isActive = stat.week === selectedWeek;
-                  const isWin = stat.fantasy_points > 12;
+                  const isWin = stat.result === 1;
                   const kda = `${stat.kills}/${stat.deaths}/${stat.assists}`;
                   const rival = stat.matches
                     ? (stat.matches.team_1 === player.team ? stat.matches.team_2 : stat.matches.team_1)

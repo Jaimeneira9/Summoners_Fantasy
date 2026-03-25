@@ -201,16 +201,16 @@ def test_scoring_engine_penta_kill_bonus():
     assert abs((points_penta - points_no_penta) - 15.0) < 0.01
 
 
-def test_scoring_engine_damage_share_affects_mid():
-    """damage_share tiene peso 10.0 en mid — un damage_share mayor debe dar más puntos."""
-    stats_low = _make_stats(kills=3, deaths=2, assists=4, role="mid", damage_share=0.1, cs_per_min=0)
-    stats_high = _make_stats(kills=3, deaths=2, assists=4, role="mid", damage_share=0.5, cs_per_min=0)
+def test_scoring_engine_dpm_affects_mid():
+    """dpm tiene peso 0.0069 en mid — un dpm mayor debe dar más puntos."""
+    stats_low = _make_stats(kills=3, deaths=2, assists=4, role="mid", dpm=200, cs_per_min=0)
+    stats_high = _make_stats(kills=3, deaths=2, assists=4, role="mid", dpm=800, cs_per_min=0)
 
     p_low = calculate_match_points(stats_low.model_dump(), "mid", game_duration_min=25.0)
     p_high = calculate_match_points(stats_high.model_dump(), "mid", game_duration_min=25.0)
 
-    assert p_high > p_low, "damage_share (peso 10.0) debe afectar el score de mid"
-    assert round(p_high - p_low, 2) == round((0.5 - 0.1) * 10.0, 2)
+    assert p_high > p_low, "dpm (peso 0.0069) debe afectar el score de mid"
+    assert round(p_high - p_low, 2) == round((800 - 200) * 0.0069, 2)
 
 
 def test_scoring_engine_long_game_normalization():

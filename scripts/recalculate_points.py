@@ -40,7 +40,7 @@ def main(dry_run: bool = False) -> None:
             supabase.table("player_game_stats")
             .select(
                 "id, player_id, game_id, kills, deaths, assists, cs_per_min, "
-                "gold_diff_15, xp_diff_15, damage_share, vision_score, "
+                "gold_diff_15, xp_diff_15, dpm, vision_score, turret_damage, "
                 "objective_steals, double_kill, triple_kill, quadra_kill, penta_kill, "
                 "players(role), games(duration_min)"
             )
@@ -83,8 +83,9 @@ def main(dry_run: bool = False) -> None:
             "cs_per_min":       row.get("cs_per_min") or 0,
             "gold_diff_15":     row.get("gold_diff_15"),
             "xp_diff_15":       row.get("xp_diff_15"),
-            "damage_share":     row.get("damage_share"),
+            "dpm":              row.get("dpm") or 0,
             "vision_score":     row.get("vision_score"),
+            "turret_damage":    row.get("turret_damage") or 0,
             "objective_steals": row.get("objective_steals") or 0,
             "double_kill":      row.get("double_kill") or False,
             "triple_kill":      row.get("triple_kill") or False,
@@ -183,8 +184,9 @@ def main(dry_run: bool = False) -> None:
                 "cs_per_min":       row.get("cs_per_min") or 0,
                 "gold_diff_15":     row.get("gold_diff_15"),
                 "xp_diff_15":       row.get("xp_diff_15"),
-                "damage_share":     row.get("damage_share"),
+                "dpm":              row.get("dpm") or 0,
                 "vision_score":     row.get("vision_score"),
+                "turret_damage":    row.get("turret_damage") or 0,
                 "objective_steals": row.get("objective_steals") or 0,
                 "double_kill":      row.get("double_kill") or False,
                 "triple_kill":      row.get("triple_kill") or False,

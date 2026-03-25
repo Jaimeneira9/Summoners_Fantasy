@@ -91,7 +91,7 @@ class PlayerRawStats(BaseModel):
     xp_diff_15: Optional[int] = None
     objective_steals: int
     turret_damage: int
-    result: int  # 1=win, 0=loss
+    result: Optional[int] = None  # 1=win, 0=loss, None=desconocido
 
     @field_validator("role", mode="before")
     @classmethod
@@ -100,10 +100,11 @@ class PlayerRawStats(BaseModel):
 
 
 class GameMeta(BaseModel):
-    """Metadatos de un game: duración y equipo ganador."""
+    """Metadatos de un game: duración, equipo ganador y perdedor."""
 
     duration_min: float
     winner_team: str
+    loser_team: str = ""  # vacío si no se pudo extraer del HTML
 
 
 # ---------------------------------------------------------------------------
@@ -291,12 +292,15 @@ def _parse_matchlist(markdown: str) -> list[GameEntry]:
       | [Team A vs Team B](../game/stats/{game_id}/page-game/) | Winner | Score (1-0) | Loser | WEEK{n} | patch | date |
 
     Nota: La matchlist lista SERIES, cada serie con un link que apunta al
-    ÚLTIMO game. Para obtener todos los games de la serie necesitamos
-    detectar el score y construir los game_ids subsiguientes, o bien
-    procesar la matchlist como series y luego buscar los games individuales.
+    primer game. Para obtener todos los games de la serie necesitamos
+    detectar el score y construir los game_ids subsiguientes.
 
-    En gol.gg, el game_id en la matchlist apunta al primer game de la serie.
-    Los games subsiguientes tienen IDs consecutivos (game_id+1, game_id+2, ...).
+    ADVERTENCIA: gol.gg NO garantiza IDs consecutivos entre games de una misma
+    serie. El ID del link apunta al primer game; los games 2, 3, etc. se asumen
+    consecutivos (base_id+1, base_id+2). Esta asunción se valida en
+    series_ingest._process_game() comparando los equipos del game fetcheado
+    contra los equipos de la serie — si no coinciden se loggea [INVALID GAME ID]
+    y ese game se descarta.
     """
     entries: list[GameEntry] = []
 
@@ -355,8 +359,9 @@ def _parse_matchlist(markdown: str) -> list[GameEntry]:
         else:
             total_games = 1
 
-        # Generar un GameEntry por cada game de la serie
-        # gol.gg usa IDs consecutivos para los games de una serie
+        # Generar un GameEntry por cada game de la serie.
+        # ASUNCIÓN (no garantizada): gol.gg asigna IDs consecutivos.
+        # La validación real ocurre en series_ingest._process_game().
         base_id = int(game_id)
         for i in range(total_games):
             current_game_id = str(base_id + i)
@@ -550,25 +555,30 @@ def _build_player_stats(
 # Duración: aparece como heading H1 "# MM:SS" (ej. "# 29:03")
 _DURATION_HEADING_RE = re.compile(r"^#\s+(\d+):(\d+)\s*$")
 
-# Winner: línea con patrón [TeamName](url) \- WIN
-# El markdown de gol.gg usa \- como escaped dash
-_WINNER_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)\s*\\-\s*WIN", re.IGNORECASE)
+# Winner/Loser: línea con patrón [TeamName](url) \- WIN o \- LOSS
+# El markdown de gol.gg usa \- como escaped dash, pero puede venir como - también
+_WINNER_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)\s*\\?-\s*WIN", re.IGNORECASE)
+_LOSER_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)\s*\\?-\s*LOSS", re.IGNORECASE)
 
 
 def _parse_game_meta(markdown: str) -> GameMeta:
     """
-    Extrae duration_min y winner_team del markdown de page-game de gol.gg.
+    Extrae duration_min, winner_team y loser_team del markdown de page-game de gol.gg.
 
     Estructura real del markdown:
       Game Time
       # 29:03                          ← duración como H1 con formato MM:SS
       ...
-      [UCAM Esports](...) \\- LOSS
+      [UCAM Esports](...) \\- LOSS     ← equipo perdedor
       ...
       [Galions](...) \\- WIN            ← equipo ganador
+
+    Ambos equipos (winner_team + loser_team) se usan en series_ingest para
+    validar que el game_id scrapeado corresponde a la serie esperada.
     """
     duration_min = 0.0
     winner_team = ""
+    loser_team = ""
 
     for line in markdown.splitlines():
         line_stripped = line.strip()
@@ -587,7 +597,13 @@ def _parse_game_meta(markdown: str) -> GameMeta:
             if win_match:
                 winner_team = win_match.group(1).strip()
 
-    return GameMeta(duration_min=duration_min, winner_team=winner_team)
+        # Buscar loser: [TeamName](...) \- LOSS
+        if not loser_team:
+            loss_match = _LOSER_RE.search(line_stripped)
+            if loss_match:
+                loser_team = loss_match.group(1).strip()
+
+    return GameMeta(duration_min=duration_min, winner_team=winner_team, loser_team=loser_team)
 
 
 # ---------------------------------------------------------------------------

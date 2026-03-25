@@ -245,7 +245,7 @@ def test_competition_name_matches_mock(history_response):
 
 EXPECTED_FIELDS = [
     "kills", "deaths", "assists", "cs_per_min",
-    "vision_score", "fantasy_points", "damage_share",
+    "vision_score", "fantasy_points", "dpm",
     "gold_diff_at_15", "matches",
 ]
 

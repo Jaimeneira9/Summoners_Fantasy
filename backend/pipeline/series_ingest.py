@@ -2,7 +2,7 @@
 Orquestador de ingestión de series desde gol.gg.
 
 Flujo principal:
-  1. Obtener gol_gg_slug de competitions WHERE name = 'LEC'
+  1. Obtener gol_gg_slug de competitions WHERE is_active=True
   2. Fetch matchlist → lista de GameEntry
   3. Resolver team_home_id y team_away_id via teams.aliases
   4. Upsert series (UNIQUE: team_home_id, team_away_id, date)
@@ -18,7 +18,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import date
-from typing import Optional
+from typing import List
 
 from supabase import Client
 
@@ -410,6 +410,47 @@ def _update_series_result(
 
 
 # ---------------------------------------------------------------------------
+# Validación de game_id
+# ---------------------------------------------------------------------------
+
+
+def _team_names_match(scraped_name: str, series_name: str) -> bool:
+    """
+    Compara dos nombres de equipo con tolerancia a variaciones menores.
+    Usa substring case-insensitive (misma heurística que el resto del pipeline).
+    """
+    a = scraped_name.strip().lower()
+    b = series_name.strip().lower()
+    return bool(a) and bool(b) and (a in b or b in a)
+
+
+def _game_belongs_to_series(meta: GameMeta, team_home: str, team_away: str) -> bool:
+    """
+    Verifica que el game scrapeado pertenezca a la serie esperada.
+
+    Devuelve True si al menos uno de los equipos del game (winner o loser)
+    coincide con alguno de los equipos de la serie (home o away).
+    Devuelve False si ninguno coincide — señal de que el game_id es incorrecto.
+
+    Si no hay suficiente información en el meta (winner_team y loser_team ambos
+    vacíos), no puede validar y asume válido para no descartar games legítimos.
+    """
+    # Sin información suficiente: no podemos validar, asumir válido
+    if not meta.winner_team and not meta.loser_team:
+        return True
+
+    series_teams = {team_home, team_away}
+    game_teams = {t for t in (meta.winner_team, meta.loser_team) if t}
+
+    for game_team in game_teams:
+        for series_team in series_teams:
+            if _team_names_match(game_team, series_team):
+                return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Procesamiento de un game individual
 # ---------------------------------------------------------------------------
 
@@ -423,6 +464,7 @@ async def _process_game(
     team_away_id: str,
     # acumulador para stats de serie (player_id → list[(stats, points, duration_min)])
     series_player_stats: dict[str, list[tuple[PlayerRawStats, float, float]]],
+    unresolved_players: List[str],
 ) -> tuple[str | None, str | None]:
     """
     Procesa un game individual: fetch stats + meta, upsert games y player_game_stats.
@@ -438,6 +480,22 @@ async def _process_game(
         meta = await fetch_game_meta(game_id)
     except Exception as exc:
         logger.error("Failed to fetch data for game %s: %s", game_id, exc)
+        return None, None
+
+    # Validar que el game_id corresponda a esta serie.
+    # gol.gg no garantiza IDs consecutivos: el ID del game 1 viene del HTML del
+    # matchlist, pero los IDs de game 2, 3, etc. se construyen como base_id+1,
+    # base_id+2. Si hay gaps en los IDs, se scrapearía un game de otra serie.
+    if not _game_belongs_to_series(meta, entry.team_home, entry.team_away):
+        logger.error(
+            "[INVALID GAME ID] game_id=%s scraped teams (winner='%s', loser='%s') "
+            "do not match expected series %s vs %s — skipping game",
+            game_id,
+            meta.winner_team,
+            meta.loser_team,
+            entry.team_home,
+            entry.team_away,
+        )
         return None, None
 
     # Resolver equipo ganador
@@ -457,6 +515,15 @@ async def _process_game(
         else:
             # Intentar resolución por alias completa
             winner_team_id = _resolve_team_by_alias(supabase, meta.winner_team)
+
+        if winner_team_id is None:
+            logger.warning(
+                "[WINNER UNRESOLVED] game %s — winner_team='%s' no matchea home='%s' ni away='%s'",
+                entry.game_id,
+                meta.winner_team,
+                home_name,
+                away_name,
+            )
 
     # Upsert game en DB
     game_db_id = _upsert_game(
@@ -481,12 +548,17 @@ async def _process_game(
         elif winner_team_id == team_away_id:
             stats.result = 0 if is_home else 1
         else:
-            stats.result = 0  # desconocido → conservador
+            stats.result = None  # desconocido → no contaminar con derrota falsa
 
     # Upsert player_game_stats
     for stats in fullstats:
         player_id = _resolve_player_id(supabase, stats.player_name)
         if not player_id:
+            logger.warning(
+                "[UNRESOLVED PLAYER] '%s' not found in players table — stats discarded",
+                stats.player_name,
+            )
+            unresolved_players.append(stats.player_name)
             continue
 
         game_points = calculate_match_points(
@@ -546,6 +618,9 @@ async def _process_series(
     # Acumulador: player_id → [(PlayerRawStats, game_points, duration_min), ...]
     series_player_stats: dict[str, list[tuple[PlayerRawStats, float, float]]] = defaultdict(list)
 
+    # Acumulador de jugadores no resueltos para loggear resumen al final
+    unresolved_players: List[str] = []
+
     # Conteo de victorias por equipo para determinar winner de la serie
     home_wins = 0
     away_wins = 0
@@ -559,6 +634,7 @@ async def _process_series(
             team_home_id=team_home_id,
             team_away_id=team_away_id,
             series_player_stats=series_player_stats,
+            unresolved_players=unresolved_players,
         )
         if winner_team_id == team_home_id:
             home_wins += 1
@@ -585,6 +661,17 @@ async def _process_series(
     total_games = len(series_entries)
     _update_series_result(supabase, series_id, total_games, series_winner_id)
 
+    if unresolved_players:
+        unique_unresolved = sorted(set(unresolved_players))
+        logger.warning(
+            "[UNRESOLVED PLAYERS SUMMARY] %d unresolved player name(s) in series %s vs %s (%s): %s",
+            len(unique_unresolved),
+            first.team_home,
+            first.team_away,
+            first.date,
+            ", ".join(f"'{p}'" for p in unique_unresolved),
+        )
+
     logger.info(
         "Series %s vs %s (%s) processed: %d games, winner=%s",
         first.team_home,
@@ -600,70 +687,52 @@ async def _process_series(
 # ---------------------------------------------------------------------------
 
 
-def _competition_name_for_today() -> str:
-    """
-    Construye el nombre descriptivo de la competición activa basándose en la fecha actual.
-    Formato: "LEC Spring YYYY" o "LEC Summer YYYY".
-    """
-    today = date.today()
-    split = "Spring" if today.month <= 6 else "Summer"
-    return f"LEC {split} {today.year}"
-
-
 async def run_series_ingest(supabase: Client) -> None:
     """
     Pipeline completo de ingestión de series desde gol.gg.
 
-    Obtiene el slug de LEC desde competitions, fetch la matchlist,
-    agrupa los games por (home, away, date) formando series, y procesa
-    cada serie en orden.
+    Obtiene el slug de la competition activa (is_active=True) desde la DB,
+    fetch la matchlist, agrupa los games por (home, away, date) formando
+    series, y procesa cada serie en orden.
     """
     logger.info("Starting series ingest pipeline")
 
-    comp_name = _competition_name_for_today()
-    logger.info("Looking up competition: '%s'", comp_name)
-
-    # 1. Obtener gol_gg_slug de competitions para LEC
-    # Busca primero por nombre descriptivo (ej. "LEC Spring 2026"),
-    # con fallback al nombre legacy "LEC" para compatibilidad con registros anteriores.
+    # 1. Obtener gol_gg_slug de la competition activa (sin filtrar por nombre)
     try:
         comp_resp = (
             supabase.table("competitions")
-            .select("id, gol_gg_slug")
-            .eq("name", comp_name)
+            .select("id, name, gol_gg_slug")
             .eq("is_active", True)
             .limit(1)
             .execute()
         )
-        if not comp_resp.data:
-            # Fallback: nombre legacy
-            comp_resp = (
-                supabase.table("competitions")
-                .select("id, gol_gg_slug")
-                .eq("name", "LEC")
-                .eq("is_active", True)
-                .limit(1)
-                .execute()
-            )
     except Exception as exc:
         logger.error("Failed to query competitions: %s", exc)
         return
 
     if not comp_resp.data:
-        logger.error(
-            "No active LEC competition found in DB (tried '%s' and 'LEC')", comp_name
-        )
+        logger.error("No active competition found in DB (is_active=True)")
         return
 
     competition = comp_resp.data[0]
     competition_id: str = str(competition["id"])
+    competition_name: str = competition.get("name", "<unnamed>")
     gol_gg_slug: str | None = competition.get("gol_gg_slug")
 
     if not gol_gg_slug:
-        logger.error("LEC competition has no gol_gg_slug configured")
+        logger.error(
+            "Active competition '%s' (id=%s) has no gol_gg_slug configured",
+            competition_name,
+            competition_id,
+        )
         return
 
-    logger.info("Using competition_id=%s, slug=%s", competition_id, gol_gg_slug)
+    logger.info(
+        "Using competition '%s' (id=%s, slug=%s)",
+        competition_name,
+        competition_id,
+        gol_gg_slug,
+    )
 
     # 2. Fetch matchlist
     try:

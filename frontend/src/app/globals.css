@@ -53,6 +53,10 @@ body {
   cursor: url('/cursor-64.png'), auto;
 }
 
+*, *:hover, a, button, [role="button"], input, select, textarea, label, [tabindex] {
+  cursor: url('/cursor-64.png'), auto !important;
+}
+
 /* Quitar flechas de inputs numéricos */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {

@@ -45,7 +45,10 @@ def _pct(value: str) -> float:
 
 def _safe_float(value: str) -> float | None:
     try:
-        return float(value)
+        result = float(value)
+        if result != result or result == float("inf") or result == float("-inf"):  # NaN or Infinity
+            return None
+        return result
     except (ValueError, TypeError):
         return None
 
