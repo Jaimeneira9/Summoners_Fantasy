@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -6,6 +7,8 @@ from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
 from scoring.engine import ROLE_WEIGHTS, STATS_TO_NORMALIZE
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,6 +21,24 @@ class LeaderboardEntry(BaseModel):
     total_points: float
     remaining_budget: float
     player_count: int
+
+
+class MemberStatsOut(BaseModel):
+    avg_kda: float | None
+    avg_gold_diff_15: float | None
+    avg_pts_per_week: float | None
+    games_counted: int
+
+
+class DetailedLeaderboardEntry(BaseModel):
+    rank: int
+    member_id: str
+    username: str | None = None
+    avatar_url: str | None = None
+    total_points: float
+    remaining_budget: float
+    player_count: int
+    stats: MemberStatsOut
 
 
 def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
@@ -267,3 +288,194 @@ async def get_player_score_history(
         total_points = 0.0
 
     return {"player": player, "stats": stats, "total_points": round(total_points, 2)}
+
+
+@router.get("/leaderboard/{league_id}/detailed", response_model=list[DetailedLeaderboardEntry])
+def get_detailed_leaderboard(
+    league_id: UUID,
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> list[DetailedLeaderboardEntry]:
+    """
+    Leaderboard detallado: incluye stats agregadas por manager (KDA, gold@15, pts/semana).
+    Más costoso que el leaderboard básico — corre en threadpool (sync def).
+    """
+    _check_membership(supabase, str(league_id), user["id"])
+
+    # 1. Fetch league_members ordered by total_points DESC
+    members_resp = (
+        supabase.table("league_members")
+        .select("id, user_id, total_points, remaining_budget")
+        .eq("league_id", str(league_id))
+        .order("total_points", desc=True)
+        .execute()
+    )
+    members = members_resp.data or []
+    if not members:
+        return []
+
+    member_ids = [m["id"] for m in members]
+
+    # 2. Fetch usernames from profiles in one query
+    user_ids = [m["user_id"] for m in members if m.get("user_id")]
+    profiles_map: dict[str, dict] = {}
+    if user_ids:
+        profiles_resp = (
+            supabase.table("profiles")
+            .select("id, username, avatar_url")
+            .in_("id", user_ids)
+            .execute()
+        )
+        profiles_map = {p["id"]: p for p in (profiles_resp.data or [])}
+
+    # 3. Fetch rosters for all members in one query
+    rosters_resp = (
+        supabase.table("rosters")
+        .select("id, member_id")
+        .in_("member_id", member_ids)
+        .execute()
+    )
+    roster_rows = rosters_resp.data or []
+    roster_id_to_member: dict[str, str] = {r["id"]: r["member_id"] for r in roster_rows}
+    roster_ids = [r["id"] for r in roster_rows]
+
+    # 4. Fetch starter roster_players for all rosters (exclude bench slots)
+    member_starter_ids: dict[str, list[str]] = {mid: [] for mid in member_ids}
+    player_count_map: dict[str, int] = {mid: 0 for mid in member_ids}
+
+    if roster_ids:
+        rp_resp = (
+            supabase.table("roster_players")
+            .select("roster_id, player_id, slot")
+            .in_("roster_id", roster_ids)
+            .execute()
+        )
+        for rp in (rp_resp.data or []):
+            member_id = roster_id_to_member.get(rp["roster_id"])
+            if not member_id:
+                continue
+            player_count_map[member_id] = player_count_map.get(member_id, 0) + 1
+            slot = rp.get("slot") or ""
+            if not slot.startswith("bench"):
+                member_starter_ids[member_id].append(rp["player_id"])
+
+    # 5. Fetch active competition_id
+    active_comp_resp = (
+        supabase.table("competitions")
+        .select("id")
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    active_competition_id: str | None = (
+        (active_comp_resp.data or [{}])[0].get("id") if active_comp_resp.data else None
+    )
+
+    # 6. Batch query: player_game_stats for all starters, filtered by active competition
+    all_starter_ids = list({pid for pids in member_starter_ids.values() for pid in pids})
+
+    # Map player_id -> member_id for aggregation
+    player_to_member: dict[str, str] = {}
+    for mid, pids in member_starter_ids.items():
+        for pid in pids:
+            player_to_member[pid] = mid
+
+    # Per-member accumulators
+    # { member_id: {kills: [], deaths: [], assists: [], gold_diff_15: [], game_points: [], weeks: set()} }
+    from collections import defaultdict
+    member_stats_raw: dict[str, dict] = {
+        mid: {
+            "kills": [],
+            "deaths": [],
+            "assists": [],
+            "gold_diff_15": [],
+            "game_points": [],
+            "week_set": set(),
+        }
+        for mid in member_ids
+    }
+
+    if all_starter_ids and active_competition_id:
+        # Fetch via games → series join to filter by competition_id
+        pgs_resp = (
+            supabase.table("player_game_stats")
+            .select("player_id, kills, deaths, assists, gold_diff_15, game_points, games(series(competition_id, week))")
+            .in_("player_id", all_starter_ids)
+            .execute()
+        )
+        for row in (pgs_resp.data or []):
+            game = row.get("games") or {}
+            series_data = game.get("series") or {}
+            if str(series_data.get("competition_id") or "") != str(active_competition_id):
+                continue
+
+            pid = row["player_id"]
+            mid = player_to_member.get(pid)
+            if not mid:
+                continue
+
+            acc = member_stats_raw[mid]
+            if row.get("kills") is not None:
+                acc["kills"].append(float(row["kills"]))
+            if row.get("deaths") is not None:
+                acc["deaths"].append(float(row["deaths"]))
+            if row.get("assists") is not None:
+                acc["assists"].append(float(row["assists"]))
+            if row.get("gold_diff_15") is not None:
+                acc["gold_diff_15"].append(float(row["gold_diff_15"]))
+            if row.get("game_points") is not None:
+                acc["game_points"].append(float(row["game_points"]))
+            week = series_data.get("week")
+            if week is not None:
+                acc["week_set"].add(week)
+
+    # 7. Aggregate per member and build response
+    def _safe_avg(values: list[float]) -> float | None:
+        return round(sum(values) / len(values), 3) if values else None
+
+    result: list[DetailedLeaderboardEntry] = []
+    for i, m in enumerate(members):
+        mid = m["id"]
+        acc = member_stats_raw[mid]
+
+        avg_kills = _safe_avg(acc["kills"])
+        avg_deaths = _safe_avg(acc["deaths"])
+        avg_assists = _safe_avg(acc["assists"])
+        avg_gold_diff_15 = _safe_avg(acc["gold_diff_15"])
+        games_counted = len(acc["kills"])
+        week_count = max(len(acc["week_set"]), 1)
+
+        # avg_kda = (avg_kills + avg_assists) / max(avg_deaths, 1)
+        if avg_kills is not None and avg_assists is not None:
+            _deaths = avg_deaths if avg_deaths and avg_deaths > 0 else 1.0
+            avg_kda: float | None = round((avg_kills + avg_assists) / _deaths, 3)
+        else:
+            avg_kda = None
+
+        # avg_pts_per_week = total_points_from_starters / weeks_played
+        total_pts_starters = sum(acc["game_points"])
+        avg_pts_per_week: float | None = (
+            round(total_pts_starters / week_count, 2) if acc["game_points"] else None
+        )
+
+        profile = profiles_map.get(m.get("user_id", ""), {})
+
+        result.append(
+            DetailedLeaderboardEntry(
+                rank=i + 1,
+                member_id=mid,
+                username=profile.get("username"),
+                avatar_url=profile.get("avatar_url"),
+                total_points=float(m["total_points"] or 0),
+                remaining_budget=float(m["remaining_budget"] or 0),
+                player_count=player_count_map.get(mid, 0),
+                stats=MemberStatsOut(
+                    avg_kda=avg_kda,
+                    avg_gold_diff_15=avg_gold_diff_15,
+                    avg_pts_per_week=avg_pts_per_week,
+                    games_counted=games_counted,
+                ),
+            )
+        )
+
+    return result

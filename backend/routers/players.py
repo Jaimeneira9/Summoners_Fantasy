@@ -1,4 +1,6 @@
+import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -8,7 +10,13 @@ from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
+
+# Module-level schedule cache: team_name -> (matches, cached_at)
+_schedule_cache: dict[str, tuple[list, datetime]] = {}
+_SCHEDULE_CACHE_TTL_SECONDS = 3600  # 60 minutes
 
 Role = Literal["top", "jungle", "mid", "adc", "support", "coach"]
 
@@ -46,6 +54,10 @@ class ScoutPlayer(BaseModel):
     avg_points: float
     total_points: float
     owner_name: str | None
+    clause_amount: float | None = None
+    clause_expires_at: str | None = None
+    for_sale: bool = False
+    for_sale_price: float | None = None
 
 
 @router.get("/", response_model=list[PlayerOut])
@@ -116,18 +128,33 @@ async def scout_players(
     # Traemos todos los roster_players de la liga en una query con joins
     owners_resp = (
         supabase.table("roster_players")
-        .select("player_id, rosters(member_id, league_members(league_id, user_id))")
+        .select(
+            "id, player_id, clause_amount, clause_expires_at, for_sale,"
+            " rosters(member_id, league_members(league_id, user_id))"
+        )
         .in_("player_id", player_ids)
         .execute()
     )
 
     # Construir mapa player_id → user_id para esta liga
+    # y mapa player_id → cláusula para esta liga
+    # y mapa player_id → (for_sale, roster_player_id)
     player_owner_user: dict[str, str] = {}
+    player_clause: dict[str, dict] = {}
+    player_for_sale: dict[str, bool] = {}
+    roster_player_id_map: dict[str, str] = {}  # player_id → roster_player_id
     for row in (owners_resp.data or []):
         roster = row.get("rosters") or {}
         lm = roster.get("league_members") or {}
         if lm.get("league_id") == str(league_id):
-            player_owner_user[row["player_id"]] = lm["user_id"]
+            pid = row["player_id"]
+            player_owner_user[pid] = lm["user_id"]
+            player_clause[pid] = {
+                "clause_amount": row.get("clause_amount"),
+                "clause_expires_at": row.get("clause_expires_at"),
+            }
+            player_for_sale[pid] = bool(row.get("for_sale", False))
+            roster_player_id_map[pid] = row["id"]
 
     # Resolver usernames de profiles
     owner_user_ids = list(set(player_owner_user.values()))
@@ -141,6 +168,34 @@ async def scout_players(
         )
         username_map = {p["id"]: p["username"] for p in (profiles_resp.data or [])}
 
+    # 3b. Fetch latest pending system sell_offer price for for_sale players
+    # Sistema = from_member_id IS NULL
+    for_sale_roster_player_ids = [
+        roster_player_id_map[pid] for pid, fs in player_for_sale.items() if fs
+    ]
+    player_for_sale_price: dict[str, float] = {}
+    if for_sale_roster_player_ids:
+        so_resp = (
+            supabase.table("sell_offers")
+            .select("roster_player_id, ask_price, from_member_id")
+            .in_("roster_player_id", for_sale_roster_player_ids)
+            .eq("status", "pending")
+            .is_("from_member_id", "null")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        # Keep only the most recent system offer per roster_player (query already ordered)
+        seen_rp: set[str] = set()
+        for so_row in (so_resp.data or []):
+            rp_id = so_row["roster_player_id"]
+            if rp_id not in seen_rp:
+                seen_rp.add(rp_id)
+                # Map back to player_id
+                for pid, rp_id_val in roster_player_id_map.items():
+                    if rp_id_val == rp_id:
+                        player_for_sale_price[pid] = float(so_row["ask_price"])
+                        break
+
     # 4. Ensamblar resultado
     result: list[ScoutPlayer] = []
     for p in players:
@@ -148,6 +203,8 @@ async def scout_players(
         rows = buckets.get(pid, [])
         user_id = player_owner_user.get(pid)
         owner_name = username_map.get(user_id) if user_id else None
+        clause_data = player_clause.get(pid, {})
+        raw_clause_amount = clause_data.get("clause_amount")
         result.append(ScoutPlayer(
             id=pid,
             name=p["name"],
@@ -170,6 +227,10 @@ async def scout_players(
             avg_points=avg(rows, "game_points"),
             total_points=total(rows, "game_points"),
             owner_name=owner_name,
+            clause_amount=float(raw_clause_amount) if raw_clause_amount is not None else None,
+            clause_expires_at=clause_data.get("clause_expires_at"),
+            for_sale=player_for_sale.get(pid, False),
+            for_sale_price=player_for_sale_price.get(pid),
         ))
 
     return result
@@ -190,3 +251,158 @@ async def get_player(
     if not response.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jugador no encontrado")
     return response.data
+
+
+class UpcomingMatch(BaseModel):
+    date: str           # "2026-03-28"
+    opponent: str       # "Fnatic"
+    home_or_away: str   # "home" | "away"
+
+
+class PlayerScheduleOut(BaseModel):
+    player_id: str
+    team: str
+    upcoming: list[UpcomingMatch]
+
+
+@router.get("/{player_id}/schedule", response_model=PlayerScheduleOut)
+def get_player_schedule(
+    player_id: UUID,
+    supabase: Client = Depends(get_supabase),
+) -> PlayerScheduleOut:
+    """
+    Devuelve las próximas partidas programadas del equipo del jugador.
+    Usa module-level cache con TTL de 60 minutos por equipo.
+    Corre en threadpool (sync def). Envuelto en try/except — nunca rompe el cliente.
+    """
+    try:
+        # 1. Fetch player row
+        player_resp = (
+            supabase.table("players")
+            .select("id, team, role")
+            .eq("id", str(player_id))
+            .single()
+            .execute()
+        )
+        if not player_resp.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jugador no encontrado")
+
+        player = player_resp.data
+        player_team: str = player.get("team") or ""
+        player_role: str = player.get("role") or ""
+
+        # 2. Coaches don't play — return empty immediately
+        if player_role == "coach":
+            return PlayerScheduleOut(player_id=str(player_id), team=player_team, upcoming=[])
+
+        # 3. Check module-level cache (TTL = 60 min)
+        now = datetime.now(tz=timezone.utc)
+        cached = _schedule_cache.get(player_team)
+        if cached is not None:
+            cached_matches, cached_at = cached
+            age_seconds = (now - cached_at).total_seconds()
+            if age_seconds < _SCHEDULE_CACHE_TTL_SECONDS:
+                return PlayerScheduleOut(
+                    player_id=str(player_id),
+                    team=player_team,
+                    upcoming=cached_matches[:3],
+                )
+
+        # 4. Cache miss — resolve team UUID from teams table via alias matching.
+        # players.team stores a name like "G2 Esports" or "Fnatic".
+        # teams.aliases is an array that includes the canonical name and variants.
+        team_id: str | None = None
+
+        all_teams_resp = (
+            supabase.table("teams")
+            .select("id, name, aliases")
+            .execute()
+        )
+        for t in (all_teams_resp.data or []):
+            aliases: list[str] = t.get("aliases") or []
+            all_names = [t["name"]] + aliases
+            for alias in all_names:
+                if alias.strip().lower() == player_team.strip().lower():
+                    team_id = str(t["id"])
+                    break
+            if team_id:
+                break
+
+        if not team_id:
+            logger.warning(
+                "get_player_schedule: no team found for player %s team='%s'",
+                player_id,
+                player_team,
+            )
+            _schedule_cache[player_team] = ([], now)
+            return PlayerScheduleOut(player_id=str(player_id), team=player_team, upcoming=[])
+
+        # 5. Query series for upcoming scheduled matches
+        today_str = now.strftime("%Y-%m-%d")
+
+        # Fetch series where this team plays at home — join away team for opponent name
+        home_resp = (
+            supabase.table("series")
+            .select("id, date, team_home_id, team_away_id, teams!series_team_away_id_fkey(name)")
+            .eq("team_home_id", team_id)
+            .eq("status", "scheduled")
+            .gte("date", today_str)
+            .order("date", desc=False)
+            .limit(4)
+            .execute()
+        )
+
+        # Fetch series where this team plays away — join home team for opponent name
+        away_resp = (
+            supabase.table("series")
+            .select("id, date, team_home_id, team_away_id, teams!series_team_home_id_fkey(name)")
+            .eq("team_away_id", team_id)
+            .eq("status", "scheduled")
+            .gte("date", today_str)
+            .order("date", desc=False)
+            .limit(4)
+            .execute()
+        )
+
+        # 6. Build UpcomingMatch list from both result sets
+        upcoming: list[UpcomingMatch] = []
+
+        for row in (home_resp.data or []):
+            opponent_info = row.get("teams") or {}
+            opponent_name: str = opponent_info.get("name") or "Unknown"
+            upcoming.append(
+                UpcomingMatch(
+                    date=str(row["date"]),
+                    opponent=opponent_name,
+                    home_or_away="home",
+                )
+            )
+
+        for row in (away_resp.data or []):
+            opponent_info = row.get("teams") or {}
+            opponent_name = opponent_info.get("name") or "Unknown"
+            upcoming.append(
+                UpcomingMatch(
+                    date=str(row["date"]),
+                    opponent=opponent_name,
+                    home_or_away="away",
+                )
+            )
+
+        # Sort combined list by date ASC, keep up to 3
+        upcoming.sort(key=lambda m: m.date)
+        upcoming = upcoming[:3]
+
+        # 7. Store in cache and return
+        _schedule_cache[player_team] = (upcoming, now)
+        return PlayerScheduleOut(player_id=str(player_id), team=player_team, upcoming=upcoming)
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "get_player_schedule: unexpected error for player %s: %s",
+            player_id,
+            exc,
+        )
+        return PlayerScheduleOut(player_id=str(player_id), team="", upcoming=[])
