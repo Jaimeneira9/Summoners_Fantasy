@@ -52,6 +52,7 @@ class ListingOut(BaseModel):
 
 class ListingDetailOut(ListingOut):
     players: PlayerBrief
+    offer_type: str | None = None  # "peer" for sell_offers from another manager, None for system listings
 
 
 class BuyRequest(BaseModel):
@@ -75,6 +76,19 @@ class SellOfferOut(BaseModel):
     status: str
     expires_at: str
     player: PlayerBrief
+    offer_type: str  # "sistema" | "manager"
+    from_username: str | None = None
+
+
+class PeerOfferIn(BaseModel):
+    roster_player_id: str
+    amount: float
+
+
+class PeerOfferOut(BaseModel):
+    id: str
+    ask_price: float
+    message: str
 
 
 class CandidateOut(BaseModel):
@@ -188,6 +202,32 @@ async def get_listings(
         .execute()
     )
     listings = resp.data or []
+
+    # Fetch peer sell_offers (from_member_id IS NOT NULL) and merge into listings
+    peer_resp = (
+        supabase.table("sell_offers")
+        .select(
+            "id, player_id, member_id, league_id, ask_price, status, created_at, expires_at,"
+            " players(name, team, role, image_url, current_price, last_price_change_pct)"
+        )
+        .eq("league_id", str(league_id))
+        .eq("status", "pending")
+        .not_.is_("from_member_id", "null")
+        .execute()
+    )
+    for offer in (peer_resp.data or []):
+        listings.append({
+            "id": offer["id"],
+            "player_id": offer["player_id"],
+            "seller_id": offer["member_id"],
+            "league_id": offer["league_id"],
+            "ask_price": offer["ask_price"],
+            "status": "active",
+            "listed_at": offer["created_at"],
+            "closes_at": offer.get("expires_at"),
+            "players": offer["players"],
+            "offer_type": "peer",
+        })
 
     # Fetch split_points for the active competition for each player in listings
     player_ids = [row["player_id"] for row in listings if row.get("player_id")]
@@ -415,7 +455,7 @@ async def get_sell_offers(
     resp = (
         supabase.table("sell_offers")
         .select(
-            "id, ask_price, status, expires_at,"
+            "id, ask_price, status, expires_at, from_member_id,"
             " players(name, team, role, image_url, current_price, last_price_change_pct)"
         )
         .eq("league_id", str(league_id))
@@ -423,16 +463,140 @@ async def get_sell_offers(
         .eq("status", "pending")
         .execute()
     )
+    rows = resp.data or []
+
+    # Resolve usernames for peer offers (from_member_id not null)
+    peer_member_ids = list({row["from_member_id"] for row in rows if row.get("from_member_id")})
+    peer_username_map: dict[str, str] = {}
+    if peer_member_ids:
+        lm_resp = (
+            supabase.table("league_members")
+            .select("id, user_id")
+            .in_("id", peer_member_ids)
+            .execute()
+        )
+        peer_user_ids = [lm["user_id"] for lm in (lm_resp.data or []) if lm.get("user_id")]
+        member_user_map: dict[str, str] = {lm["id"]: lm["user_id"] for lm in (lm_resp.data or [])}
+
+        if peer_user_ids:
+            profiles_resp = (
+                supabase.table("profiles")
+                .select("id, username")
+                .in_("id", peer_user_ids)
+                .execute()
+            )
+            user_username_map: dict[str, str] = {p["id"]: p["username"] for p in (profiles_resp.data or [])}
+            for member_id_key, user_id_val in member_user_map.items():
+                peer_username_map[member_id_key] = user_username_map.get(user_id_val, "")
+
     result = []
-    for row in (resp.data or []):
+    for row in rows:
+        from_member_id_val: str | None = row.get("from_member_id")
+        offer_type = "manager" if from_member_id_val else "sistema"
+        from_username: str | None = peer_username_map.get(from_member_id_val) if from_member_id_val else None
         result.append(SellOfferOut(
             id=row["id"],
             ask_price=row["ask_price"],
             status=row["status"],
             expires_at=row["expires_at"],
             player=PlayerBrief(**row["players"]),
+            offer_type=offer_type,
+            from_username=from_username,
         ))
     return result
+
+
+@router.post("/{league_id}/offer", response_model=PeerOfferOut, status_code=status.HTTP_201_CREATED)
+async def create_peer_offer(
+    league_id: UUID,
+    body: PeerOfferIn,
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> PeerOfferOut:
+    """Crea una oferta de compra directa entre managers (peer offer)."""
+    buyer_member = _get_member(supabase, str(league_id), user["id"])
+
+    # Guard: amount debe ser > 0
+    if body.amount <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="El monto debe ser mayor a 0",
+        )
+
+    # Fetch roster_player: verificar que pertenece a esta liga y está for_sale=True
+    rp_resp = (
+        supabase.table("roster_players")
+        .select(
+            "id, player_id, for_sale,"
+            " rosters!inner(member_id, league_members!inner(id, league_id))"
+        )
+        .eq("id", body.roster_player_id)
+        .eq("for_sale", True)
+        .eq("rosters.league_members.league_id", str(league_id))
+        .execute()
+    )
+    rp = rp_resp.data[0] if rp_resp.data else None
+    if not rp:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Jugador no encontrado en esta liga o no está disponible para venta",
+        )
+
+    owner_member_id: str = rp["rosters"]["league_members"]["id"]
+    player_id: str = rp["player_id"]
+
+    # Guard: el comprador no puede ofertar por su propio jugador
+    if owner_member_id == buyer_member["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No podés hacer una oferta por tu propio jugador",
+        )
+
+    # Guard: presupuesto suficiente
+    if float(buyer_member["remaining_budget"]) < body.amount:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Presupuesto insuficiente",
+        )
+
+    # Guard: no duplicar oferta pendiente del mismo comprador para el mismo roster_player
+    existing_resp = (
+        supabase.table("sell_offers")
+        .select("id")
+        .eq("roster_player_id", body.roster_player_id)
+        .eq("from_member_id", buyer_member["id"])
+        .eq("status", "pending")
+        .execute()
+    )
+    if existing_resp.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Ya tenés una oferta pendiente para este jugador",
+        )
+
+    # Insertar sell_offer con from_member_id = buyer
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    insert_resp = (
+        supabase.table("sell_offers")
+        .insert({
+            "league_id": str(league_id),
+            "member_id": owner_member_id,
+            "roster_player_id": body.roster_player_id,
+            "player_id": player_id,
+            "ask_price": body.amount,
+            "status": "pending",
+            "from_member_id": buyer_member["id"],
+            "expires_at": expires_at,
+        })
+        .execute()
+    )
+    new_offer = insert_resp.data[0]
+
+    return PeerOfferOut(
+        id=str(new_offer["id"]),
+        ask_price=float(new_offer["ask_price"]),
+        message="Oferta enviada al manager. Recibirás una notificación cuando responda.",
+    )
 
 
 @router.post(
@@ -562,6 +726,16 @@ class ClauseUpgradeRequest(BaseModel):
     amount: float = Field(..., gt=0)
 
 
+class ClauseInfoOut(BaseModel):
+    is_owned: bool
+    owned_by_me: bool
+    clause_amount: float | None
+    clause_expires_at: str | None  # ISO string o None
+    clause_active: bool
+    roster_player_id: str | None
+    for_sale: bool = False
+
+
 @router.post("/{league_id}/clause/{roster_player_id}/activate", status_code=status.HTTP_200_OK)
 async def activate_clause(
     league_id: str,
@@ -688,7 +862,12 @@ async def activate_clause(
         "p_amount": clause_amount
     }).execute()
 
-    # 3. Eliminar del roster actual
+    # 3a. Cancelar sell_offers pendientes para este roster_player (si las hay)
+    supabase.table("sell_offers").update({"status": "cancelled"}).eq(
+        "roster_player_id", roster_player_id
+    ).eq("status", "pending").execute()
+
+    # 3b. Eliminar del roster actual
     supabase.table("roster_players").delete().eq("id", roster_player_id).execute()
 
     # 4. Insertar en el roster del comprador
@@ -790,3 +969,67 @@ async def upgrade_clause(
         "amount_paid": amount,
         "new_clause": new_clause,
     }
+
+
+@router.get("/{league_id}/clause/{player_id}", response_model=ClauseInfoOut)
+async def get_clause_info(
+    league_id: str,
+    player_id: str,
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> ClauseInfoOut:
+    """Devuelve información de la cláusula de un jugador en el contexto de una liga."""
+    member = _get_member(supabase, league_id, user["id"])
+
+    # Buscar roster_players para este jugador en esta liga via join
+    rp_resp = (
+        supabase.table("roster_players")
+        .select("id, clause_amount, clause_expires_at, for_sale, rosters(member_id, league_members(league_id, user_id))")
+        .eq("player_id", player_id)
+        .execute()
+    )
+
+    # Filtrar por liga (defensa ante joins nulos de PostgREST)
+    rp: dict | None = None
+    for row in (rp_resp.data or []):
+        roster = row.get("rosters") or {}
+        lm = roster.get("league_members") or {}
+        if lm.get("league_id") == league_id:
+            rp = row
+            break
+
+    if not rp:
+        return ClauseInfoOut(
+            is_owned=False,
+            owned_by_me=False,
+            clause_amount=None,
+            clause_expires_at=None,
+            clause_active=False,
+            roster_player_id=None,
+        )
+
+    roster = rp.get("rosters") or {}
+    lm = roster.get("league_members") or {}
+    owner_user_id: str = lm.get("user_id", "")
+    owned_by_me = owner_user_id == user["id"]
+
+    clause_expires_at: str | None = rp.get("clause_expires_at")
+    clause_active = False
+    if clause_expires_at:
+        try:
+            expires = datetime.fromisoformat(clause_expires_at)
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            clause_active = expires > datetime.now(timezone.utc)
+        except (ValueError, TypeError):
+            clause_active = False
+
+    return ClauseInfoOut(
+        is_owned=True,
+        owned_by_me=owned_by_me,
+        clause_amount=float(rp["clause_amount"]) if rp.get("clause_amount") is not None else None,
+        clause_expires_at=clause_expires_at,
+        clause_active=clause_active,
+        roster_player_id=str(rp["id"]),
+        for_sale=bool(rp.get("for_sale", False)),
+    )
