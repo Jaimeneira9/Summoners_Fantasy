@@ -3,7 +3,7 @@ Resuelve pujas vencidas: asigna jugadores al ganador de cada listing.
 Se llama al inicio del job market_refresh (00:00 UTC).
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from supabase import Client
 
@@ -116,6 +116,8 @@ def _resolve_listing(supabase: Client, listing: dict) -> None:
         "player_id": listing["player_id"],
         "slot": slot,
         "price_paid": bid_amount,
+        "clause_expires_at": (datetime.now(timezone.utc) + timedelta(days=14)).isoformat(),
+        "clause_amount": bid_amount,
     }).execute()
 
     supabase.table("league_members").update({
