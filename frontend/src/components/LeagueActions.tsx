@@ -19,8 +19,8 @@ export function LeagueActions() {
         <div className="flex gap-2">
           <button
             onClick={() => setMode("create")}
-            className="px-4 py-2 text-sm font-bold text-white rounded-lg transition-all active:scale-95 hover:brightness-90"
-            style={{ background: "var(--color-primary)" }}
+            className="px-4 py-2 text-sm font-bold rounded-lg transition-all active:scale-95 hover:brightness-90"
+            style={{ background: "var(--color-primary)", color: "#111111" }}
           >
             Crear liga
           </button>
@@ -55,7 +55,7 @@ export function LeagueActions() {
 // ---------------------------------------------------------------------------
 function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [name, setName] = useState("");
-  const [maxMembers, setMaxMembers] = useState(10);
+  const [maxMembers, setMaxMembers] = useState(8);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,14 +116,14 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
 
       <div className="space-y-1">
         <label className="text-xs uppercase tracking-wider font-medium" style={{ color: "var(--text-secondary)" }}>
-          Jugadores máx. <span className="normal-case font-normal" style={{ color: "var(--text-muted)" }}>(2–20)</span>
+          Jugadores máx. <span className="normal-case font-normal" style={{ color: "var(--text-muted)" }}>(2–9)</span>
         </label>
         <input
           type="number"
           value={maxMembers}
           onChange={(e) => setMaxMembers(Number(e.target.value))}
           min={2}
-          max={20}
+          max={9}
           className="w-32 rounded-lg px-3 py-2 text-sm outline-none transition-colors"
           style={{
             background: "var(--bg-surface)",
@@ -155,8 +155,8 @@ function CreateForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => 
         <button
           type="submit"
           disabled={busy || name.trim().length < 3}
-          className="px-4 py-2 text-sm font-bold text-white rounded-lg transition-all disabled:opacity-40 active:scale-95 hover:brightness-90"
-          style={{ background: "var(--color-primary)" }}
+          className="px-4 py-2 text-sm font-bold rounded-lg transition-all disabled:opacity-40 active:scale-95 hover:brightness-90"
+          style={{ background: "var(--color-primary)", color: "#111111" }}
         >
           {busy ? "Creando…" : "Crear liga"}
         </button>
@@ -240,8 +240,8 @@ function JoinForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => vo
         <button
           type="submit"
           disabled={busy || code.trim().length === 0}
-          className="px-4 py-2 text-sm font-bold text-white rounded-lg transition-all disabled:opacity-40 active:scale-95 hover:brightness-90"
-          style={{ background: "var(--color-primary)" }}
+          className="px-4 py-2 text-sm font-bold rounded-lg transition-all disabled:opacity-40 active:scale-95 hover:brightness-90"
+          style={{ background: "var(--color-primary)", color: "#111111" }}
         >
           {busy ? "Uniéndose…" : "Unirse"}
         </button>

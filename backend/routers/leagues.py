@@ -15,7 +15,7 @@ router = APIRouter()
 
 class LeagueCreate(BaseModel):
     name: str = Field(min_length=3, max_length=60)
-    max_members: int = Field(default=10, ge=2, le=20)
+    max_members: int = Field(default=8, ge=2, le=9)
 
 
 class MemberOut(BaseModel):
