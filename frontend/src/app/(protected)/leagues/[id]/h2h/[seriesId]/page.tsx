@@ -500,7 +500,7 @@ function LoadingSkeleton() {
 // ---------------------------------------------------------------------------
 
 export default function H2HPage() {
-  const { id: leagueId, seriesId } = useParams<{ id: string; seriesId: string }>();
+  const { seriesId } = useParams<{ id: string; seriesId: string }>();
   const [data, setData] = useState<H2HResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
