@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, type H2HResponse, type TeamH2HStats, type PlayerH2HStats } from "@/lib/api";
 
@@ -267,25 +267,37 @@ function TeamStatsTab({
 // Player avatar (photo with initial fallback)
 // ---------------------------------------------------------------------------
 
-function PlayerAvatar({ player, size = 64 }: { player: PlayerH2HStats; size?: number }) {
+function PlayerAvatar({
+  player,
+  size = 80,
+  side = "home",
+}: {
+  player: PlayerH2HStats;
+  size?: number;
+  side?: "home" | "away";
+}) {
   const [failed, setFailed] = useState(false);
   const initial = player.name.charAt(0).toUpperCase();
 
+  const containerStyle: React.CSSProperties = {
+    width: size,
+    height: size,
+    background: "#0D0D0D",
+    borderRadius: 10,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    borderRight: side === "home" ? "2px solid #FCD400" : "none",
+    borderLeft: side === "away" ? "2px solid #FCD400" : "none",
+    borderTop: "none",
+    borderBottom: "none",
+    overflow: "hidden",
+  };
+
   if (failed) {
     return (
-      <div
-        style={{
-          width: size,
-          height: size,
-          borderRadius: 10,
-          background: "#1E1E1E",
-          border: "1px solid #2A2A2A",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
+      <div style={containerStyle}>
         <span
           style={{
             fontFamily: "'Space Grotesk', sans-serif",
@@ -301,22 +313,21 @@ function PlayerAvatar({ player, size = 64 }: { player: PlayerH2HStats; size?: nu
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={playerPhotoUrl(player)}
-      alt={player.name}
-      onError={() => setFailed(true)}
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 10,
-        objectFit: "cover",
-        objectPosition: "center top",
-        flexShrink: 0,
-        background: "#1A1A1A",
-        border: "1px solid #1E1E1E",
-      }}
-    />
+    <div style={containerStyle}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={playerPhotoUrl(player)}
+        alt={player.name}
+        onError={() => setFailed(true)}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          objectPosition: "center top",
+          display: "block",
+        }}
+      />
+    </div>
   );
 }
 
@@ -375,7 +386,7 @@ function PlayerStatRow({
             fontFamily: "'Space Grotesk', sans-serif",
             fontSize: 9,
             fontWeight: 700,
-            color: "#333333",
+            color: "#FCD400",
             textTransform: "uppercase",
             letterSpacing: "0.07em",
             whiteSpace: "nowrap",
@@ -441,7 +452,7 @@ function PlayersTab({
                 fontFamily: "'Space Grotesk', sans-serif",
                 fontSize: 9,
                 fontWeight: 700,
-                color: "#333333",
+                color: "#FCD400",
                 textTransform: "uppercase",
                 letterSpacing: "0.12em",
                 marginBottom: 14,
@@ -467,12 +478,12 @@ function PlayersTab({
                   alignItems: "center",
                   gap: 6,
                   flexShrink: 0,
-                  width: 64,
+                  width: 80,
                 }}
               >
                 {hp ? (
                   <>
-                    <PlayerAvatar player={hp} size={64} />
+                    <PlayerAvatar player={hp} size={80} side="home" />
                     <p
                       style={{
                         fontFamily: "'Space Grotesk', sans-serif",
@@ -483,7 +494,7 @@ function PlayersTab({
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
-                        maxWidth: 64,
+                        maxWidth: 80,
                       }}
                     >
                       {hp.name}
@@ -492,11 +503,11 @@ function PlayersTab({
                 ) : (
                   <div
                     style={{
-                      width: 64,
-                      height: 64,
+                      width: 80,
+                      height: 80,
                       borderRadius: 10,
-                      background: "#1A1A1A",
-                      border: "1px solid #1E1E1E",
+                      background: "#0D0D0D",
+                      borderRight: "2px solid #FCD400",
                     }}
                   />
                 )}
@@ -551,12 +562,12 @@ function PlayersTab({
                   alignItems: "center",
                   gap: 6,
                   flexShrink: 0,
-                  width: 64,
+                  width: 80,
                 }}
               >
                 {ap ? (
                   <>
-                    <PlayerAvatar player={ap} size={64} />
+                    <PlayerAvatar player={ap} size={80} side="away" />
                     <p
                       style={{
                         fontFamily: "'Space Grotesk', sans-serif",
@@ -567,7 +578,7 @@ function PlayersTab({
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
-                        maxWidth: 64,
+                        maxWidth: 80,
                       }}
                     >
                       {ap.name}
@@ -576,11 +587,11 @@ function PlayersTab({
                 ) : (
                   <div
                     style={{
-                      width: 64,
-                      height: 64,
+                      width: 80,
+                      height: 80,
                       borderRadius: 10,
-                      background: "#1A1A1A",
-                      border: "1px solid #1E1E1E",
+                      background: "#0D0D0D",
+                      borderLeft: "2px solid #FCD400",
                     }}
                   />
                 )}
