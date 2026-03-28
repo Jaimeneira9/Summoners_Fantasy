@@ -130,6 +130,37 @@ async def scout_players(
     for row in raw_stats:
         buckets[row["player_id"]].append(row)
 
+    # 2b. Calcular avg_gold_diff_15 y avg_xp_diff_15 desde player_game_stats.
+    # Una sola query bulk para todos los jugadores; filtramos por competition_id en Python.
+    gold_diff_map: dict[str, float] = {}
+    xp_diff_map: dict[str, float] = {}
+    pgs_resp = (
+        supabase.table("player_game_stats")
+        .select("player_id, gold_diff_15, xp_diff_15, games(series_id, series(competition_id))")
+        .in_("player_id", player_ids)
+        .execute()
+    )
+    gold_by_player: dict[str, list[float]] = defaultdict(list)
+    xp_by_player: dict[str, list[float]] = defaultdict(list)
+    for pgs_row in (pgs_resp.data or []):
+        if competition_id:
+            game = pgs_row.get("games") or {}
+            series_data = game.get("series") or {}
+            if str(series_data.get("competition_id") or "") != competition_id:
+                continue
+        pid = pgs_row["player_id"]
+        if pgs_row.get("gold_diff_15") is not None:
+            gold_by_player[pid].append(float(pgs_row["gold_diff_15"]))
+        if pgs_row.get("xp_diff_15") is not None:
+            xp_by_player[pid].append(float(pgs_row["xp_diff_15"]))
+    for pid in player_ids:
+        gold_vals = gold_by_player.get(pid, [])
+        xp_vals = xp_by_player.get(pid, [])
+        if gold_vals:
+            gold_diff_map[pid] = round(sum(gold_vals) / len(gold_vals), 1)
+        if xp_vals:
+            xp_diff_map[pid] = round(sum(xp_vals) / len(xp_vals), 1)
+
     def avg(rows: list, field: str) -> float:
         vals = [r[field] for r in rows if r.get(field) is not None]
         return round(sum(vals) / len(vals), 3) if vals else 0.0
@@ -234,6 +265,8 @@ async def scout_players(
             total_deaths=total(rows, "avg_deaths"),
             total_assists=total(rows, "avg_assists"),
             avg_cs_per_min=avg(rows, "avg_cs_per_min"),
+            avg_gold_diff_15=gold_diff_map.get(pid, 0.0),
+            avg_xp_diff_15=xp_diff_map.get(pid, 0.0),
             avg_dpm=avg(rows, "avg_dpm"),
             avg_vision_score=avg(rows, "avg_vision_score"),
             avg_points=avg(rows, "series_points"),

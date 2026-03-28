@@ -264,10 +264,67 @@ function TeamStatsTab({
 }
 
 // ---------------------------------------------------------------------------
-// Player stat mini
+// Player avatar (photo with initial fallback)
 // ---------------------------------------------------------------------------
 
-function PlayerStatPair({
+function PlayerAvatar({ player, size = 64 }: { player: PlayerH2HStats; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  const initial = player.name.charAt(0).toUpperCase();
+
+  if (failed) {
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: 10,
+          background: "#1E1E1E",
+          border: "1px solid #2A2A2A",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontSize: size * 0.38,
+            fontWeight: 700,
+            color: "#555555",
+          }}
+        >
+          {initial}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={playerPhotoUrl(player)}
+      alt={player.name}
+      onError={() => setFailed(true)}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: 10,
+        objectFit: "cover",
+        objectPosition: "center top",
+        flexShrink: 0,
+        background: "#1A1A1A",
+        border: "1px solid #1E1E1E",
+      }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Player stat row (vertical table, one stat per line)
+// ---------------------------------------------------------------------------
+
+function PlayerStatRow({
   label,
   homeVal,
   awayVal,
@@ -284,33 +341,61 @@ function PlayerStatPair({
   const av = awayVal ?? 0;
   const homeWins = higherIsBetter ? hv > av : hv < av;
   const awayWins = higherIsBetter ? av > hv : av < hv;
-  const tie = hv === av;
+  const tie = homeVal === null || awayVal === null || hv === av;
+
+  const winColor = "#4ADE80";
+  const neutralColor = "#555555";
 
   return (
-    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-      <span
-        style={{
-          fontFamily: "'Barlow Condensed', sans-serif",
-          fontSize: 12,
-          color: tie ? "#555" : homeWins ? "#FCD400" : "#555",
-          fontWeight: 600,
-        }}
-      >
-        {homeVal != null ? format(hv) : "—"}
-      </span>
-      <span style={{ fontSize: 10, color: "#444", fontFamily: "'Space Grotesk', sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-        {label}
-      </span>
-      <span
-        style={{
-          fontFamily: "'Barlow Condensed', sans-serif",
-          fontSize: 12,
-          color: tie ? "#555" : awayWins ? "#FCD400" : "#555",
-          fontWeight: 600,
-        }}
-      >
-        {awayVal != null ? format(av) : "—"}
-      </span>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr auto 1fr",
+        alignItems: "center",
+        gap: 8,
+        padding: "7px 0",
+        borderBottom: "1px solid #181818",
+      }}
+    >
+      <div style={{ textAlign: "right" }}>
+        <span
+          style={{
+            fontFamily: "'Barlow Condensed', sans-serif",
+            fontSize: 15,
+            fontWeight: tie ? 600 : homeWins ? 700 : 500,
+            color: tie ? neutralColor : homeWins ? winColor : neutralColor,
+          }}
+        >
+          {homeVal != null ? format(hv) : "—"}
+        </span>
+      </div>
+      <div style={{ textAlign: "center", minWidth: 60 }}>
+        <span
+          style={{
+            fontFamily: "'Space Grotesk', sans-serif",
+            fontSize: 9,
+            fontWeight: 700,
+            color: "#333333",
+            textTransform: "uppercase",
+            letterSpacing: "0.07em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      <div style={{ textAlign: "left" }}>
+        <span
+          style={{
+            fontFamily: "'Barlow Condensed', sans-serif",
+            fontSize: 15,
+            fontWeight: tie ? 600 : awayWins ? 700 : 500,
+            color: tie ? neutralColor : awayWins ? winColor : neutralColor,
+          }}
+        >
+          {awayVal != null ? format(av) : "—"}
+        </span>
+      </div>
     </div>
   );
 }
@@ -346,8 +431,8 @@ function PlayersTab({
           <div
             key={role}
             style={{
-              padding: "16px 16px",
-              borderBottom: idx < ROLE_ORDER.length - 1 ? "1px solid #1A1A1A" : "none",
+              padding: "20px 16px",
+              borderBottom: idx < ROLE_ORDER.length - 1 ? "1px solid #1E1E1E" : "none",
             }}
           >
             {/* Role label */}
@@ -358,180 +443,149 @@ function PlayersTab({
                 fontWeight: 700,
                 color: "#333333",
                 textTransform: "uppercase",
-                letterSpacing: "0.1em",
-                marginBottom: 12,
+                letterSpacing: "0.12em",
+                marginBottom: 14,
                 textAlign: "center",
               }}
             >
               {ROLE_LABEL[role] ?? role}
             </p>
 
-            {/* Player row */}
+            {/* Main layout: photo | stats | photo */}
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto 1fr",
+                display: "flex",
+                alignItems: "flex-start",
                 gap: 12,
-                alignItems: "center",
               }}
             >
-              {/* Home player */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end", minWidth: 0 }}>
-                {hp ? (
-                  <>
-                    <div style={{ textAlign: "right", minWidth: 0, overflow: "hidden" }}>
-                      <p
-                        style={{
-                          fontFamily: "'Space Grotesk', sans-serif",
-                          fontSize: 13,
-                          fontWeight: 700,
-                          color: "#F0E8D0",
-                          marginBottom: 3,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {hp.name}
-                      </p>
-                      <p
-                        style={{
-                          fontFamily: "'Barlow Condensed', sans-serif",
-                          fontSize: 11,
-                          color: "#666",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {fmt(hp.avg_kda, 2)} KDA
-                      </p>
-                    </div>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={playerPhotoUrl(hp)}
-                      alt={hp.name}
-                      onError={(e) => { e.currentTarget.style.display = "none"; }}
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 8,
-                        objectFit: "cover",
-                        objectPosition: "center top",
-                        flexShrink: 0,
-                        background: "#1A1A1A",
-                      }}
-                    />
-                  </>
-                ) : (
-                  <p style={{ fontSize: 11, color: "#444", textAlign: "right", flex: 1 }}>Sin datos</p>
-                )}
-              </div>
-
-              {/* VS divider */}
-              <div style={{ textAlign: "center", flexShrink: 0 }}>
-                <span
-                  style={{
-                    fontFamily: "'Barlow Condensed', sans-serif",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: "#333333",
-                    letterSpacing: "0.06em",
-                  }}
-                >
-                  VS
-                </span>
-              </div>
-
-              {/* Away player */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-start", minWidth: 0 }}>
-                {ap ? (
-                  <>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={playerPhotoUrl(ap)}
-                      alt={ap.name}
-                      onError={(e) => { e.currentTarget.style.display = "none"; }}
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 8,
-                        objectFit: "cover",
-                        objectPosition: "center top",
-                        flexShrink: 0,
-                        background: "#1A1A1A",
-                      }}
-                    />
-                    <div style={{ textAlign: "left", minWidth: 0, overflow: "hidden" }}>
-                      <p
-                        style={{
-                          fontFamily: "'Space Grotesk', sans-serif",
-                          fontSize: 13,
-                          fontWeight: 700,
-                          color: "#F0E8D0",
-                          marginBottom: 3,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {ap.name}
-                      </p>
-                      <p
-                        style={{
-                          fontFamily: "'Barlow Condensed', sans-serif",
-                          fontSize: 11,
-                          color: "#666",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {fmt(ap.avg_kda, 2)} KDA
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <p style={{ fontSize: 11, color: "#444" }}>Sin datos</p>
-                )}
-              </div>
-            </div>
-
-            {/* Stat comparison row */}
-            {(hp || ap) && (
+              {/* Home player column */}
               <div
                 style={{
                   display: "flex",
-                  justifyContent: "center",
-                  gap: 16,
-                  marginTop: 12,
-                  flexWrap: "wrap",
-                  padding: "10px 0 2px",
-                  borderTop: "1px solid #1A1A1A",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
+                  flexShrink: 0,
+                  width: 64,
                 }}
               >
-                <PlayerStatPair
+                {hp ? (
+                  <>
+                    <PlayerAvatar player={hp} size={64} />
+                    <p
+                      style={{
+                        fontFamily: "'Space Grotesk', sans-serif",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: "#F0E8D0",
+                        textAlign: "center",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 64,
+                      }}
+                    >
+                      {hp.name}
+                    </p>
+                  </>
+                ) : (
+                  <div
+                    style={{
+                      width: 64,
+                      height: 64,
+                      borderRadius: 10,
+                      background: "#1A1A1A",
+                      border: "1px solid #1E1E1E",
+                    }}
+                  />
+                )}
+              </div>
+
+              {/* Stats column */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <PlayerStatRow
                   label="KDA"
                   homeVal={hp?.avg_kda ?? null}
                   awayVal={ap?.avg_kda ?? null}
                   format={(v) => fmt(v, 2)}
                 />
-                <PlayerStatPair
-                  label="CS/min"
-                  homeVal={hp?.avg_cs_per_min ?? null}
-                  awayVal={ap?.avg_cs_per_min ?? null}
-                  format={(v) => fmt(v, 1)}
-                />
-                <PlayerStatPair
-                  label="DPM"
-                  homeVal={hp?.avg_dpm ?? null}
-                  awayVal={ap?.avg_dpm ?? null}
-                  format={(v) => Math.round(v).toLocaleString()}
-                />
-                <PlayerStatPair
+                <PlayerStatRow
                   label="Kills"
                   homeVal={hp?.avg_kills ?? null}
                   awayVal={ap?.avg_kills ?? null}
                   format={(v) => fmt(v, 1)}
                 />
+                <PlayerStatRow
+                  label="Deaths"
+                  homeVal={hp?.avg_deaths ?? null}
+                  awayVal={ap?.avg_deaths ?? null}
+                  format={(v) => fmt(v, 1)}
+                  higherIsBetter={false}
+                />
+                <PlayerStatRow
+                  label="Assists"
+                  homeVal={hp?.avg_assists ?? null}
+                  awayVal={ap?.avg_assists ?? null}
+                  format={(v) => fmt(v, 1)}
+                />
+                <PlayerStatRow
+                  label="CS/min"
+                  homeVal={hp?.avg_cs_per_min ?? null}
+                  awayVal={ap?.avg_cs_per_min ?? null}
+                  format={(v) => fmt(v, 1)}
+                />
+                <PlayerStatRow
+                  label="DPM"
+                  homeVal={hp?.avg_dpm ?? null}
+                  awayVal={ap?.avg_dpm ?? null}
+                  format={(v) => Math.round(v).toLocaleString()}
+                />
               </div>
-            )}
+
+              {/* Away player column */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 6,
+                  flexShrink: 0,
+                  width: 64,
+                }}
+              >
+                {ap ? (
+                  <>
+                    <PlayerAvatar player={ap} size={64} />
+                    <p
+                      style={{
+                        fontFamily: "'Space Grotesk', sans-serif",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        color: "#F0E8D0",
+                        textAlign: "center",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 64,
+                      }}
+                    >
+                      {ap.name}
+                    </p>
+                  </>
+                ) : (
+                  <div
+                    style={{
+                      width: 64,
+                      height: 64,
+                      borderRadius: 10,
+                      background: "#1A1A1A",
+                      border: "1px solid #1E1E1E",
+                    }}
+                  />
+                )}
+              </div>
+            </div>
           </div>
         );
       })}

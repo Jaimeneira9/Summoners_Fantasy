@@ -1080,16 +1080,22 @@ export default function PlayerStatsPage() {
           barPct: selectedStat.xp_diff_at_15 != null
             ? Math.min(Math.max(50 + (selectedStat.xp_diff_at_15 / 2000) * 50, 0), 100)
             : null,
+          deathColor: selectedStat.xp_diff_at_15 != null
+            ? (selectedStat.xp_diff_at_15 > 0 ? "#4ade80" : selectedStat.xp_diff_at_15 < 0 ? "#f87171" : "#888888")
+            : undefined,
           breakdownKey: "xp_diff_15",
         },
         {
           label: "Gold @15",
           value: selectedStat.gold_diff_at_15 != null
-            ? (selectedStat.gold_diff_at_15 >= 0 ? `+${selectedStat.gold_diff_at_15}` : String(selectedStat.gold_diff_at_15))
+            ? (selectedStat.gold_diff_at_15 >= 0 ? `+${Math.round(selectedStat.gold_diff_at_15)}` : String(Math.round(selectedStat.gold_diff_at_15)))
             : "—",
           barPct: selectedStat.gold_diff_at_15 != null
             ? Math.min(Math.max(50 + (selectedStat.gold_diff_at_15 / 2000) * 50, 0), 100)
             : null,
+          deathColor: selectedStat.gold_diff_at_15 != null
+            ? (selectedStat.gold_diff_at_15 > 0 ? "#4ade80" : selectedStat.gold_diff_at_15 < 0 ? "#f87171" : "#888888")
+            : undefined,
           breakdownKey: "gold_diff_15",
         },
       ]
