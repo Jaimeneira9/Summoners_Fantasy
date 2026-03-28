@@ -33,87 +33,66 @@ PLAYER = {
     "current_price": 12.5,
 }
 
-# Respuesta de player_game_stats para ordenar por fecha (1a query)
-GAMES_FOR_PLAYER = [
-    {
-        "game_id": GAME_ID_1,
-        "games": {"id": GAME_ID_1, "series": {"date": "2026-03-15"}},
-    },
-    {
-        "game_id": GAME_ID_2,
-        "games": {"id": GAME_ID_2, "series": {"date": "2026-03-08"}},
-    },
+# Equipos mockeados (todos, para resolución de team_id por nombre)
+ALL_TEAMS = [
+    {"id": TEAM_HOME_ID, "name": "G2 Esports", "aliases": ["G2 Esports", "G2"]},
+    {"id": TEAM_AWAY_ID, "name": "Fnatic", "aliases": ["Fnatic", "FNC"]},
 ]
 
-# Respuesta de player_game_stats con stats reales (2a query, ya filtrada)
-RAW_STATS = [
-    {
-        "game_id": GAME_ID_1,
-        "kills": 5,
-        "deaths": 2,
-        "assists": 3,
-        "cs_per_min": 8.5,
-        "vision_score": 25,
-        "game_points": 18.5,
-        "damage_share": 0.32,
-        "gold_diff_15": 450,
-    },
-    {
-        "game_id": GAME_ID_2,
-        "kills": 2,
-        "deaths": 4,
-        "assists": 7,
-        "cs_per_min": 7.2,
-        "vision_score": 18,
-        "game_points": 10.0,
-        "damage_share": 0.28,
-        "gold_diff_15": -300,
-    },
+# Equipos por ID (para obtener nombres en la respuesta)
+TEAMS_BY_ID = [
+    {"id": TEAM_HOME_ID, "name": "G2 Esports"},
+    {"id": TEAM_AWAY_ID, "name": "Fnatic"},
 ]
 
-# Respuesta de games con series y competitions nested
-GAMES_DATA = [
+# player_series_stats con nested series+competitions (historial, 1a query)
+SERIES_STATS = [
     {
-        "id": GAME_ID_1,
-        "team_home_id": TEAM_HOME_ID,
-        "team_away_id": TEAM_AWAY_ID,
-        "duration_min": 28.5,
+        "series_id": SERIES_ID_1,
+        "series_points": 18.5,
+        "avg_kills": 5.0,
+        "avg_deaths": 2.0,
+        "avg_assists": 3.0,
+        "avg_cs_per_min": 8.5,
+        "avg_dpm": 450.0,
+        "avg_vision_score": 25.0,
         "series": {
+            "id": SERIES_ID_1,
             "date": "2026-03-15",
             "competition_id": COMPETITION_ID,
+            "winner_id": TEAM_HOME_ID,
+            "team_home_id": TEAM_HOME_ID,
+            "team_away_id": TEAM_AWAY_ID,
             "competitions": {"name": "LEC Spring 2026"},
         },
     },
     {
-        "id": GAME_ID_2,
-        "team_home_id": TEAM_AWAY_ID,
-        "team_away_id": TEAM_HOME_ID,
-        "duration_min": 32.0,
+        "series_id": SERIES_ID_2,
+        "series_points": 10.0,
+        "avg_kills": 2.0,
+        "avg_deaths": 4.0,
+        "avg_assists": 7.0,
+        "avg_cs_per_min": 7.2,
+        "avg_dpm": 380.0,
+        "avg_vision_score": 18.0,
         "series": {
+            "id": SERIES_ID_2,
             "date": "2026-03-08",
             "competition_id": COMPETITION_ID,
+            "winner_id": TEAM_HOME_ID,
+            "team_home_id": TEAM_HOME_ID,
+            "team_away_id": TEAM_AWAY_ID,
             "competitions": {"name": "LEC Spring 2026"},
         },
     },
-]
-
-TEAMS_DATA = [
-    {"id": TEAM_HOME_ID, "name": "G2 Esports"},
-    {"id": TEAM_AWAY_ID, "name": "FNC"},
 ]
 
 ACTIVE_COMPETITION = [{"id": COMPETITION_ID}]
 
-# Para el total_points: player_game_stats con game_points + nested competition_id
-TOTAL_STATS = [
-    {
-        "game_points": 18.5,
-        "games": {"series": {"competition_id": COMPETITION_ID}},
-    },
-    {
-        "game_points": 10.0,
-        "games": {"series": {"competition_id": COMPETITION_ID}},
-    },
+# player_series_stats para total_points (2a query, sin límite)
+TOTAL_SERIES_STATS = [
+    {"series_points": 18.5, "series": {"competition_id": COMPETITION_ID}},
+    {"series_points": 10.0, "series": {"competition_id": COMPETITION_ID}},
 ]
 
 
@@ -179,17 +158,17 @@ def cleanup_overrides():
 @pytest.fixture
 def history_response():
     """Llama al endpoint con mocks completos y devuelve el JSON de respuesta."""
-    pgs_chain = _chain(GAMES_FOR_PLAYER, RAW_STATS, TOTAL_STATS)
-    games_chain = _chain(GAMES_DATA)
-    teams_chain = _chain(TEAMS_DATA)
-    comp_chain = _chain(ACTIVE_COMPETITION)
+    # teams se consulta dos veces: 1) todos los equipos para resolver team_id
+    # 2) equipos por ID para obtener nombres home/away
+    teams_chain = _chain(ALL_TEAMS, TEAMS_BY_ID)
+    # player_series_stats se consulta dos veces: 1) historial, 2) total_points
+    pss_chain = _chain(SERIES_STATS, TOTAL_SERIES_STATS)
 
     sb = _sb_multi(
         ("players", _chain([PLAYER])),
-        ("player_game_stats", pgs_chain),
-        ("games", games_chain),
         ("teams", teams_chain),
-        ("competitions", comp_chain),
+        ("player_series_stats", pss_chain),
+        ("competitions", _chain(ACTIVE_COMPETITION)),
     )
 
     r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history")
@@ -259,12 +238,13 @@ def test_existing_fields_still_present(history_response):
             assert field in stat, f"Campo '{field}' desapareció de la respuesta"
 
 
-def test_kills_deaths_assists_are_integers(history_response):
+def test_kills_deaths_assists_are_numeric(history_response):
+    # Ahora son promedios por serie (floats), no enteros por juego
     stats = history_response["stats"]
     for stat in stats:
-        assert isinstance(stat["kills"], int)
-        assert isinstance(stat["deaths"], int)
-        assert isinstance(stat["assists"], int)
+        assert isinstance(stat["kills"], (int, float))
+        assert isinstance(stat["deaths"], (int, float))
+        assert isinstance(stat["assists"], (int, float))
 
 
 def test_fantasy_points_is_numeric(history_response):
@@ -296,12 +276,10 @@ def test_response_has_player_and_total_points(history_response):
 
 def test_player_not_found_returns_404():
     """Si el jugador no existe, debe devolver 404."""
-    pgs_chain = _chain([], [], [])
     sb = _sb_multi(
         ("players", _chain([])),
-        ("player_game_stats", pgs_chain),
-        ("games", _chain([])),
-        ("teams", _chain([])),
+        ("teams", _chain([], [])),
+        ("player_series_stats", _chain([], [])),
         ("competitions", _chain([])),
     )
     r = _client(sb).get(f"/scoring/player/{uuid4()}/history")
