@@ -83,6 +83,7 @@ async def list_players(
 @router.get("/scout", response_model=list[ScoutPlayer])
 async def scout_players(
     league_id: UUID = Query(..., description="ID de la liga para resolver owner_name"),
+    competition_id: str | None = Query(None, description="Filtrar stats por competición/split"),
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[ScoutPlayer]:
@@ -103,13 +104,26 @@ async def scout_players(
     player_ids = [p["id"] for p in players]
 
     # 2. Stats promedio desde player_game_stats
-    stats_resp = (
-        supabase.table("player_game_stats")
-        .select("player_id, kills, deaths, assists, cs_per_min, gold_diff_15, xp_diff_15, dpm, vision_score, game_points")
-        .in_("player_id", player_ids)
-        .execute()
-    )
-    raw_stats = stats_resp.data or []
+    # Si se filtra por competition_id, incluimos el join games→series para poder filtrar en Python
+    if competition_id:
+        stats_resp = (
+            supabase.table("player_game_stats")
+            .select("player_id, kills, deaths, assists, cs_per_min, gold_diff_15, xp_diff_15, dpm, vision_score, game_points, games(series(competition_id))")
+            .in_("player_id", player_ids)
+            .execute()
+        )
+        raw_stats = [
+            row for row in (stats_resp.data or [])
+            if (row.get("games") or {}).get("series", {}).get("competition_id") == competition_id
+        ]
+    else:
+        stats_resp = (
+            supabase.table("player_game_stats")
+            .select("player_id, kills, deaths, assists, cs_per_min, gold_diff_15, xp_diff_15, dpm, vision_score, game_points")
+            .in_("player_id", player_ids)
+            .execute()
+        )
+        raw_stats = stats_resp.data or []
 
     # Agregar por player_id
     buckets: dict[str, list] = defaultdict(list)

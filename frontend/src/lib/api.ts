@@ -414,8 +414,8 @@ export const api = {
     playerHistory: (playerId: string) => req<PlayerSplitHistory[]>(`/splits/player/${playerId}/history`),
   },
   players: {
-    scout: (leagueId: string) =>
-      req<ScoutPlayer[]>(`/players/scout?league_id=${leagueId}`),
+    scout: (leagueId: string, competitionId?: string) =>
+      req<ScoutPlayer[]>(`/players/scout?league_id=${leagueId}${competitionId ? `&competition_id=${competitionId}` : ""}`),
     schedule: (playerId: string) =>
       req<PlayerSchedule>(`/players/${playerId}/schedule`),
   },

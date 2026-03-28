@@ -1037,14 +1037,25 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
   const [sortField, setSortField]       = useState<SortField>("total_points");
   const [sortDir, setSortDir]           = useState<SortDir>("desc");
   const [animationKey, setAnimationKey] = useState(0);
+  const [splits, setSplits]             = useState<Split[]>([]);
+  const [selectedSplitId, setSelectedSplitId] = useState<string | null>(null);
+
+  // Cargar splits en el mount y pre-seleccionar el split activo
+  useEffect(() => {
+    api.splits.list().then((data) => {
+      setSplits(data);
+      const active = data.find((s) => s.is_active);
+      if (active) setSelectedSplitId(active.id);
+    }).catch(() => {/* no-op — filtro de split es opcional */});
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
-    api.players.scout(leagueId)
+    api.players.scout(leagueId, selectedSplitId ?? undefined)
       .then((data) => { setPlayers(data); setAnimationKey((k) => k + 1); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [leagueId]);
+  }, [leagueId, selectedSplitId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1094,6 +1105,35 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
     <div>
       {/* Filtros */}
       <div className="flex flex-col gap-3 mb-6">
+        {/* Fila 0: split/competición chips */}
+        {splits.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            {splits.map((split) => {
+              const isActive = split.id === selectedSplitId;
+              return (
+                <button
+                  key={split.id}
+                  onClick={() => setSelectedSplitId(split.id)}
+                  style={{
+                    background: isActive ? "#FCD400" : "#1A1A1A",
+                    border: `1px solid ${isActive ? "#FCD400" : "#2A2A2A"}`,
+                    borderRadius: "6px",
+                    padding: "5px 12px",
+                    color: isActive ? "#000" : "#888888",
+                    fontSize: 11,
+                    fontWeight: isActive ? 700 : 500,
+                    cursor: "pointer",
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    letterSpacing: "0.04em",
+                  }}
+                >
+                  {split.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Fila 1: roles + equipo */}
         <div className="flex flex-wrap gap-2 items-center">
           {/* Pills de rol */}

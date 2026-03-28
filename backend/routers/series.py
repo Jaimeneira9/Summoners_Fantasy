@@ -210,7 +210,7 @@ def _build_players_stats(
         # Get per-series stats from player_series_stats
         pss_resp = (
             supabase.table("player_series_stats")
-            .select("series_id, kills, deaths, assists, cs_per_min, dpm")
+            .select("series_id, avg_kills, avg_deaths, avg_assists, avg_cs_per_min, avg_dpm")
             .eq("player_id", pid)
             .in_("series_id", series_ids_in_competition)
             .execute()
@@ -219,11 +219,11 @@ def _build_players_stats(
         if not rows:
             continue
 
-        kills_list = [float(r["kills"]) for r in rows if r.get("kills") is not None]
-        deaths_list = [float(r["deaths"]) for r in rows if r.get("deaths") is not None]
-        assists_list = [float(r["assists"]) for r in rows if r.get("assists") is not None]
-        cs_list = [float(r["cs_per_min"]) for r in rows if r.get("cs_per_min") is not None]
-        dpm_list = [float(r["dpm"]) for r in rows if r.get("dpm") is not None]
+        kills_list = [float(r["avg_kills"]) for r in rows if r.get("avg_kills") is not None]
+        deaths_list = [float(r["avg_deaths"]) for r in rows if r.get("avg_deaths") is not None]
+        assists_list = [float(r["avg_assists"]) for r in rows if r.get("avg_assists") is not None]
+        cs_list = [float(r["avg_cs_per_min"]) for r in rows if r.get("avg_cs_per_min") is not None]
+        dpm_list = [float(r["avg_dpm"]) for r in rows if r.get("avg_dpm") is not None]
 
         avg_kills = _safe_avg(kills_list)
         avg_deaths = _safe_avg(deaths_list)
