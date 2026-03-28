@@ -102,9 +102,20 @@ _raw_origins = os.environ.get(
 )
 CORS_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 
+# Production origins always allowed (regardless of env var)
+_PRODUCTION_ORIGINS = [
+    "https://summoners-fantasy.vercel.app",
+    "https://summoners-fantasy.com",
+    "https://www.summoners-fantasy.com",
+]
+for _origin in _PRODUCTION_ORIGINS:
+    if _origin not in CORS_ORIGINS:
+        CORS_ORIGINS.append(_origin)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=r"https://summoners-fantasy(-[a-z0-9]+-jaimeneira9s-projects)?\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

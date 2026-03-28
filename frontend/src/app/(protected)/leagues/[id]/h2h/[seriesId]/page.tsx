@@ -270,11 +270,9 @@ function TeamStatsTab({
 function PlayerAvatar({
   player,
   size = 80,
-  side = "home",
 }: {
   player: PlayerH2HStats;
   size?: number;
-  side?: "home" | "away";
 }) {
   const [failed, setFailed] = useState(false);
   const initial = player.name.charAt(0).toUpperCase();
@@ -288,10 +286,6 @@ function PlayerAvatar({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-    borderRight: side === "home" ? "2px solid #FCD400" : "none",
-    borderLeft: side === "away" ? "2px solid #FCD400" : "none",
-    borderTop: "none",
-    borderBottom: "none",
     overflow: "hidden",
   };
 
@@ -483,7 +477,7 @@ function PlayersTab({
               >
                 {hp ? (
                   <>
-                    <PlayerAvatar player={hp} size={80} side="home" />
+                    <PlayerAvatar player={hp} size={80} />
                     <p
                       style={{
                         fontFamily: "'Space Grotesk', sans-serif",
@@ -507,11 +501,13 @@ function PlayersTab({
                       height: 80,
                       borderRadius: 10,
                       background: "#0D0D0D",
-                      borderRight: "2px solid #FCD400",
                     }}
                   />
                 )}
               </div>
+
+              {/* Separator: home photo → stats */}
+              <div style={{ width: 1, alignSelf: "stretch", background: "#FCD400", opacity: 0.5, flexShrink: 0 }} />
 
               {/* Stats column */}
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -554,6 +550,9 @@ function PlayersTab({
                 />
               </div>
 
+              {/* Separator: stats → away photo */}
+              <div style={{ width: 1, alignSelf: "stretch", background: "#FCD400", opacity: 0.5, flexShrink: 0 }} />
+
               {/* Away player column */}
               <div
                 style={{
@@ -567,7 +566,7 @@ function PlayersTab({
               >
                 {ap ? (
                   <>
-                    <PlayerAvatar player={ap} size={80} side="away" />
+                    <PlayerAvatar player={ap} size={80} />
                     <p
                       style={{
                         fontFamily: "'Space Grotesk', sans-serif",
@@ -591,7 +590,6 @@ function PlayersTab({
                       height: 80,
                       borderRadius: 10,
                       background: "#0D0D0D",
-                      borderLeft: "2px solid #FCD400",
                     }}
                   />
                 )}
