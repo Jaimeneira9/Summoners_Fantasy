@@ -1,0 +1,30 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy backend to Hetzner VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /root/Summoners_Fantasy
+            git pull origin main
+            docker build -t summoners-backend ./backend
+            docker rm -f summoners-backend
+            docker run -d \
+              --name summoners-backend \
+              --restart always \
+              -p 8000:8000 \
+              --env-file /root/Summoners_Fantasy/backend/.env \
+              summoners-backend
