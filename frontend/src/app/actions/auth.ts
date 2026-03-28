@@ -37,7 +37,7 @@ export async function signup(
   }
 
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  redirect("/confirm-email");
 }
 
 export async function logout(): Promise<void> {

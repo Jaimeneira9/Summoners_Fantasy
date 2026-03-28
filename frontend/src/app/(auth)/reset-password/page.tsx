@@ -1,0 +1,208 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+
+export default function ResetPasswordPage() {
+  const router = useRouter();
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+
+    if (password !== confirmPassword) {
+      setError("Las contraseñas no coinciden.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("La contraseña debe tener al menos 6 caracteres.");
+      return;
+    }
+
+    setLoading(true);
+
+    const supabase = createClient();
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+
+    if (updateError) {
+      setError(updateError.message);
+      setLoading(false);
+      return;
+    }
+
+    setSuccess(true);
+    setLoading(false);
+
+    setTimeout(() => {
+      router.push("/login");
+    }, 2000);
+  }
+
+  return (
+    <div className="w-full max-w-md">
+      {/* Logo mobile */}
+      <div className="flex items-center gap-2 mb-8 lg:hidden">
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center"
+          style={{ background: "#FCD400" }}
+        >
+          <span className="material-symbols-outlined text-base" style={{ color: "#111111" }}>
+            military_tech
+          </span>
+        </div>
+        <span
+          className="font-black text-lg tracking-tight uppercase"
+          style={{ color: "#FCD400", fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          Summoner&apos;s Fantasy
+        </span>
+      </div>
+
+      {/* Header */}
+      <div className="mb-8">
+        <h1
+          className="font-black text-3xl uppercase tracking-tight mb-2"
+          style={{ color: "#F0E8D0", fontFamily: "'Space Grotesk', sans-serif" }}
+        >
+          Nueva contraseña
+        </h1>
+        <p className="text-sm" style={{ color: "#555555" }}>
+          Elegí una contraseña nueva para tu cuenta.
+        </p>
+      </div>
+
+      {/* Success state */}
+      {success ? (
+        <div
+          className="p-4 rounded-lg text-sm"
+          style={{
+            background: "rgba(34,197,94,0.1)",
+            border: "1px solid rgba(34,197,94,0.3)",
+            color: "#22C55E",
+          }}
+        >
+          ¡Contraseña actualizada! Redirigiendo al login...
+        </div>
+      ) : (
+        <>
+          {/* Error block */}
+          {error && (
+            <div
+              className="mb-4 p-3 rounded-lg text-sm"
+              style={{
+                background: "rgba(239,68,68,0.1)",
+                border: "1px solid rgba(239,68,68,0.3)",
+                color: "#EF4444",
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            <div className="space-y-4">
+              {/* Nueva contraseña */}
+              <div>
+                <label
+                  className="block text-xs font-semibold uppercase tracking-wider mb-1.5"
+                  htmlFor="password"
+                  style={{ color: "#888888", fontFamily: "'Space Grotesk', sans-serif" }}
+                >
+                  Nueva contraseña
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  name="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 text-sm transition-all focus:outline-none"
+                  style={{
+                    background: "#1A1A1A",
+                    border: "1px solid #2A2A2A",
+                    borderRadius: "8px",
+                    color: "#F0E8D0",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "#FCD400")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "#2A2A2A")}
+                  placeholder="Mínimo 6 caracteres"
+                />
+              </div>
+
+              {/* Confirmar contraseña */}
+              <div>
+                <label
+                  className="block text-xs font-semibold uppercase tracking-wider mb-1.5"
+                  htmlFor="confirmPassword"
+                  style={{ color: "#888888", fontFamily: "'Space Grotesk', sans-serif" }}
+                >
+                  Confirmá la contraseña
+                </label>
+                <input
+                  id="confirmPassword"
+                  type="password"
+                  name="confirmPassword"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-4 py-3 text-sm transition-all focus:outline-none"
+                  style={{
+                    background: "#1A1A1A",
+                    border: "1px solid #2A2A2A",
+                    borderRadius: "8px",
+                    color: "#F0E8D0",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "#FCD400")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "#2A2A2A")}
+                  placeholder="Repetí tu contraseña"
+                />
+              </div>
+
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 px-6 text-sm font-bold transition-all active:scale-95"
+                style={{
+                  background: loading ? "#b89e00" : "#FCD400",
+                  color: "#111111",
+                  borderRadius: "8px",
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  opacity: loading ? 0.7 : 1,
+                  cursor: loading ? "not-allowed" : "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading) e.currentTarget.style.background = "#e6c000";
+                }}
+                onMouseLeave={(e) => {
+                  if (!loading) e.currentTarget.style.background = "#FCD400";
+                }}
+              >
+                {loading ? "Actualizando..." : "Actualizar contraseña"}
+              </button>
+            </div>
+          </form>
+
+          <p className="mt-6 text-sm" style={{ color: "#555555" }}>
+            <Link href="/login" className="font-semibold hover:underline" style={{ color: "#FCD400" }}>
+              ← Volver al login
+            </Link>
+          </p>
+        </>
+      )}
+    </div>
+  );
+}

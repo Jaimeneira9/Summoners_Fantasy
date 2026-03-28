@@ -575,6 +575,27 @@ function PlayerCard({
           </p>
         )}
 
+        {/* Bid count badge */}
+        {(listing.bid_count ?? 0) >= 1 && (
+          <span
+            style={{
+              display: "inline-block",
+              alignSelf: "flex-start",
+              fontSize: "10px",
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontWeight: 600,
+              color: "#FCD400",
+              background: "rgba(252,212,0,0.08)",
+              border: "1px solid rgba(252,212,0,0.18)",
+              borderRadius: "4px",
+              padding: "2px 7px",
+              marginTop: "2px",
+            }}
+          >
+            {listing.bid_count} {listing.bid_count === 1 ? "puja" : "pujas"}
+          </span>
+        )}
+
         {/* Fila 4 — Bid button */}
         <div style={{ marginTop: "auto", paddingTop: "4px" }}>
           <button

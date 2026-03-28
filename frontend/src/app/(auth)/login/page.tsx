@@ -112,6 +112,19 @@ export default function LoginPage() {
             />
           </div>
 
+          {/* Forgot password */}
+          <div className="flex justify-end -mt-2">
+            <Link
+              href="/forgot-password"
+              className="text-xs hover:underline"
+              style={{ color: "#555555" }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#FCD400")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "#555555")}
+            >
+              ¿Olvidaste tu contraseña?
+            </Link>
+          </div>
+
           {/* Submit */}
           <SubmitButton label="Entrar" pendingLabel="Entrando..." />
         </div>

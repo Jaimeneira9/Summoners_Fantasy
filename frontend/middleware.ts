@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_ROUTES = ["/login", "/signup"];
+const PUBLIC_ROUTES = ["/login", "/signup", "/auth/callback", "/forgot-password", "/reset-password", "/confirm-email"];
 const AUTH_REDIRECT = "/login";
 const DEFAULT_PROTECTED = "/dashboard";
 const ONBOARDING_ROUTE = "/onboarding";

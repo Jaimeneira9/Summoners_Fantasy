@@ -53,6 +53,7 @@ class ListingOut(BaseModel):
 class ListingDetailOut(ListingOut):
     players: PlayerBrief
     offer_type: str | None = None  # "peer" for sell_offers from another manager, None for system listings
+    bid_count: int = 0
 
 
 class BuyRequest(BaseModel):
@@ -249,6 +250,25 @@ async def get_listings(
     for listing in listings:
         pid = str(listing["player_id"])
         listing["players"]["split_points"] = split_points_by_player.get(pid, 0.0)
+
+    # Count active bids per listing (only for market_listings, not peer sell_offers)
+    listing_ids = [row["id"] for row in listings if not row.get("offer_type")]
+    bid_counts: dict[str, int] = {}
+    if listing_ids:
+        bids_resp = (
+            supabase.table("market_bids")
+            .select("listing_id", count="exact")
+            .in_("listing_id", listing_ids)
+            .eq("status", "active")
+            .execute()
+        )
+        # The Supabase client returns all rows; aggregate manually
+        for bid_row in (bids_resp.data or []):
+            lid = str(bid_row["listing_id"])
+            bid_counts[lid] = bid_counts.get(lid, 0) + 1
+
+    for listing in listings:
+        listing["bid_count"] = bid_counts.get(str(listing["id"]), 0)
 
     return listings
 

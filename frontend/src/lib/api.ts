@@ -53,6 +53,7 @@ export type Listing = {
   listed_at: string;
   closes_at: string | null;
   players: PlayerBrief;
+  bid_count?: number;
 };
 
 export type LeaderboardEntry = {
