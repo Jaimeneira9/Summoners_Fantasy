@@ -346,7 +346,7 @@ function PlayerStatRow({
         <span
           style={{
             fontFamily: "'Barlow Condensed', sans-serif",
-            fontSize: 15,
+            fontSize: 20,
             fontWeight: tie ? 600 : homeWins ? 700 : 500,
             color: tie ? neutralColor : homeWins ? winColor : neutralColor,
           }}
@@ -373,7 +373,7 @@ function PlayerStatRow({
         <span
           style={{
             fontFamily: "'Barlow Condensed', sans-serif",
-            fontSize: 15,
+            fontSize: 20,
             fontWeight: tie ? 600 : awayWins ? 700 : 500,
             color: tie ? neutralColor : awayWins ? winColor : neutralColor,
           }}
