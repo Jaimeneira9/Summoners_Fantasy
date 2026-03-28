@@ -64,7 +64,15 @@ export default function LineupPage() {
   const [split, setSplit]     = useState<Split | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
   const startersRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // PERF FIX: parallel fetch — roster + split in one Promise.all
   const load = useCallback(() => {
@@ -97,7 +105,7 @@ export default function LineupPage() {
   const playerBySlot = (slot: Slot) => roster?.players.find((p) => p.slot === slot) ?? null;
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <div className="min-h-[100dvh] overflow-x-hidden" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
       <SplitResetWarning split={split} leagueId={leagueId} />
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-24 sm:py-8">
@@ -116,16 +124,17 @@ export default function LineupPage() {
               <h2 className="text-xs uppercase tracking-widest mb-3 font-semibold" style={{ color: "var(--text-muted)" }}>
                 Titulares
               </h2>
-              <div ref={startersRef} className="flex flex-wrap justify-center gap-4">
+              <div ref={startersRef} className={isMobile ? "flex flex-col gap-3" : "flex flex-wrap justify-center gap-4"}>
                 {STARTER_SLOTS.map(({ slot, role }) => {
                   const rp = playerBySlot(slot);
                   return (
-                    <div key={slot} className="lineup-card">
+                    <div key={slot} className="lineup-card" style={isMobile ? { width: "100%" } : undefined}>
                       <PlayerCard
                         expectedRole={role}
                         rp={rp}
                         leagueId={leagueId}
                         splitName={split?.name ?? undefined}
+                        isMobile={isMobile}
                         onRefresh={load}
                         onOpenStats={(playerId) => router.push(`/leagues/${leagueId}/stats/${playerId}`)}
                       />
@@ -152,6 +161,7 @@ function PlayerCard({
   rp,
   leagueId,
   splitName,
+  isMobile,
   onRefresh,
   onOpenStats,
 }: {
@@ -159,6 +169,7 @@ function PlayerCard({
   rp: RosterPlayer | null;
   leagueId: string;
   splitName?: string;
+  isMobile?: boolean;
   onRefresh?: () => void;
   onOpenStats?: (playerId: string) => void;
 }) {
@@ -166,6 +177,25 @@ function PlayerCard({
 
   // Empty slot
   if (!rp) {
+    if (isMobile) {
+      return (
+        <div
+          className={`relative rounded-xl border-2 border-dashed flex flex-row items-center gap-3 px-4 ${roleColor.border} opacity-60`}
+          style={{
+            width: "100%",
+            height: "64px",
+            background: "var(--bg-panel)",
+          }}
+        >
+          <div className={`p-2 rounded-lg ${roleColor.bg}`}>
+            <RoleIcon role={expectedRole} className={`w-5 h-5 ${roleColor.text}`} />
+          </div>
+          <span className={`text-xs font-bold ${roleColor.text}`}>
+            {ROLE_LABEL[expectedRole] ?? "BENCH"}
+          </span>
+        </div>
+      );
+    }
     return (
       <div
         className={`relative rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 ${roleColor.border} opacity-60`}
@@ -196,6 +226,7 @@ function PlayerCard({
       leagueId={leagueId}
       splitName={splitName}
       isMvp={false}
+      isMobile={isMobile}
       onRefresh={onRefresh}
       onOpenStats={onOpenStats ? () => onOpenStats(p.id) : undefined}
     />
@@ -208,6 +239,7 @@ function PlayerCardFilled({
   p,
   leagueId,
   isMvp,
+  isMobile,
   onRefresh,
   onOpenStats,
 }: {
@@ -217,6 +249,7 @@ function PlayerCardFilled({
   leagueId: string;
   splitName?: string;
   isMvp?: boolean;
+  isMobile?: boolean;
   onRefresh?: () => void;
   onOpenStats?: () => void;
 }) {
@@ -252,6 +285,159 @@ function PlayerCardFilled({
     p.image_url ||
     `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosJugadoresLec/${p.name.toLowerCase().replace(/ /g, "-")}.webp`;
 
+  // ── MOBILE: horizontal card ─────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <>
+        <div
+          className="group relative flex flex-row overflow-hidden transition-all duration-150 active:scale-[0.99]"
+          style={{
+            width: "100%",
+            borderRadius: "12px",
+            border: "1px solid #222222",
+            background: "#111111",
+            overflow: "hidden",
+          }}
+        >
+          {/* LEFT: image 64×80 */}
+          <div style={{ width: 64, height: 80, position: "relative", background: roleHex, flexShrink: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageUrl}
+              alt={p.name}
+              style={{ objectFit: "cover", objectPosition: "center top", width: "100%", height: "100%" }}
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            />
+            {/* Badges overlaid on image */}
+            {isMvp && (
+              <div style={{ position: "absolute", top: 4, right: 4, background: "#FCD400", borderRadius: 3, padding: "1px 4px", fontSize: 8, fontWeight: 700, color: "#000" }}>
+                MVP
+              </div>
+            )}
+            {rp.is_protected && (
+              <div style={{ position: "absolute", top: 4, left: 4, fontSize: 10 }}>🛡</div>
+            )}
+          </div>
+
+          {/* RIGHT: info stacked */}
+          <div style={{ flex: 1, minWidth: 0, padding: "8px 10px", display: "flex", flexDirection: "column", gap: "3px" }}>
+            {/* Row 1: name + badges */}
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <p
+                style={{
+                  fontFamily: "'Barlow Condensed', sans-serif",
+                  fontSize: "13px",
+                  fontWeight: 700,
+                  color: "#FFFFFF",
+                  lineHeight: 1.2,
+                  margin: 0,
+                  flex: 1,
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {p.name}
+              </p>
+              {rp.for_sale && (
+                <span style={{ fontSize: 9, color: "#fb923c", background: "rgba(251,146,60,0.2)", border: "1px solid rgba(251,146,60,0.3)", padding: "1px 5px", borderRadius: 4, fontWeight: 600, flexShrink: 0 }}>
+                  venta
+                </span>
+              )}
+            </div>
+
+            {/* Row 2: role badge + team */}
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ backgroundColor: roleHex, borderRadius: "3px", padding: "1px 5px", fontSize: "9px", fontWeight: 700, color: "#000000" }}>
+                {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
+              </span>
+              <span style={{ fontSize: "11px", color: "#888888", fontFamily: "'Space Grotesk', sans-serif" }}>
+                {p.team}
+              </span>
+            </div>
+
+            {/* Row 3: price + pts */}
+            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#FCD400", letterSpacing: "-0.02em", lineHeight: 1 }}>
+                {rp.split_points != null ? rp.split_points.toFixed(1) : "—"}
+              </span>
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", color: "#888888" }}>pts</span>
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "11px", color: "#777777", marginLeft: "auto" }}>
+                {p.current_price.toFixed(1)}M
+              </span>
+            </div>
+
+            {/* Row 4: action buttons */}
+            <div style={{ display: "flex", gap: "6px", marginTop: "auto" }}>
+              {onOpenStats && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onOpenStats(); }}
+                  style={{
+                    flex: 1,
+                    fontSize: "10px",
+                    color: "#FCD400",
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    background: "rgba(252,212,0,0.06)",
+                    border: "1px solid rgba(252,212,0,0.2)",
+                    borderRadius: "5px",
+                    padding: "3px 6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Stats →
+                </button>
+              )}
+              {clauseActive && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setPopupOpen(true); }}
+                  style={{
+                    flex: 1,
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    color: "#5eead4",
+                    background: "rgba(20,184,166,0.15)",
+                    border: "1px solid rgba(20,184,166,0.3)",
+                    padding: "3px 6px",
+                    borderRadius: "5px",
+                    cursor: "pointer",
+                    fontFamily: "'Space Grotesk', sans-serif",
+                  }}
+                >
+                  🔒 {clauseDays}d
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Clause upgrade popup */}
+        <ActionPopup
+          isOpen={popupOpen}
+          onClose={() => { setPopupOpen(false); setPopupError(null); }}
+          title={clauseActive ? `Subir cláusula de ${p.name}` : `Asignar cláusula a ${p.name}`}
+          playerName={p.name}
+          playerRole={p.role}
+          playerTeam={p.team}
+          playerImage={imageUrl}
+          mode="input"
+          minAmount={0.5}
+          confirmLabel={clauseActive ? "Subir cláusula" : "Asignar cláusula"}
+          previewText={(amount) =>
+            clauseActive
+              ? `Pagás ${amount.toFixed(1)}M · Cláusula sube ${(amount * 0.5).toFixed(1)}M`
+              : `Pagás ${amount.toFixed(1)}M · Cláusula de ${(amount * 0.5).toFixed(1)}M`
+          }
+          onConfirm={handleUpgrade}
+          isLoading={popupLoading}
+          error={popupError}
+        />
+      </>
+    );
+  }
+
+  // ── DESKTOP: vertical card ───────────────────────────────────────────────
   return (
     <div
       className="group relative flex flex-col overflow-hidden hover:-translate-y-1 transition-transform duration-150"

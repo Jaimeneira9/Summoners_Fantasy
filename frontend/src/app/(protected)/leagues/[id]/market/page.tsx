@@ -52,6 +52,14 @@ const URL_TAB_MAP: Record<string, Tab> = {
 export default function MarketPage() {
   const { id: leagueId } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const tabFromUrl = searchParams.get("tab");
   const tab: Tab = (tabFromUrl ? URL_TAB_MAP[tabFromUrl] : null) ?? "mercado";
@@ -78,7 +86,7 @@ export default function MarketPage() {
   }, [leagueId]);
 
   return (
-    <div className="min-h-screen" style={{ background: "#0A0A0A", color: "#F0E8D0" }}>
+    <div className="min-h-[100dvh] overflow-x-hidden" style={{ background: "#0A0A0A", color: "#F0E8D0" }}>
       {/* Page header */}
       <div
         className="px-6 pt-6 pb-0"
@@ -156,8 +164,8 @@ export default function MarketPage() {
       </div>
 
       {/* Content */}
-      <main className="max-w-6xl mx-auto px-6 pt-6 pb-24">
-        {tab === "mercado"   && <MarketTab  leagueId={leagueId} budget={budget} splitName={split?.name} onBid={refreshBudget} />}
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-24">
+        {tab === "mercado"   && <MarketTab  leagueId={leagueId} budget={budget} splitName={split?.name} onBid={refreshBudget} isMobile={isMobile} />}
         {tab === "mis-pujas" && <MyBidsTab  leagueId={leagueId} />}
         {tab === "ofertas"   && <OffersTab  leagueId={leagueId} />}
         {tab === "explorar"  && <ScoutTab   leagueId={leagueId} />}
@@ -175,11 +183,13 @@ function MarketTab({
   budget,
   splitName,
   onBid,
+  isMobile,
 }: {
   leagueId: string;
   budget: number | null;
   splitName?: string;
   onBid: () => void;
+  isMobile?: boolean;
 }) {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -289,14 +299,15 @@ function MarketTab({
         </div>
       </div>
 
-      <div ref={gridRef} className="flex flex-wrap gap-4">
+      <div ref={gridRef} className={isMobile ? "flex flex-col gap-3" : "flex flex-wrap gap-4"}>
         {filtered.map((l) => (
-          <div key={l.id} className="market-card">
+          <div key={l.id} className="market-card" style={isMobile ? { width: "100%" } : undefined}>
             <PlayerCard
               listing={l}
               leagueId={leagueId}
               budget={budget}
               splitName={splitName}
+              isMobile={isMobile}
               onOpenPopup={() => { setPopupListing(l); setPopupError(null); }}
               onOpenStats={() => router.push(`/leagues/${leagueId}/stats/${l.player_id}`)}
             />
@@ -361,6 +372,7 @@ function PlayerCard({
   leagueId,
   budget,
   splitName,
+  isMobile,
   onOpenPopup,
   onOpenStats,
 }: {
@@ -368,6 +380,7 @@ function PlayerCard({
   leagueId: string;
   budget: number | null;
   splitName?: string;
+  isMobile?: boolean;
   onOpenPopup: () => void;
   onOpenStats: () => void;
 }) {
@@ -391,6 +404,167 @@ function PlayerCard({
   void splitName;
   void leagueId;
 
+  // ── MOBILE: horizontal card ──────────────────────────────────────────────
+  if (isMobile) {
+    return (
+      <div
+        className="group relative flex flex-row overflow-hidden transition-all duration-150 active:scale-[0.99]"
+        style={{
+          width: "100%",
+          borderRadius: "12px",
+          border: success ? "1px solid rgba(34,197,94,0.4)" : "1px solid #222222",
+          background: "#111111",
+          overflow: "hidden",
+        }}
+      >
+        {/* LEFT: image 64×80 */}
+        <button
+          type="button"
+          onClick={onOpenStats}
+          className="focus:outline-none flex-shrink-0"
+          aria-label={`Ver estadísticas de ${p.name}`}
+          style={{ width: 64, height: 80, position: "relative", background: roleColorHex }}
+        >
+          {p.image_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={p.image_url}
+              alt={p.name}
+              style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <span
+                style={{
+                  fontSize: "24px",
+                  fontWeight: 700,
+                  fontFamily: "'Barlow Condensed', sans-serif",
+                  color: "rgba(255,255,255,0.15)",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                {initials}
+              </span>
+            </div>
+          )}
+          {success && (
+            <div className="absolute inset-0 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+              <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+          )}
+        </button>
+
+        {/* RIGHT: info stacked */}
+        <div style={{ flex: 1, minWidth: 0, padding: "8px 10px", display: "flex", flexDirection: "column", gap: "4px" }}>
+          {/* Row 1: name */}
+          <button type="button" onClick={onOpenStats} className="text-left focus:outline-none">
+            <p
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontSize: "13px",
+                fontWeight: 700,
+                color: "#FFFFFF",
+                lineHeight: 1.2,
+                margin: 0,
+              }}
+            >
+              {p.name}
+            </p>
+          </button>
+
+          {/* Row 2: role + team */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span
+              style={{
+                backgroundColor: roleColorHex,
+                borderRadius: "3px",
+                padding: "1px 5px",
+                fontSize: "9px",
+                fontWeight: 700,
+                color: "#000000",
+              }}
+            >
+              {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
+            </span>
+            <span style={{ fontSize: "11px", color: "#888888", fontFamily: "'Space Grotesk', sans-serif" }}>
+              {p.team}
+            </span>
+          </div>
+
+          {/* Row 3: price + pts */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+            <span
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontSize: "16px",
+                fontWeight: 700,
+                color: "#FCD400",
+                letterSpacing: "-0.02em",
+                lineHeight: 1,
+              }}
+            >
+              {p.split_points != null ? p.split_points.toFixed(1) : "—"}
+            </span>
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", color: "#888888" }}>pts</span>
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "11px", color: "#777777", marginLeft: "auto", display: "flex", alignItems: "baseline", gap: "3px" }}>
+              {p.current_price.toFixed(1)}M
+              <PriceTrend changePct={p.last_price_change_pct ?? 0} />
+            </span>
+          </div>
+
+          {/* Row 4: bid count badge (if any) */}
+          {(listing.bid_count ?? 0) >= 1 && (
+            <span
+              style={{
+                display: "inline-block",
+                alignSelf: "flex-start",
+                fontSize: "9px",
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontWeight: 600,
+                color: "#FCD400",
+                background: "rgba(252,212,0,0.08)",
+                border: "1px solid rgba(252,212,0,0.18)",
+                borderRadius: "4px",
+                padding: "1px 5px",
+              }}
+            >
+              {listing.bid_count} {listing.bid_count === 1 ? "puja" : "pujas"}
+            </span>
+          )}
+
+          {/* Row 5: action button */}
+          <div style={{ marginTop: "auto" }}>
+            <button
+              onClick={() => { if (!closed) { setSuccess(false); onOpenPopup(); } }}
+              disabled={closed}
+              className="w-full transition-all duration-150 active:scale-95"
+              style={{
+                borderRadius: "6px",
+                padding: "4px 10px",
+                fontSize: "11px",
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontWeight: 700,
+                cursor: closed ? "not-allowed" : "pointer",
+                opacity: closed ? 0.4 : 1,
+                ...(success
+                  ? { background: "transparent", border: "1px solid rgba(34,197,94,0.4)", color: "rgb(22,163,74)" }
+                  : hasBudget && !closed
+                    ? { background: "#FCD400", border: "1px solid #FCD400", color: "#111111" }
+                    : { background: "transparent", border: "1px solid #333333", color: "#555555" }
+                ),
+              }}
+            >
+              {success ? "✓ Enviada" : closed ? "Cerrado" : "Fichar"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── DESKTOP: vertical card ───────────────────────────────────────────────
   return (
     <div
       className="group relative flex flex-col overflow-hidden hover:-translate-y-1 transition-transform duration-150"

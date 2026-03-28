@@ -1151,8 +1151,8 @@ export default function PlayerStatsPage() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0A0A0A", color: "#fff" }}>
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: "24px 16px 96px" }}>
+    <div style={{ minHeight: "100dvh", background: "#0A0A0A", color: "#fff", overflowX: "hidden" }}>
+      <main style={{ maxWidth: 900, margin: "0 auto", padding: "16px 16px 96px" }}>
 
         {/* Breadcrumb */}
         <nav style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#444", marginBottom: 20 }}>
@@ -1166,14 +1166,14 @@ export default function PlayerStatsPage() {
         {/* ================================================================ */}
         {/* ZONA 1: Player Hero                                              */}
         {/* ================================================================ */}
-        <div style={{
+        <div className="player-hero" style={{
           background: "#111111",
           borderRadius: 12,
-          padding: "24px 28px",
+          padding: "16px",
           border: "1px solid #222",
           display: "flex",
           alignItems: "center",
-          gap: 20,
+          gap: 16,
           marginBottom: 12,
         }}>
           {/* Photo + role badge */}
@@ -1323,13 +1323,18 @@ export default function PlayerStatsPage() {
             padding: "12px 16px",
             border: "1px solid #1E1E1E",
             marginBottom: 12,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            flexWrap: "wrap",
           }}>
-            {/* Week chips */}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: 1 }}>
+            {/* Week chips — scrollable horizontal strip */}
+            <div style={{
+              display: "flex",
+              overflowX: "auto",
+              flexWrap: "nowrap",
+              gap: 6,
+              paddingBottom: 4,
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              WebkitOverflowScrolling: "touch",
+            } as React.CSSProperties}>
               {matchStats.map((stat) => {
                 const isActive = stat.week === selectedWeek;
                 return (
@@ -1348,6 +1353,7 @@ export default function PlayerStatsPage() {
                       cursor: "pointer",
                       fontFamily: "'Barlow Condensed', sans-serif",
                       letterSpacing: "0.04em",
+                      flexShrink: 0,
                     }}
                   >
                     S{stat.week}
@@ -1358,7 +1364,7 @@ export default function PlayerStatsPage() {
 
             {/* Active week badge */}
             {activeStat && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                 <div style={{
                   background: activeIsWin ? "#1B3A1B" : "#3A1A1A",
                   color: activeIsWin ? "#4CAF50" : "#EF5350",
@@ -1390,7 +1396,8 @@ export default function PlayerStatsPage() {
         {/* ZONA 3: Stat cards de la jornada seleccionada                    */}
         {/* ================================================================ */}
         {statCards && (
-          <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
+          <div style={{ overflowX: "auto", marginBottom: 12, WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
+          <div style={{ display: "flex", gap: 10, minWidth: "max-content" }}>
             {statCards.map((card) => (
               <div
                 key={card.label}
@@ -1452,12 +1459,13 @@ export default function PlayerStatsPage() {
               </div>
             ))}
           </div>
+          </div>
         )}
 
         {/* ================================================================ */}
         {/* ZONA 4: Dos columnas                                             */}
         {/* ================================================================ */}
-        <div style={{ display: "flex", gap: 20 }}>
+        <div className="flex flex-col sm:flex-row gap-5">
 
           {/* Col izquierda: Selector de splits + Bar chart */}
           <div style={{
@@ -1469,7 +1477,7 @@ export default function PlayerStatsPage() {
           }}>
             {/* Selector de splits — chips custom */}
             {splits.length > 0 && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, overflowX: "auto", flexWrap: "nowrap", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/lec.webp"
@@ -1498,6 +1506,7 @@ export default function PlayerStatsPage() {
                         cursor: "pointer",
                         fontFamily: "'Barlow Condensed', sans-serif",
                         letterSpacing: "0.04em",
+                        flexShrink: 0,
                       }}
                     >
                       {split.name}
