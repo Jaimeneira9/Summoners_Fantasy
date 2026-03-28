@@ -445,8 +445,7 @@ function PlayersTab({
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  gap: 6,
-                  padding: "0 0 8px 0",
+                  gap: 0,
                 }}
               >
                 {hp ? (
@@ -455,7 +454,7 @@ function PlayersTab({
                     <p
                       style={{
                         fontFamily: "'Space Grotesk', sans-serif",
-                        fontSize: 10,
+                        fontSize: 13,
                         fontWeight: 700,
                         color: "#F0E8D0",
                         textAlign: "center",
@@ -463,6 +462,7 @@ function PlayersTab({
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                         width: "100%",
+                        padding: "8px 4px 4px",
                       }}
                     >
                       {hp.name}
@@ -472,9 +472,6 @@ function PlayersTab({
                   <div style={{ width: "100%", flex: 1, borderRadius: 8, background: "#0D0D0D" }} />
                 )}
               </div>
-
-              {/* Separator: home photo → stats */}
-              <div style={{ width: 1, alignSelf: "stretch", background: "#FCD400", opacity: 0.5, flexShrink: 0 }} />
 
               {/* Stats column — 50% */}
               <div style={{ flex: "0 0 50%", minWidth: 0, padding: "8px 12px" }}>
@@ -517,9 +514,6 @@ function PlayersTab({
                 />
               </div>
 
-              {/* Separator: stats → away photo */}
-              <div style={{ width: 1, alignSelf: "stretch", background: "#FCD400", opacity: 0.5, flexShrink: 0 }} />
-
               {/* Away player column — 25% */}
               <div
                 style={{
@@ -527,8 +521,7 @@ function PlayersTab({
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  gap: 6,
-                  padding: "0 0 8px 0",
+                  gap: 0,
                 }}
               >
                 {ap ? (
@@ -537,7 +530,7 @@ function PlayersTab({
                     <p
                       style={{
                         fontFamily: "'Space Grotesk', sans-serif",
-                        fontSize: 10,
+                        fontSize: 13,
                         fontWeight: 700,
                         color: "#F0E8D0",
                         textAlign: "center",
@@ -545,6 +538,7 @@ function PlayersTab({
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                         width: "100%",
+                        padding: "8px 4px 4px",
                       }}
                     >
                       {ap.name}
