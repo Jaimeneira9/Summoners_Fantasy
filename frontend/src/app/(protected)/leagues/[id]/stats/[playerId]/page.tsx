@@ -693,8 +693,6 @@ function ClausePanel({
 // ---------------------------------------------------------------------------
 
 function UpgradeForm({
-  leagueId: _leagueId,
-  rosterPlayerId: _rosterPlayerId,
   currentClause,
   loading,
   error,

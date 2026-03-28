@@ -25,7 +25,7 @@ export default function SignupPage() {
             className="font-black text-lg tracking-tight uppercase"
             style={{ color: "#FCD400", fontFamily: "'Space Grotesk', sans-serif" }}
           >
-            Summoner's Fantasy
+            Summoner&apos;s Fantasy
           </span>
         </div>
 

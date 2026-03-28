@@ -285,17 +285,6 @@ function getInitials(name: string | null): string {
     .join("");
 }
 
-function DeltaBadge({ value }: { value: number | null }) {
-  if (value === null) return <span style={{ color: "#555555", fontSize: 11, fontWeight: 600 }}>—</span>;
-  if (value === 0) return <span style={{ color: "#555555", fontSize: 11, fontWeight: 600 }}>—</span>;
-  const positive = value > 0;
-  return (
-    <span style={{ color: positive ? "#22C55E" : "#EF4444", fontSize: 11, fontWeight: 600 }}>
-      {positive ? "+" : ""}{value.toFixed(1)}
-    </span>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // SortableHeader inline component
 // ---------------------------------------------------------------------------

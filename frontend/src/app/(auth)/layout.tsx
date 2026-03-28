@@ -27,7 +27,7 @@ export default function AuthLayout({
               className="font-black text-xl tracking-tight uppercase"
               style={{ color: "#FCD400", fontFamily: "'Space Grotesk', sans-serif" }}
             >
-              Summoner's Fantasy
+              Summoner&apos;s Fantasy
             </span>
           </div>
         </div>
