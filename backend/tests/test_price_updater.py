@@ -21,13 +21,37 @@ from market.price_updater import (
 # ---------------------------------------------------------------------------
 
 
+class _SupabaseMock:
+    """
+    Wrapper del mock de supabase que expone las tablas capturadas para
+    inspección en tests. Necesario porque table_side_effect crea un mock
+    nuevo en cada llamada — si el test vuelve a llamar supabase.table("players")
+    después de la función, obtiene un objeto distinto al que usó el código real.
+    """
+
+    def __init__(self, supabase: MagicMock, tables: dict[str, MagicMock]) -> None:
+        self._supabase = supabase
+        self._tables = tables
+
+    def __getattr__(self, name: str):
+        return getattr(self._supabase, name)
+
+    def table(self, name: str) -> MagicMock:
+        """Delega al mock real para que el código de producción lo use."""
+        return self._supabase.table(name)
+
+    def get_table(self, name: str) -> MagicMock:
+        """Devuelve el mock capturado la primera vez que se llamó table(name)."""
+        return self._tables[name]
+
+
 def _make_supabase(
     *,
     current_price: float = 20.0,
     avg_points_baseline: float | None = 30.0,
     price_history: list | None = None,
     game_points: list[float] | None = None,
-) -> MagicMock:
+) -> _SupabaseMock:
     """
     Construye un mock de supabase con los datos configurados.
 
@@ -35,6 +59,9 @@ def _make_supabase(
     - player_game_stats.select().eq().order().limit().execute() → stats data
     - players.update().eq().execute() → None (no importa el retorno)
     - market_candidates.update().eq().execute() → None
+
+    Retorna un _SupabaseMock que expone get_table(name) para inspeccionar
+    los mocks reales usados por el código de producción.
     """
     supabase = MagicMock()
 
@@ -82,19 +109,28 @@ def _make_supabase(
     update_chain = MagicMock()
     update_chain.eq.return_value = update_eq
 
+    # Mocks de tabla fijos — se crean una sola vez y se reúsan en cada llamada
+    players_table = MagicMock()
+    players_table.select.return_value = player_select
+    players_table.update.return_value = update_chain
+
+    stats_table = MagicMock()
+    stats_table.select.return_value = stats_select
+
+    candidates_table = MagicMock()
+    candidates_table.update.return_value = update_chain
+
+    captured: dict[str, MagicMock] = {
+        "players": players_table,
+        "player_game_stats": stats_table,
+        "market_candidates": candidates_table,
+    }
+
     def table_side_effect(name: str) -> MagicMock:
-        t = MagicMock()
-        if name == "players":
-            t.select.return_value = player_select
-            t.update.return_value = update_chain
-        elif name == "player_game_stats":
-            t.select.return_value = stats_select
-        elif name == "market_candidates":
-            t.update.return_value = update_chain
-        return t
+        return captured.get(name, MagicMock())
 
     supabase.table.side_effect = table_side_effect
-    return supabase
+    return _SupabaseMock(supabase, captured)
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +147,7 @@ def test_price_increases_when_above_baseline():
     )
     _update_single_player_price(supabase, "player-1")
 
-    players_table = supabase.table("players")
+    players_table = supabase.get_table("players")
     update_call_args = players_table.update.call_args
     payload = update_call_args[0][0]
     assert payload["current_price"] > 20.0
@@ -127,7 +163,7 @@ def test_price_decreases_when_below_baseline():
     )
     _update_single_player_price(supabase, "player-1")
 
-    players_table = supabase.table("players")
+    players_table = supabase.get_table("players")
     update_call_args = players_table.update.call_args
     payload = update_call_args[0][0]
     assert payload["current_price"] < 20.0
@@ -143,7 +179,7 @@ def test_price_floor_at_1():
     )
     _update_single_player_price(supabase, "player-1")
 
-    players_table = supabase.table("players")
+    players_table = supabase.get_table("players")
     update_call_args = players_table.update.call_args
     payload = update_call_args[0][0]
     assert payload["current_price"] >= PRICE_FLOOR
@@ -158,10 +194,10 @@ def test_no_update_when_no_stats():
     )
     _update_single_player_price(supabase, "player-1")
 
-    players_table = supabase.table("players")
+    players_table = supabase.get_table("players")
     players_table.update.assert_not_called()
 
-    candidates_table = supabase.table("market_candidates")
+    candidates_table = supabase.get_table("market_candidates")
     candidates_table.update.assert_not_called()
 
 
@@ -174,7 +210,7 @@ def test_null_baseline_sets_baseline_no_price_change():
     )
     _update_single_player_price(supabase, "player-1")
 
-    players_table = supabase.table("players")
+    players_table = supabase.get_table("players")
     update_call_args = players_table.update.call_args
     payload = update_call_args[0][0]
 
@@ -182,7 +218,7 @@ def test_null_baseline_sets_baseline_no_price_change():
     assert "avg_points_baseline" in payload
     assert "current_price" not in payload
 
-    candidates_table = supabase.table("market_candidates")
+    candidates_table = supabase.get_table("market_candidates")
     candidates_table.update.assert_not_called()
 
 
@@ -197,7 +233,7 @@ def test_history_bounded_to_90():
     )
     _update_single_player_price(supabase, "player-1")
 
-    players_table = supabase.table("players")
+    players_table = supabase.get_table("players")
     update_call_args = players_table.update.call_args
     payload = update_call_args[0][0]
     assert len(payload["price_history"]) == 90
@@ -212,7 +248,7 @@ def test_candidates_ask_price_synced():
     )
     _update_single_player_price(supabase, "player-1")
 
-    candidates_table = supabase.table("market_candidates")
+    candidates_table = supabase.get_table("market_candidates")
     candidates_table.update.assert_called_once()
     candidates_payload = candidates_table.update.call_args[0][0]
     assert "ask_price" in candidates_payload
