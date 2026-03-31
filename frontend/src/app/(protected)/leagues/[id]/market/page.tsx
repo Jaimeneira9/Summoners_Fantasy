@@ -1309,7 +1309,7 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
         )}
 
         {/* Fila 1: roles + equipo */}
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex flex-wrap gap-1 sm:gap-2 items-center">
           {/* Pills de rol */}
           {roles.map((r) => {
             const active = roleFilter === r;
@@ -1317,7 +1317,7 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
               <button
                 key={r}
                 onClick={() => { setRoleFilter(r); setAnimationKey((k) => k + 1); }}
-                className="px-3 py-1.5 text-xs transition-all duration-150 active:scale-95"
+                className="px-2 sm:px-3 py-1.5 text-xs transition-all duration-150 active:scale-95"
                 style={{
                   fontFamily: "'Space Grotesk', sans-serif",
                   fontWeight: active ? 700 : 400,
@@ -1333,7 +1333,7 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
           })}
 
           {/* Separador visual */}
-          <div style={{ width: "1px", height: "20px", background: "#2A2A2A" }} />
+          <div className="hidden sm:block" style={{ width: "1px", height: "20px", background: "#2A2A2A" }} />
 
           {/* Dropdown de equipo */}
           <select
@@ -1358,7 +1358,7 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
           </select>
 
           {/* Sort dropdown */}
-          <div className="flex items-center gap-1 ml-auto">
+          <div className="flex items-center gap-1 ml-auto flex-shrink-0">
             <select
               value={sortField}
               onChange={(e) => { setSortField(e.target.value as SortField); setSortDir("desc"); setAnimationKey((k) => k + 1); }}
@@ -1453,7 +1453,7 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
       style={{ animationDelay: `${animationDelay}ms` }}
     >
       <div
-        className="flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-150"
+        className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 py-3 rounded-xl transition-all duration-150"
         style={{
           background: "#111111",
           border: "1px solid #1A1A1A",
@@ -1485,7 +1485,7 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
               className="truncate"
               style={{
                 fontFamily: "'Barlow Condensed', sans-serif",
-                fontSize: "18px",
+                fontSize: "16px",
                 fontWeight: 700,
                 color: "#F0E8D0",
                 lineHeight: 1.2,
@@ -1587,7 +1587,7 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
         </div>
 
         {/* Stats grid — 3 cols mobile / 5 cols desktop; últimas 2 ocultas en mobile */}
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-x-3 gap-y-1 flex-shrink-0">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-x-1 sm:gap-x-3 gap-y-1 flex-shrink-0">
           {/* PTS */}
           <div className="flex flex-col items-center justify-center">
             <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>PTS</span>

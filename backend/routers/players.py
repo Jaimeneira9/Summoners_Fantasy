@@ -351,11 +351,15 @@ async def get_player_series_games(
     )
     pgs_rows = pgs_resp.data or []
 
+    pgs_by_game_id: dict[str, dict] = {row["game_id"]: row for row in pgs_rows}
+
     detail_games: list[GameDetailStat] = []
-    for row in pgs_rows:
-        gid = row["game_id"]
-        meta = game_meta.get(gid) or {}
-        winner_id = meta.get("winner_id")
+    for game in game_rows:
+        gid = game["id"]
+        row = pgs_by_game_id.get(gid)
+        if row is None:
+            continue
+        winner_id = game.get("winner_id")
         if winner_id is None:
             result = None
         elif player_team_id and winner_id == player_team_id:
@@ -364,7 +368,7 @@ async def get_player_series_games(
             result = 0
 
         detail_games.append(GameDetailStat(
-            game_number=meta.get("game_number") or 0,
+            game_number=game.get("game_number") or 0,
             result=result,
             kills=int(row.get("kills") or 0),
             deaths=int(row.get("deaths") or 0),
@@ -374,7 +378,6 @@ async def get_player_series_games(
             game_points=round(float(row.get("game_points") or 0), 2),
         ))
 
-    detail_games.sort(key=lambda g: g.game_number)
     return SeriesGamesResponse(series_id=str(series_id), games=detail_games)
 
 
