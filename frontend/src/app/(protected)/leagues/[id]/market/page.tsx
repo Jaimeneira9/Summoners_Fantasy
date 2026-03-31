@@ -1565,7 +1565,7 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
               onError={(e) => { e.currentTarget.style.display = "none"; }}
             />
             <span
-              className="truncate"
+              className="truncate hidden sm:inline"
               style={{
                 fontFamily: "'Space Grotesk', sans-serif",
                 fontSize: "12px",
