@@ -1308,8 +1308,8 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
           </div>
         )}
 
-        {/* Fila 1: roles + equipo */}
-        <div className="flex flex-wrap gap-2 items-center">
+        {/* Fila 1: roles + equipo + sort */}
+        <div className="flex flex-nowrap overflow-x-auto gap-1 sm:flex-wrap sm:gap-2 items-center">
           {/* Pills de rol */}
           {roles.map((r) => {
             const active = roleFilter === r;
@@ -1317,7 +1317,7 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
               <button
                 key={r}
                 onClick={() => { setRoleFilter(r); setAnimationKey((k) => k + 1); }}
-                className="px-3 py-1.5 text-xs transition-all duration-150 active:scale-95"
+                className="px-2 sm:px-3 py-1.5 text-xs sm:text-xs transition-all duration-150 active:scale-95 flex-shrink-0"
                 style={{
                   fontFamily: "'Space Grotesk', sans-serif",
                   fontWeight: active ? 700 : 400,
@@ -1333,44 +1333,46 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
           })}
 
           {/* Separador visual */}
-          <div style={{ width: "1px", height: "20px", background: "#2A2A2A" }} />
+          <div className="hidden sm:block flex-shrink-0" style={{ width: "1px", height: "20px", background: "#2A2A2A" }} />
 
           {/* Dropdown de equipo */}
           <select
             value={teamFilter}
             onChange={(e) => { setTeamFilter(e.target.value); setAnimationKey((k) => k + 1); }}
-            className="text-xs outline-none"
+            className="outline-none flex-shrink-0"
             style={{
               background: "#1A1A1A",
               border: "1px solid #2A2A2A",
               borderRadius: "6px",
               color: "#888888",
-              padding: "6px 10px",
+              padding: "5px 6px",
               fontFamily: "'Space Grotesk', sans-serif",
               cursor: "pointer",
+              fontSize: "11px",
             }}
           >
             {teams.map((t) => (
               <option key={t} value={t} style={{ background: "#1A1A1A" }}>
-                {t === "all" ? "Todos los equipos" : t}
+                {t === "all" ? "Equipos" : t}
               </option>
             ))}
           </select>
 
           {/* Sort dropdown */}
-          <div className="flex items-center gap-1 ml-auto">
+          <div className="flex items-center gap-1 ml-auto flex-shrink-0">
             <select
               value={sortField}
               onChange={(e) => { setSortField(e.target.value as SortField); setSortDir("desc"); setAnimationKey((k) => k + 1); }}
-              className="text-xs outline-none"
+              className="outline-none"
               style={{
                 background: "#1A1A1A",
                 border: "1px solid #2A2A2A",
                 borderRadius: "6px",
                 color: "#888888",
-                padding: "6px 10px",
+                padding: "5px 6px",
                 fontFamily: "'Space Grotesk', sans-serif",
                 cursor: "pointer",
+                fontSize: "11px",
               }}
             >
               {sortOptions.map((o) => (
@@ -1381,12 +1383,12 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
             </select>
             <button
               onClick={() => { setSortDir((d) => (d === "desc" ? "asc" : "desc")); setAnimationKey((k) => k + 1); }}
-              className="transition-all active:scale-95"
+              className="transition-all active:scale-95 flex-shrink-0"
               style={{
                 background: "#1A1A1A",
                 border: "1px solid #2A2A2A",
                 borderRadius: "6px",
-                padding: "6px 8px",
+                padding: "5px 7px",
                 color: "#888888",
                 fontSize: "12px",
                 fontFamily: "'Space Grotesk', sans-serif",
@@ -1453,7 +1455,7 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
       style={{ animationDelay: `${animationDelay}ms` }}
     >
       <div
-        className="flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-150"
+        className="flex items-center gap-2 sm:gap-4 px-2 sm:px-4 py-3 rounded-xl transition-all duration-150"
         style={{
           background: "#111111",
           border: "1px solid #1A1A1A",
@@ -1478,14 +1480,14 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
         </div>
 
         {/* Nombre + equipo + badges */}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 overflow-hidden">
           {/* Fila 1: nombre + badges */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 min-w-0 overflow-hidden">
             <span
               className="truncate"
               style={{
                 fontFamily: "'Barlow Condensed', sans-serif",
-                fontSize: "18px",
+                fontSize: "16px",
                 fontWeight: 700,
                 color: "#F0E8D0",
                 lineHeight: 1.2,
@@ -1553,15 +1555,24 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
             )}
           </div>
           {/* Fila 2: equipo */}
-          <div className="flex items-center gap-1.5 mt-1">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={getTeamBadgeUrl(p.team)}
-              alt={p.team}
-              style={{ width: 14, height: 14, objectFit: "contain" }}
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
-            />
+          <div className="flex items-center gap-1.5 mt-1 min-w-0">
+            <div className="flex-shrink-0 flex items-center justify-center" style={{ width: 14, height: 14 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={getTeamBadgeUrl(p.team)}
+                alt={p.team}
+                style={{ width: 14, height: 14, objectFit: "contain" }}
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                  (e.currentTarget.nextSibling as HTMLElement)?.style.setProperty("display", "flex");
+                }}
+              />
+              <span style={{ display: "none", fontSize: "8px", color: "#C8A84B", fontWeight: 700 }}>
+                {p.team.substring(0, 2).toUpperCase()}
+              </span>
+            </div>
             <span
+              className="truncate hidden sm:inline"
               style={{
                 fontFamily: "'Space Grotesk', sans-serif",
                 fontSize: "12px",
@@ -1570,8 +1581,9 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
             >
               {p.team}
             </span>
-            <span style={{ color: "#2A2A2A", fontSize: "11px" }}>·</span>
+            <span className="flex-shrink-0" style={{ color: "#2A2A2A", fontSize: "11px" }}>·</span>
             <span
+              className="flex-shrink-0 whitespace-nowrap"
               style={{
                 fontFamily: "'Space Grotesk', sans-serif",
                 fontSize: "12px",
@@ -1586,81 +1598,122 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
           </div>
         </div>
 
-        {/* Stats grid — 3 cols mobile / 5 cols desktop; últimas 2 ocultas en mobile */}
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-x-3 gap-y-1 flex-shrink-0">
-          {/* PTS */}
-          <div className="flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>PTS</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#FCD400", lineHeight: 1 }}>
-              {p.total_points > 0 ? Math.round(p.total_points) : "—"}
-            </span>
+        {/* Stats grid — mobile: solo PTS, KDA, CS/m + "Ver más"; desktop: 5 cols completas */}
+        <div className="flex items-center gap-1 sm:gap-0 flex-shrink-0">
+          {/* Mobile: 3 stats visibles */}
+          <div className="grid grid-cols-3 gap-x-1 sm:hidden">
+            {/* PTS */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>PTS</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#FCD400", lineHeight: 1 }}>
+                {p.total_points > 0 ? Math.round(p.total_points) : "—"}
+              </span>
+            </div>
+            {/* KDA */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>KDA</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+                {kdaVal.toFixed(1)}
+              </span>
+            </div>
+            {/* CS/m */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>CS/m</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_cs_per_min > 0 ? p.avg_cs_per_min.toFixed(1) : "—"}
+              </span>
+            </div>
           </div>
-          {/* KDA */}
-          <div className="flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>KDA</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
-              {kdaVal.toFixed(1)}
-            </span>
-          </div>
-          {/* Kills */}
-          <div className="flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Kills</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_kills > 0 ? p.avg_kills.toFixed(1) : "—"}
-            </span>
-          </div>
-          {/* Muertes */}
-          <div className="flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Muertes</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_deaths > 3 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_deaths > 0 ? p.avg_deaths.toFixed(1) : "—"}
-            </span>
-          </div>
-          {/* Asist */}
-          <div className="flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Asist</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_assists > 0 ? p.avg_assists.toFixed(1) : "—"}
-            </span>
-          </div>
-          {/* CS/m */}
-          <div className="flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>CS/m</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_cs_per_min > 0 ? p.avg_cs_per_min.toFixed(1) : "—"}
-            </span>
-          </div>
-          {/* GD15 */}
-          <div className="flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>GD15</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_gold_diff_15 > 0 ? "#4ade80" : p.avg_gold_diff_15 < 0 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_gold_diff_15 !== 0
-                ? (p.avg_gold_diff_15 > 0 ? "+" : "") + Math.round(p.avg_gold_diff_15)
-                : "—"}
-            </span>
-          </div>
-          {/* XPD15 */}
-          <div className="flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>XPD15</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_xp_diff_15 > 0 ? "#4ade80" : p.avg_xp_diff_15 < 0 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_xp_diff_15 !== 0
-                ? (p.avg_xp_diff_15 > 0 ? "+" : "") + Math.round(p.avg_xp_diff_15)
-                : "—"}
-            </span>
-          </div>
-          {/* DPM — oculto en mobile */}
-          <div className="hidden sm:flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>DPM</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_dpm > 0 ? Math.round(p.avg_dpm) : "—"}
-            </span>
-          </div>
-          {/* Visión — oculto en mobile */}
-          <div className="hidden sm:flex flex-col items-center justify-center">
-            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Visión</span>
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
-              {p.avg_vision_score > 0 ? Math.round(p.avg_vision_score) : "—"}
-            </span>
+
+          {/* Mobile: botón "Ver más" */}
+          <span
+            className="sm:hidden flex-shrink-0 ml-1"
+            style={{
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontSize: "10px",
+              color: "#555555",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Ver más →
+          </span>
+
+          {/* Desktop: grid completo con todas las stats */}
+          <div className="hidden sm:grid sm:grid-cols-5 gap-x-3 gap-y-1">
+            {/* PTS */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>PTS</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#FCD400", lineHeight: 1 }}>
+                {p.total_points > 0 ? Math.round(p.total_points) : "—"}
+              </span>
+            </div>
+            {/* KDA */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>KDA</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+                {kdaVal.toFixed(1)}
+              </span>
+            </div>
+            {/* Kills */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Kills</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_kills > 0 ? p.avg_kills.toFixed(1) : "—"}
+              </span>
+            </div>
+            {/* Muertes */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Muertes</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_deaths > 3 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_deaths > 0 ? p.avg_deaths.toFixed(1) : "—"}
+              </span>
+            </div>
+            {/* Asist */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Asist</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_assists > 0 ? p.avg_assists.toFixed(1) : "—"}
+              </span>
+            </div>
+            {/* CS/m */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>CS/m</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_cs_per_min > 0 ? p.avg_cs_per_min.toFixed(1) : "—"}
+              </span>
+            </div>
+            {/* GD15 */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>GD15</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_gold_diff_15 > 0 ? "#4ade80" : p.avg_gold_diff_15 < 0 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_gold_diff_15 !== 0
+                  ? (p.avg_gold_diff_15 > 0 ? "+" : "") + Math.round(p.avg_gold_diff_15)
+                  : "—"}
+              </span>
+            </div>
+            {/* XPD15 */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>XPD15</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: p.avg_xp_diff_15 > 0 ? "#4ade80" : p.avg_xp_diff_15 < 0 ? "#f87171" : "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_xp_diff_15 !== 0
+                  ? (p.avg_xp_diff_15 > 0 ? "+" : "") + Math.round(p.avg_xp_diff_15)
+                  : "—"}
+              </span>
+            </div>
+            {/* DPM */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>DPM</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_dpm > 0 ? Math.round(p.avg_dpm) : "—"}
+              </span>
+            </div>
+            {/* Visión */}
+            <div className="flex flex-col items-center justify-center">
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", fontWeight: 700, color: "#555555", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "1px" }}>Visión</span>
+              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#F0E8D0", lineHeight: 1 }}>
+                {p.avg_vision_score > 0 ? Math.round(p.avg_vision_score) : "—"}
+              </span>
+            </div>
           </div>
         </div>
       </div>

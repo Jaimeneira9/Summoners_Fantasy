@@ -9,7 +9,7 @@ import { PriceTrend } from "@/components/PriceTrend";
 // Team badge URL helper
 // ---------------------------------------------------------------------------
 const TEAM_BADGE_EXCEPTIONS: Record<string, string> = {
-  "Movistar KOI": "koi.webp",
+  "Movistar KOI": "movistar-koi.webp",
 };
 
 const STORAGE_BASE = "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/";
