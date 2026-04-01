@@ -1021,6 +1021,7 @@ export default function PlayerStatsPage() {
   // matchStats filtrados por split seleccionado, con 1-based week index
   const matchStats = (historyData?.stats ?? [])
     .filter(s => !selectedSplitId || s.competition_id === selectedSplitId)
+    .sort((a, b) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
     .map((s, i) => ({ ...s, week: i + 1 }));
   const totalPoints = matchStats.reduce((sum, s) => sum + (s.fantasy_points ?? 0), 0);
 
