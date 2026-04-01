@@ -20,6 +20,14 @@ class LeaderboardEntry(BaseModel):
     total_points: float
     remaining_budget: float
     player_count: int
+    week_points: float | None = None
+
+
+class LeaderboardResponse(BaseModel):
+    entries: list["LeaderboardEntry"]
+    current_week: int | None
+    available_weeks: list[int]
+    selected_week: int | None
 
 
 class MemberStatsOut(BaseModel):
@@ -52,12 +60,13 @@ def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No eres miembro de esta liga")
 
 
-@router.get("/leaderboard/{league_id}", response_model=list[LeaderboardEntry])
+@router.get("/leaderboard/{league_id}", response_model=LeaderboardResponse)
 async def get_leaderboard(
     league_id: UUID,
+    week: int | None = None,
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
-) -> list[LeaderboardEntry]:
+) -> LeaderboardResponse:
     _check_membership(supabase, str(league_id), user["id"])
 
     members_resp = (
@@ -71,7 +80,7 @@ async def get_leaderboard(
 
     # Traer usernames de profiles en una sola query
     user_ids = [m["user_id"] for m in members if m.get("user_id")]
-    profiles_map: dict[str, str] = {}
+    profiles_map: dict[str, dict] = {}
     if user_ids:
         profiles_resp = (
             supabase.table("profiles")
@@ -81,27 +90,123 @@ async def get_leaderboard(
         )
         profiles_map = {p["id"]: p for p in (profiles_resp.data or [])}
 
-    player_counts: dict[str, int] = {}
-    for m in members:
-        roster_resp = (
-            supabase.table("rosters")
-            .select("id")
-            .eq("member_id", m["id"])
+    # Fetch rosters in bulk
+    member_ids = [m["id"] for m in members]
+    rosters_resp = (
+        supabase.table("rosters")
+        .select("id, member_id")
+        .in_("member_id", member_ids)
+        .execute()
+    )
+    roster_rows = rosters_resp.data or []
+    roster_id_to_member: dict[str, str] = {r["id"]: r["member_id"] for r in roster_rows}
+    roster_ids = [r["id"] for r in roster_rows]
+
+    player_counts: dict[str, int] = {mid: 0 for mid in member_ids}
+    member_starter_player_ids: dict[str, list[str]] = {mid: [] for mid in member_ids}
+
+    if roster_ids:
+        rp_resp = (
+            supabase.table("roster_players")
+            .select("roster_id, player_id, slot")
+            .in_("roster_id", roster_ids)
             .execute()
         )
-        if roster_resp.data:
-            roster_id = roster_resp.data[0]["id"]
-            count_resp = (
-                supabase.table("roster_players")
-                .select("id", count="exact")
-                .eq("roster_id", roster_id)
-                .execute()
-            )
-            player_counts[m["id"]] = count_resp.count or 0
-        else:
-            player_counts[m["id"]] = 0
+        for rp in (rp_resp.data or []):
+            mid = roster_id_to_member.get(rp["roster_id"])
+            if not mid:
+                continue
+            player_counts[mid] = player_counts.get(mid, 0) + 1
+            slot = rp.get("slot") or ""
+            if not slot.startswith("bench"):
+                member_starter_player_ids[mid].append(rp["player_id"])
 
-    return [
+    # Obtener competition activa
+    active_comp_resp = (
+        supabase.table("competitions")
+        .select("id")
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    active_competition_id: str | None = (
+        (active_comp_resp.data or [{}])[0].get("id") if active_comp_resp.data else None
+    )
+
+    # Obtener semanas disponibles (series finished de la competición activa)
+    available_weeks: list[int] = []
+    current_week: int | None = None
+    if active_competition_id:
+        weeks_resp = (
+            supabase.table("series")
+            .select("week")
+            .eq("competition_id", active_competition_id)
+            .eq("status", "finished")
+            .execute()
+        )
+        week_set: set[int] = set()
+        for row in (weeks_resp.data or []):
+            w = row.get("week")
+            if w is not None:
+                week_set.add(int(w))
+        available_weeks = sorted(week_set)
+        current_week = max(available_weeks) if available_weeks else None
+
+    # Calcular week_points si se pidió una semana
+    week_points_map: dict[str, float | None] = {mid: None for mid in member_ids}
+    if week is not None and active_competition_id:
+        # Series terminadas de esa semana
+        series_week_resp = (
+            supabase.table("series")
+            .select("id")
+            .eq("competition_id", active_competition_id)
+            .eq("week", week)
+            .eq("status", "finished")
+            .execute()
+        )
+        series_ids_for_week = [s["id"] for s in (series_week_resp.data or [])]
+
+        if series_ids_for_week:
+            # Fetch player_series_stats para todos los starters de todas las semanas
+            all_starter_ids = list({pid for pids in member_starter_player_ids.values() for pid in pids})
+            if all_starter_ids:
+                pss_resp = (
+                    supabase.table("player_series_stats")
+                    .select("player_id, series_id, series_points")
+                    .in_("player_id", all_starter_ids)
+                    .in_("series_id", series_ids_for_week)
+                    .execute()
+                )
+                # Acumular puntos por jugador
+                player_week_points: dict[str, float] = {}
+                for row in (pss_resp.data or []):
+                    pid = row["player_id"]
+                    pts = float(row.get("series_points") or 0)
+                    player_week_points[pid] = player_week_points.get(pid, 0.0) + pts
+
+                for mid in member_ids:
+                    starters = member_starter_player_ids[mid]
+                    if len(starters) < 5:
+                        week_points_map[mid] = 0.0
+                    else:
+                        total = sum(player_week_points.get(pid, 0.0) for pid in starters)
+                        week_points_map[mid] = total
+        else:
+            # Semana pedida sin series → 0 para todos
+            for mid in member_ids:
+                week_points_map[mid] = 0.0
+
+    # Ordenar según contexto: si hay week → por week_points desc, si no → por total_points
+    if week is not None:
+        members_sorted = sorted(
+            members,
+            key=lambda m: week_points_map.get(m["id"]) or 0.0,
+            reverse=True,
+        )
+    else:
+        members_sorted = members  # ya viene ordenado por total_points desde la query
+
+    entries = [
         LeaderboardEntry(
             rank=i + 1,
             member_id=m["id"],
@@ -110,9 +215,17 @@ async def get_leaderboard(
             total_points=float(m["total_points"] or 0),
             remaining_budget=float(m["remaining_budget"] or 0),
             player_count=player_counts.get(m["id"], 0),
+            week_points=week_points_map.get(m["id"]),
         )
-        for i, m in enumerate(members)
+        for i, m in enumerate(members_sorted)
     ]
+
+    return LeaderboardResponse(
+        entries=entries,
+        current_week=current_week,
+        available_weeks=available_weeks,
+        selected_week=week,
+    )
 
 
 @router.get("/player/{player_id}/history")

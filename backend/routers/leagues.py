@@ -368,15 +368,40 @@ async def get_member_roster(
     player_ids = [rp["players"]["id"] for rp in roster_players if rp.get("players")]
     points_map: dict[str, float] = {}
     if player_ids:
-        stats_resp = (
-            supabase.table("player_series_stats")
-            .select("player_id, series_points")
-            .in_("player_id", player_ids)
+        # Obtener competition activa
+        active_comp = (
+            supabase.table("competitions")
+            .select("id")
+            .eq("is_active", True)
+            .limit(1)
             .execute()
         )
-        for row in (stats_resp.data or []):
-            pid = row["player_id"]
-            points_map[pid] = points_map.get(pid, 0.0) + float(row["series_points"] or 0)
+        active_comp_id = active_comp.data[0]["id"] if active_comp.data else None
+
+        # Obtener series_ids de esa competición
+        if active_comp_id:
+            series_resp = (
+                supabase.table("series")
+                .select("id")
+                .eq("competition_id", active_comp_id)
+                .execute()
+            )
+            active_series_ids = [s["id"] for s in (series_resp.data or [])]
+        else:
+            active_series_ids = []
+
+        # Filtrar player_series_stats solo por el split activo
+        if active_series_ids:
+            stats_resp = (
+                supabase.table("player_series_stats")
+                .select("player_id, series_points")
+                .in_("player_id", player_ids)
+                .in_("series_id", active_series_ids)
+                .execute()
+            )
+            for row in (stats_resp.data or []):
+                pid = row["player_id"]
+                points_map[pid] = points_map.get(pid, 0.0) + float(row["series_points"] or 0)
 
     # Attach split_points to each player entry
     enriched = []

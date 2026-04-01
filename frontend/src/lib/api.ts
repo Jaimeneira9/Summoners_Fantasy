@@ -64,6 +64,14 @@ export type LeaderboardEntry = {
   total_points: number;
   remaining_budget: number;
   player_count: number;
+  week_points?: number | null;
+};
+
+export type LeaderboardResponse = {
+  entries: LeaderboardEntry[];
+  current_week: number | null;
+  available_weeks: number[];
+  selected_week: number | null;
 };
 
 export type ActivityEvent = {
@@ -418,8 +426,8 @@ export const api = {
       }),
   },
   scoring: {
-    leaderboard: (leagueId: string) =>
-      req<LeaderboardEntry[]>(`/scoring/leaderboard/${leagueId}`),
+    leaderboard: (leagueId: string, week?: number | null) =>
+      req<LeaderboardResponse>(`/scoring/leaderboard/${leagueId}${week != null ? `?week=${week}` : ""}`),
     detailedLeaderboard: (leagueId: string) =>
       req<DetailedLeaderboardEntry[]>(`/scoring/leaderboard/${leagueId}/detailed`),
     playerHistory: (playerId: string) =>

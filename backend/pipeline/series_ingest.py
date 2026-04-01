@@ -586,7 +586,7 @@ async def _process_series(
     series_entries: list[GameEntry],
     team_home_id: str,
     team_away_id: str,
-) -> set[str]:
+) -> tuple[set[str], str | None]:
     """
     Procesa todos los games de una serie:
     - Upsert series
@@ -595,10 +595,10 @@ async def _process_series(
     - Actualiza series con winner y game_count
 
     Returns:
-        Set de player_ids procesados en esta serie.
+        Tuple (set de player_ids procesados, series_id o None si falló).
     """
     if not series_entries:
-        return set()
+        return set(), None
 
     first = series_entries[0]
     series_id = _upsert_series(
@@ -616,7 +616,7 @@ async def _process_series(
             first.team_away,
             first.date,
         )
-        return set()
+        return set(), None
 
     # Acumulador: player_id → [(PlayerRawStats, game_points, duration_min), ...]
     series_player_stats: dict[str, list[tuple[PlayerRawStats, float, float]]] = defaultdict(list)
@@ -684,7 +684,118 @@ async def _process_series(
         series_winner_id,
     )
 
-    return set(series_player_stats.keys())
+    return set(series_player_stats.keys()), series_id
+
+
+# ---------------------------------------------------------------------------
+# Scoring de managers post-serie
+# ---------------------------------------------------------------------------
+
+
+def _update_manager_total_points(
+    supabase: Client,
+    series_ids: list[str],
+) -> None:
+    """
+    Actualiza total_points en league_members sumando los series_points de sus
+    jugadores titulares para las series recién procesadas.
+
+    Regla: si el manager tiene menos de 5 titulares (starter_1..starter_5)
+    en su roster, NO se suman puntos esa jornada. Los player_series_stats
+    se guardan igual — solo se omite la acumulación al manager.
+    """
+    if not series_ids:
+        return
+
+    starter_slots = {"starter_1", "starter_2", "starter_3", "starter_4", "starter_5"}
+
+    # 1. Fetch todos los league_members con sus rosters
+    try:
+        members_resp = (
+            supabase.table("league_members")
+            .select("id, total_points")
+            .execute()
+        )
+    except Exception as exc:
+        logger.error("Failed to fetch league_members for scoring: %s", exc)
+        return
+
+    for member in (members_resp.data or []):
+        member_id: str = member["id"]
+        current_total: float = float(member.get("total_points") or 0)
+
+        try:
+            # 2. Obtener roster del manager
+            roster_resp = (
+                supabase.table("rosters")
+                .select("id")
+                .eq("member_id", member_id)
+                .limit(1)
+                .execute()
+            )
+            if not roster_resp.data:
+                continue
+            roster_id: str = roster_resp.data[0]["id"]
+
+            # 3. Verificar que tenga exactamente 5 titulares
+            roster_resp2 = (
+                supabase.table("roster_players")
+                .select("slot, player_id")
+                .eq("roster_id", roster_id)
+                .execute()
+            )
+            roster_rows = roster_resp2.data or []
+            filled_starters = {r["slot"] for r in roster_rows} & starter_slots
+            if len(filled_starters) < 5:
+                logger.info(
+                    "[SCORING SKIP] member %s has %d/5 starters — no points added for this series",
+                    member_id,
+                    len(filled_starters),
+                )
+                continue
+
+            # 4. Reunir player_ids de los titulares
+            starter_player_ids = [
+                r["player_id"]
+                for r in roster_rows
+                if r["slot"] in starter_slots and r.get("player_id")
+            ]
+            if not starter_player_ids:
+                continue
+
+            # 5. Sumar series_points de los titulares en las series procesadas
+            pss_resp = (
+                supabase.table("player_series_stats")
+                .select("series_points")
+                .in_("player_id", starter_player_ids)
+                .in_("series_id", series_ids)
+                .execute()
+            )
+            earned = sum(
+                float(r.get("series_points") or 0)
+                for r in (pss_resp.data or [])
+            )
+            if earned == 0:
+                continue
+
+            # 6. Actualizar total_points
+            supabase.table("league_members").update(
+                {"total_points": round(current_total + earned, 2)}
+            ).eq("id", member_id).execute()
+
+            logger.info(
+                "[SCORING] member %s: +%.2f pts (total: %.2f)",
+                member_id,
+                earned,
+                current_total + earned,
+            )
+
+        except Exception as exc:
+            logger.error(
+                "Failed to update total_points for member %s: %s",
+                member_id,
+                exc,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -766,6 +877,7 @@ async def run_series_ingest(supabase: Client) -> None:
 
     # 4. Procesar cada serie
     processed_player_ids: set[str] = set()
+    processed_series_ids: list[str] = []
     for (team_home_name, team_away_name, game_date), entries in series_map.items():
         # Resolver IDs de equipos
         team_home_id = _resolve_team_by_alias(supabase, team_home_name)
@@ -783,7 +895,7 @@ async def run_series_ingest(supabase: Client) -> None:
             continue
 
         try:
-            series_player_ids = await _process_series(
+            series_player_ids, series_id = await _process_series(
                 supabase,
                 competition_id=competition_id,
                 series_entries=entries,
@@ -791,6 +903,8 @@ async def run_series_ingest(supabase: Client) -> None:
                 team_away_id=team_away_id,
             )
             processed_player_ids.update(series_player_ids)
+            if series_id:
+                processed_series_ids.append(series_id)
             await asyncio.sleep(1)
         except Exception as exc:
             logger.error(
@@ -811,6 +925,17 @@ async def run_series_ingest(supabase: Client) -> None:
         except Exception as exc:
             logger.error(
                 "Price update failed after series ingest (non-blocking): %s",
+                exc,
+                exc_info=True,
+            )
+
+    # 6. Actualizar total_points de managers para las series procesadas
+    if processed_series_ids:
+        try:
+            _update_manager_total_points(supabase, processed_series_ids)
+        except Exception as exc:
+            logger.error(
+                "Manager scoring failed after series ingest (non-blocking): %s",
                 exc,
                 exc_info=True,
             )
