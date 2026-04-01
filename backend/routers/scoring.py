@@ -160,7 +160,7 @@ async def get_player_score_history(
     )
     raw_series = series_stats_resp.data or []
 
-    raw_series.sort(key=lambda x: (x.get("series") or {}).get("date") or "")
+    raw_series.sort(key=lambda x: (x.get("series") or {}).get("date") or "", reverse=True)
     raw_series = raw_series[:10]
 
     # Collect series_ids for the diff stats lookup
