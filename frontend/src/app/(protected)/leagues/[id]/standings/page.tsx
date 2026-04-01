@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   api,
   type LeaderboardEntry,
+  type LeaderboardResponse,
   type DetailedLeaderboardEntry,
   type MemberStats,
   type MemberRoster,
@@ -558,6 +559,7 @@ function StandingRow({
 // ---------------------------------------------------------------------------
 export default function StandingsPage() {
   const { id: leagueId } = useParams<{ id: string }>();
+  const initialLoadDone = useRef(false);
   const [entries, setEntries]               = useState<LeaderboardEntry[]>([]);
   const [detailedEntries, setDetailedEntries] = useState<DetailedLeaderboardEntry[]>([]);
   const [league, setLeague]                 = useState<League | null>(null);
@@ -568,6 +570,9 @@ export default function StandingsPage() {
   const [sortKey, setSortKey]               = useState<SortKey>("total_points");
   const [sortDir, setSortDir]               = useState<"asc" | "desc">("desc");
   const [animationKey, setAnimationKey]     = useState(0);
+  const [selectedWeek, setSelectedWeek]     = useState<number | null>(null);
+  const [currentWeek, setCurrentWeek]       = useState<number | null>(null);
+  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
 
   // Build a stats lookup map from detailedEntries
   const statsMap = useMemo(() => {
@@ -579,8 +584,9 @@ export default function StandingsPage() {
   }, [detailedEntries]);
 
   // Sorted entries — client-side, derived from detailedEntries when available, else entries
+  // When a week is selected, always use entries (which have week_points from the re-fetch)
   const sortedEntries = useMemo(() => {
-    const base: LeaderboardEntry[] = detailedEntries.length > 0 ? detailedEntries : entries;
+    const base: LeaderboardEntry[] = (selectedWeek == null && detailedEntries.length > 0) ? detailedEntries : entries;
     if (sortKey === "total_points") {
       const sorted = [...base].sort((a, b) =>
         sortDir === "desc"
@@ -596,7 +602,7 @@ export default function StandingsPage() {
       const valB = statsB ? (statsB[sortKey] ?? -Infinity) : -Infinity;
       return sortDir === "desc" ? (valB as number) - (valA as number) : (valA as number) - (valB as number);
     });
-  }, [entries, detailedEntries, statsMap, sortKey, sortDir]);
+  }, [entries, detailedEntries, statsMap, sortKey, sortDir, selectedWeek]);
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -610,17 +616,25 @@ export default function StandingsPage() {
   }
 
   useEffect(() => {
+    initialLoadDone.current = false;
     Promise.all([
       api.leagues.get(leagueId).catch(() => null),
       api.scoring.leaderboard(leagueId),
     ])
-      .then(([lg, board]) => {
+      .then(([lg, board]: [League | null, LeaderboardResponse]) => {
         if (lg?.member) setMyMemberId(lg.member.id);
         setLeague(lg);
-        setEntries(board as LeaderboardEntry[]);
+        setEntries(board.entries);
+        setAvailableWeeks(board.available_weeks);
+        setCurrentWeek(board.current_week);
+        // Inicializar en la semana actual; el useEffect de selectedWeek lo re-fetcheará con week_points
+        setSelectedWeek(board.current_week);
       })
       .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        initialLoadDone.current = true;
+      });
   }, [leagueId]);
 
   // Phase 2: load detailed stats non-blocking
@@ -635,6 +649,18 @@ export default function StandingsPage() {
         // Graceful degradation — keep entries without stats
       });
   }, [leagueId, loading]);
+
+  // Re-fetch leaderboard cuando cambia la semana seleccionada (skip durante carga inicial)
+  useEffect(() => {
+    if (!initialLoadDone.current) return;
+    api.scoring.leaderboard(leagueId, selectedWeek)
+      .then((board: LeaderboardResponse) => {
+        setEntries(board.entries);
+        setAnimationKey((k) => k + 1);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId, selectedWeek]);
 
   const headerLabelStyle: React.CSSProperties = {
     fontFamily: "'Space Grotesk', sans-serif",
@@ -672,19 +698,43 @@ export default function StandingsPage() {
             </h1>
           </div>
 
-          {/* Week badge */}
-          <div style={{
-            background: "#1A1A1A",
-            border: "1px solid #2A2A2A",
-            borderRadius: 8,
-            padding: "8px 14px",
-            display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2,
-            flexShrink: 0, marginTop: 4,
-          }}>
-            <span style={{ fontSize: 11, color: "#555555" }}>Semana</span>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#FCD400", fontFamily: "'Space Grotesk', sans-serif" }}>
-              — / —
-            </span>
+          {/* Week navigator */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginTop: 4 }}>
+            <button
+              onClick={() => setSelectedWeek((w) => (w != null && w > (availableWeeks[0] ?? 1) ? w - 1 : w))}
+              disabled={selectedWeek === null || selectedWeek <= (availableWeeks[0] ?? 1)}
+              style={{ background: "none", border: "1px solid #333", color: "#aaa", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 16, lineHeight: 1 }}
+            >
+              ‹
+            </button>
+            <div style={{ textAlign: "center", minWidth: 80 }}>
+              <span style={{ fontSize: 11, color: "#555555", display: "block" }}>Jornada</span>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#FCD400", fontFamily: "'Space Grotesk', sans-serif" }}>
+                {selectedWeek != null ? `${selectedWeek} / ${currentWeek ?? "—"}` : "Total"}
+              </div>
+            </div>
+            <button
+              onClick={() => setSelectedWeek((w) => (w != null && w < (currentWeek ?? 0) ? w + 1 : w))}
+              disabled={selectedWeek === null || selectedWeek >= (currentWeek ?? 0)}
+              style={{ background: "none", border: "1px solid #333", color: "#aaa", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 16, lineHeight: 1 }}
+            >
+              ›
+            </button>
+            <button
+              onClick={() => setSelectedWeek(null)}
+              style={{
+                background: selectedWeek === null ? "#FCD400" : "none",
+                color: selectedWeek === null ? "#000" : "#aaa",
+                border: "1px solid #333",
+                borderRadius: 4,
+                padding: "2px 8px",
+                fontSize: 11,
+                cursor: "pointer",
+                fontWeight: 700,
+              }}
+            >
+              Total
+            </button>
           </div>
         </div>
 
@@ -739,7 +789,9 @@ export default function StandingsPage() {
               />
 
               <div style={{ width: 90, flexShrink: 0, textAlign: "right" }}>
-                <span style={headerLabelStyle}>PTS ESTA SEM.</span>
+                <span style={headerLabelStyle}>
+                  {selectedWeek != null ? `J${selectedWeek}` : "PTS SEM."}
+                </span>
               </div>
 
               {/* TOTAL header with sort */}
@@ -760,7 +812,7 @@ export default function StandingsPage() {
                   key={e.member_id}
                   entry={e}
                   isMe={e.member_id === myMemberId}
-                  weekPoints={null}
+                  weekPoints={selectedWeek != null ? (e.week_points ?? null) : null}
                   stats={statsMap.get(e.member_id) ?? null}
                   animationDelay={index * 60}
                   onClick={() => setSelectedMember({ id: e.member_id, name: e.username ?? "Manager" })}
