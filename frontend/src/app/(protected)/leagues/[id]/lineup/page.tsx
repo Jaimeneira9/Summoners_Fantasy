@@ -187,8 +187,8 @@ function PlayerCard({
             background: "var(--bg-panel)",
           }}
         >
-          <div className={`p-2 rounded-lg ${roleColor.bg}`}>
-            <RoleIcon role={expectedRole} className={`w-5 h-5 ${roleColor.text}`} />
+          <div className="p-2 rounded-lg bg-white/5">
+            <RoleIcon role={expectedRole} className="w-5 h-5" />
           </div>
           <span className={`text-xs font-bold ${roleColor.text}`}>
             {ROLE_LABEL[expectedRole] ?? "BENCH"}
@@ -205,8 +205,8 @@ function PlayerCard({
           background: "var(--bg-panel)",
         }}
       >
-        <div className={`p-2 rounded-lg ${roleColor.bg}`}>
-          <RoleIcon role={expectedRole} className={`w-6 h-6 ${roleColor.text}`} />
+        <div className="p-2 rounded-lg bg-white/5">
+          <RoleIcon role={expectedRole} className="w-6 h-6" />
         </div>
         <span className={`text-xs font-bold ${roleColor.text}`}>
           {ROLE_LABEL[expectedRole] ?? "BENCH"}
