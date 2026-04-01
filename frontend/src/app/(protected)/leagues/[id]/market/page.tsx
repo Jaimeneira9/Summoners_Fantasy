@@ -1431,7 +1431,7 @@ function ScoutTab({ leagueId }: { leagueId: string }) {
               key={`${animationKey}-${p.id}`}
               player={p}
               animationDelay={index * 60}
-              onOpen={() => router.push(`/leagues/${leagueId}/stats/${p.id}`)}
+              onOpen={() => router.push(`/leagues/${leagueId}/stats/${p.id}?from=scout`)}
             />
           ))}
         </div>

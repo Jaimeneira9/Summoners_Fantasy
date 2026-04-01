@@ -162,9 +162,9 @@ function TeamRow({
         >
           {entry.team_name}
         </span>
-        {entry.games_played > 0 && (
+        {(entry.wins > 0 || entry.losses > 0) && (
           <span style={{ fontSize: 11, color: "#444444", flexShrink: 0 }}>
-            {entry.games_played}J
+            {entry.wins}W {entry.losses}L
           </span>
         )}
       </div>

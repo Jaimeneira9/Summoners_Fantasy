@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type PlayerMatchStat, type PlayerSplitHistory, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat } from "@/lib/api";
@@ -937,6 +937,8 @@ function OfferPanel({
 
 export default function PlayerStatsPage() {
   const { id: leagueId, playerId } = useParams<{ id: string; playerId: string }>();
+  const searchParams = useSearchParams();
+  const fromScout = searchParams.get("from") === "scout";
 
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -1169,8 +1171,11 @@ export default function PlayerStatsPage() {
 
         {/* Breadcrumb */}
         <nav style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#444", marginBottom: 20 }}>
-          <Link href={`/leagues/${leagueId}/lineup`} style={{ color: "#555", textDecoration: "none" }}>
-            Mi Equipo
+          <Link
+            href={fromScout ? `/leagues/${leagueId}/market?tab=scout` : `/leagues/${leagueId}/lineup`}
+            style={{ color: "#555", textDecoration: "none" }}
+          >
+            {fromScout ? "Explorar" : "Mi Equipo"}
           </Link>
           <span>›</span>
           <span style={{ color: "#888" }}>Stats de Jugador</span>
