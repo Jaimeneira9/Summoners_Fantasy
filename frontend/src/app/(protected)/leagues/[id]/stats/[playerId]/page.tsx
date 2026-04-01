@@ -974,11 +974,18 @@ export default function PlayerStatsPage() {
         const availableSplits = splitList as Split[];
         setSplits(availableSplits);
 
-        // Por defecto mostrar todos los splits (sin filtro)
-        setSelectedSplitId(null);
+        // Por defecto mostrar el split activo
+        const activeSplit = availableSplits.find(s => s.is_active) ?? null;
+        const defaultSplitId = activeSplit?.id ?? null;
+        setSelectedSplitId(defaultSplitId);
 
-        // Default to last week de todas las series
-        if (h.stats.length > 0) {
+        // Default to last week del split activo (o de todas las series si no hay split activo)
+        const defaultStats = defaultSplitId
+          ? h.stats.filter(s => s.competition_id === defaultSplitId)
+          : h.stats;
+        if (defaultStats.length > 0) {
+          setSelectedWeek(defaultStats.length);
+        } else if (h.stats.length > 0) {
           setSelectedWeek(h.stats.length);
         }
       })
