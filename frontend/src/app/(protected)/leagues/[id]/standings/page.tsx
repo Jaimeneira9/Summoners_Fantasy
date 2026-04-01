@@ -701,8 +701,15 @@ export default function StandingsPage() {
           {/* Week navigator */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, marginTop: 4 }}>
             <button
-              onClick={() => setSelectedWeek((w) => (w != null && w > (availableWeeks[0] ?? 1) ? w - 1 : w))}
-              disabled={selectedWeek === null || selectedWeek <= (availableWeeks[0] ?? 1)}
+              onClick={() => {
+                if (selectedWeek === null) {
+                  // From Total → go to currentWeek
+                  setSelectedWeek(currentWeek);
+                } else if (selectedWeek > (availableWeeks[0] ?? 1)) {
+                  setSelectedWeek((w) => (w as number) - 1);
+                }
+              }}
+              disabled={selectedWeek !== null && selectedWeek <= (availableWeeks[0] ?? 1)}
               style={{ background: "none", border: "1px solid #333", color: "#aaa", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 16, lineHeight: 1 }}
             >
               ‹
@@ -714,7 +721,7 @@ export default function StandingsPage() {
               </div>
             </div>
             <button
-              onClick={() => setSelectedWeek((w) => (w != null && w < (currentWeek ?? 0) ? w + 1 : w))}
+              onClick={() => setSelectedWeek((w) => (w != null && w < (currentWeek ?? 0) ? w + 1 : null))}
               disabled={selectedWeek === null || selectedWeek >= (currentWeek ?? 0)}
               style={{ background: "none", border: "1px solid #333", color: "#aaa", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontSize: 16, lineHeight: 1 }}
             >
@@ -773,7 +780,7 @@ export default function StandingsPage() {
               <div style={{ width: 52, flexShrink: 0 }}>
                 <span style={headerLabelStyle}>POS</span>
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <span style={headerLabelStyle}>MANAGER</span>
               </div>
 

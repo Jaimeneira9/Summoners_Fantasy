@@ -974,12 +974,12 @@ export default function PlayerStatsPage() {
         const availableSplits = splitList as Split[];
         setSplits(availableSplits);
 
-        // Por defecto mostrar el split activo
-        const activeSplit = availableSplits.find(s => s.is_active) ?? null;
+        // Por defecto mostrar el split activo, con fallback al primero de la lista
+        const activeSplit = availableSplits.find(s => s.is_active) ?? availableSplits[0] ?? null;
         const defaultSplitId = activeSplit?.id ?? null;
         setSelectedSplitId(defaultSplitId);
 
-        // Default to last week del split activo (o de todas las series si no hay split activo)
+        // Default to last week del split seleccionado por defecto
         const defaultStats = defaultSplitId
           ? h.stats.filter(s => s.competition_id === defaultSplitId)
           : h.stats;
@@ -1505,29 +1505,6 @@ export default function PlayerStatsPage() {
                   alt="LEC"
                   style={{ width: 24, height: 24, borderRadius: 4, objectFit: "contain", flexShrink: 0 }}
                 />
-                {/* Chip "Todos" — sin filtro de split */}
-                <button
-                  onClick={() => {
-                    setSelectedSplitId(null);
-                    const allStats = historyData?.stats ?? [];
-                    setSelectedWeek(allStats.length > 0 ? allStats.length : null);
-                  }}
-                  style={{
-                    background: selectedSplitId === null ? "#FCD400" : "#1A1A1A",
-                    border: `1px solid ${selectedSplitId === null ? "#FCD400" : "#2A2A2A"}`,
-                    borderRadius: 8,
-                    padding: "6px 14px",
-                    color: selectedSplitId === null ? "#000" : "#777",
-                    fontSize: 12,
-                    fontWeight: selectedSplitId === null ? 700 : 500,
-                    cursor: "pointer",
-                    fontFamily: "'Barlow Condensed', sans-serif",
-                    letterSpacing: "0.04em",
-                    flexShrink: 0,
-                  }}
-                >
-                  Todos
-                </button>
                 {splits.map((split) => {
                   const isActive = split.id === selectedSplitId;
                   return (
@@ -1537,7 +1514,8 @@ export default function PlayerStatsPage() {
                         setSelectedSplitId(split.id);
                         const newFiltered = (historyData?.stats ?? [])
                           .filter(s => s.competition_id === split.id);
-                        setSelectedWeek(newFiltered.length > 0 ? newFiltered.length : null);
+                        const allStats = historyData?.stats ?? [];
+                        setSelectedWeek(newFiltered.length > 0 ? newFiltered.length : allStats.length > 0 ? allStats.length : 1);
                       }}
                       style={{
                         background: isActive ? "#FCD400" : "#1A1A1A",
