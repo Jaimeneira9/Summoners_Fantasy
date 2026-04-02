@@ -101,6 +101,32 @@ def market_refresh_job() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Job 5: Reset semanal de baseline de precios (martes 03:00 UTC)
+# ---------------------------------------------------------------------------
+
+@scheduler.scheduled_job("cron", day_of_week="tue", hour=3, minute=0, id="weekly_baseline_reset")
+def weekly_baseline_reset_job() -> None:
+    """Resetea avg_points_baseline al promedio reciente tras terminar la jornada LEC."""
+    from market.price_updater import reset_weekly_baseline
+
+    try:
+        result = (
+            _supabase.table("players")
+            .select("id")
+            .eq("is_active", True)
+            .execute()
+        )
+        player_ids = [row["id"] for row in (result.data or [])]
+        if not player_ids:
+            logger.info("weekly_baseline_reset: no active players found, skipping")
+            return
+        reset_weekly_baseline(_supabase, player_ids)
+        logger.info("weekly_baseline_reset: reset %d players", len(player_ids))
+    except Exception as exc:
+        logger.error("weekly_baseline_reset_job failed: %s", exc, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

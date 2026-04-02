@@ -63,7 +63,7 @@ async def place_bid(
 
     listing_resp = (
         supabase.table("market_listings")
-        .select("id, ask_price, closes_at, status")
+        .select("id, ask_price, closes_at, status, players(current_price)")
         .eq("id", str(listing_id))
         .eq("league_id", str(league_id))
         .eq("status", "active")
@@ -78,10 +78,11 @@ async def place_bid(
         if closes < datetime.now(timezone.utc):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El periodo de pujas ha cerrado")
 
-    if body.bid_amount < float(listing["ask_price"]):
+    player_price = float(listing["players"]["current_price"])
+    if body.bid_amount < player_price:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"La puja mínima es {listing['ask_price']}M",
+            detail=f"La puja mínima es {player_price}M",
         )
 
     if float(member["remaining_budget"]) < body.bid_amount:

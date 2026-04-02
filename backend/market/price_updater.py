@@ -99,10 +99,7 @@ def _update_single_player_price(supabase: Client, player_id: str) -> None:
     # 7. new_price = max(current_price * (1 + delta_pct), PRICE_FLOOR)
     new_price = max(round(old_price * (1 + delta_pct), 2), PRICE_FLOOR)
 
-    # 8. new_baseline = media de los últimos 5 game_points (mismos datos)
-    new_baseline = round(sum(game_points_list) / len(game_points_list), 2)
-
-    # 9. Append to price_history: {"date": today_iso, "price": new_price, "delta_pct": delta_pct}
+    # 8. Append to price_history: {"date": today_iso, "price": new_price, "delta_pct": delta_pct}
     history: list = player.get("price_history") or []
     history.append({
         "date": datetime.now(timezone.utc).date().isoformat(),
@@ -113,11 +110,11 @@ def _update_single_player_price(supabase: Client, player_id: str) -> None:
     # 10. Trim price_history to last 90 entries
     history = history[-90:]
 
-    # 11. UPDATE players: current_price, last_price_change_pct, avg_points_baseline, price_history
+    # 11. UPDATE players: current_price, last_price_change_pct, price_history
+    # avg_points_baseline NO se toca aquí — se resetea una vez por semana via reset_weekly_baseline
     supabase.table("players").update({
         "current_price": new_price,
         "last_price_change_pct": round(delta_pct, 4),
-        "avg_points_baseline": new_baseline,
         "price_history": history,
     }).eq("id", player_id).execute()
 
@@ -132,4 +129,53 @@ def _update_single_player_price(supabase: Client, player_id: str) -> None:
         old_price,
         new_price,
         delta_pct * 100,
+    )
+
+
+def reset_weekly_baseline(supabase: Client, player_ids: list[str]) -> None:
+    """Resetea avg_points_baseline al promedio reciente y last_price_change_pct a 0.
+
+    Llamar una vez por semana (martes) después de que termine la jornada LEC.
+    Establece el nuevo baseline contra el cual se medirá la tendencia de la
+    semana siguiente.
+    """
+    for player_id in player_ids:
+        try:
+            _reset_single_player_baseline(supabase, player_id)
+        except Exception as exc:
+            logger.warning("Baseline reset failed for player %s: %s", player_id, exc)
+
+
+def _reset_single_player_baseline(supabase: Client, player_id: str) -> None:
+    """Recalcula y persiste el baseline semanal de un jugador individual."""
+    stats_resp = (
+        supabase.table("player_game_stats")
+        .select("game_points")
+        .eq("player_id", player_id)
+        .order("created_at", desc=True)
+        .limit(ROLLING_WINDOW)
+        .execute()
+    )
+    stats = stats_resp.data or []
+
+    game_points_list = [
+        float(r["game_points"])
+        for r in stats
+        if r.get("game_points") is not None
+    ]
+    if not game_points_list:
+        logger.info("No stats found for player=%s, skipping baseline reset", player_id)
+        return
+
+    recent_avg = round(sum(game_points_list) / len(game_points_list), 2)
+
+    supabase.table("players").update({
+        "avg_points_baseline": recent_avg,
+        "last_price_change_pct": 0,
+    }).eq("id", player_id).execute()
+
+    logger.info(
+        "Baseline reset player=%s new_baseline=%.2f",
+        player_id,
+        recent_avg,
     )

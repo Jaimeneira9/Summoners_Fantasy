@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
+from scoring.engine import ROLE_WEIGHTS, STATS_TO_NORMALIZE
 
 logger = logging.getLogger(__name__)
 
@@ -355,6 +356,27 @@ async def get_player_score_history(
             result = 0
 
         sid = str(row["series_id"])
+
+        role = (player.get("role") or "").lower()
+        stat_breakdown: dict[str, float] | None = None
+        if role in ROLE_WEIGHTS:
+            weights = ROLE_WEIGHTS[role]
+            stat_source = {
+                "kills": float(row.get("avg_kills") or 0),
+                "deaths": float(row.get("avg_deaths") or 0),
+                "assists": float(row.get("avg_assists") or 0),
+                "cs_per_min": float(row.get("avg_cs_per_min") or 0),
+                "dpm": float(row.get("avg_dpm") or 0),
+                "gold_diff_15": series_gold_diff.get(sid) or 0.0,
+                "xp_diff_15": series_xp_diff.get(sid) or 0.0,
+            }
+            stat_breakdown = {}
+            for stat, weight in weights.items():
+                if stat not in stat_source:
+                    continue
+                value = stat_source[stat]
+                stat_breakdown[stat] = round(value * weight, 2)
+
         stats.append({
             "series_id": sid,
             "kills": round(float(row.get("avg_kills") or 0), 2),
@@ -369,7 +391,7 @@ async def get_player_score_history(
             "turret_damage": None,
             "competition_id": competition_id,
             "competition_name": competition_name,
-            "stat_breakdown": None,
+            "stat_breakdown": stat_breakdown,
             "matches": {
                 "scheduled_at": s.get("date"),
                 "team_1": team_1,

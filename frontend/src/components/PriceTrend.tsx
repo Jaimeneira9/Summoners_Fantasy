@@ -1,7 +1,7 @@
 "use client";
 
 // Props: changePct (number) — ej: 0.023 = +2.3%, -0.011 = -1.1%
-// Si |changePct| < 0.001 → no renderiza nada
+// Si |changePct| < 0.01 → no renderiza nada
 // Si > 0 → flecha ↑ + porcentaje en color #4ade80 (verde)
 // Si < 0 → flecha ↓ + porcentaje en color #f87171 (rojo)
 // Formato: "↑ 2.3%" o "↓ 1.1%"
@@ -12,7 +12,7 @@ export interface PriceTrendProps {
 }
 
 export function PriceTrend({ changePct }: PriceTrendProps) {
-  if (Math.abs(changePct) < 0.001) return null;
+  if (Math.abs(changePct) < 0.01) return null;
 
   const isUp = changePct > 0;
   const color = isUp ? "#4ade80" : "#f87171";

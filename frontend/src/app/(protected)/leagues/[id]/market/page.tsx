@@ -326,7 +326,7 @@ function MarketTab({
           playerTeam={popupListing.players.team}
           playerImage={popupListing.players.image_url ?? undefined}
           mode="input"
-          minAmount={popupListing.ask_price}
+          minAmount={popupListing.players.current_price}
           confirmLabel="Pujar"
           previewText={(amount) => `Puja de ${amount.toFixed(1)}M`}
           onConfirm={async (amount) => {
