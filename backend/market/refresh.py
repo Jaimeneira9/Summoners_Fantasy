@@ -207,40 +207,54 @@ def _create_sell_offers_for_flagged(supabase: Client, league_id: str) -> None:
     )
     roster_players: list[dict[str, Any]] = rp_resp.data or []
 
+    if not roster_players:
+        return
+
+    rp_ids: list[str] = [rp["id"] for rp in roster_players]
+    player_ids: list[str] = [rp["player_id"] for rp in roster_players]
+
+    # 1 query batch para sell_offers pendientes
+    existing_resp = (
+        supabase.table("sell_offers")
+        .select("roster_player_id")
+        .in_("roster_player_id", rp_ids)
+        .eq("status", "pending")
+        .execute()
+    )
+    already_listed: set[str] = {row["roster_player_id"] for row in (existing_resp.data or [])}
+
+    # 1 query batch para precios actuales de jugadores
+    prices_resp = (
+        supabase.table("players")
+        .select("id, current_price")
+        .in_("id", player_ids)
+        .execute()
+    )
+    price_by_player: dict[str, float] = {
+        row["id"]: float(row["current_price"]) for row in (prices_resp.data or [])
+    }
+
+    new_offers: list[dict[str, Any]] = []
     for rp in roster_players:
         roster_player_id: str = rp["id"]
         player_id: str = rp["player_id"]
         member_id: str = rp["rosters"]["league_members"]["id"]
 
-        # Evitar duplicar si ya hay una oferta pendiente
-        existing = (
-            supabase.table("sell_offers")
-            .select("id")
-            .eq("roster_player_id", roster_player_id)
-            .eq("status", "pending")
-            .execute()
-        )
-        if existing.data:
+        if roster_player_id in already_listed:
             continue
 
-        # Precio base = current_price del jugador
-        player_resp = (
-            supabase.table("players")
-            .select("current_price")
-            .eq("id", player_id)
-            .single()
-            .execute()
-        )
-        if not player_resp.data:
+        base_price = price_by_player.get(player_id)
+        if base_price is None:
             continue
 
-        base_price = float(player_resp.data["current_price"])
         ask_price = round(base_price * random.uniform(SELL_OFFER_PRICE_MIN, SELL_OFFER_PRICE_MAX), 2)
-
-        supabase.table("sell_offers").insert({
+        new_offers.append({
             "league_id": league_id,
             "member_id": member_id,
             "roster_player_id": roster_player_id,
             "player_id": player_id,
             "ask_price": ask_price,
-        }).execute()
+        })
+
+    if new_offers:
+        supabase.table("sell_offers").insert(new_offers).execute()

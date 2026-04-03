@@ -7,6 +7,7 @@ from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
 from scoring.engine import ROLE_WEIGHTS, STATS_TO_NORMALIZE
+from utils.teams import resolve_team_id
 
 logger = logging.getLogger(__name__)
 
@@ -249,18 +250,7 @@ async def get_player_score_history(
 
     # Resolver team_id del jugador via teams table (matching por nombre)
     player_team_name = player.get("team", "")
-    player_team_id: str | None = None
-    if player_team_name:
-        all_teams_resp = supabase.table("teams").select("id, name, aliases").execute()
-        for t in (all_teams_resp.data or []):
-            aliases: list[str] = t.get("aliases") or []
-            all_names = [t["name"]] + aliases
-            for alias in all_names:
-                if alias.strip().lower() == player_team_name.strip().lower():
-                    player_team_id = str(t["id"])
-                    break
-            if player_team_id:
-                break
+    player_team_id: str | None = resolve_team_id(supabase, player_team_name) if player_team_name else None
 
     # Fetch player_series_stats con join a series (fecha, equipos, winner) y teams
     series_stats_resp = (

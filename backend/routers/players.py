@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
+from utils.teams import resolve_team_id
 
 logger = logging.getLogger(__name__)
 
@@ -313,18 +314,7 @@ async def get_player_series_games(
         .execute()
     )
     player_team_name: str = (player_resp.data or {}).get("team", "") if player_resp.data else ""
-    player_team_id: str | None = None
-    if player_team_name:
-        all_teams_resp = supabase.table("teams").select("id, name, aliases").execute()
-        for t in (all_teams_resp.data or []):
-            aliases: list[str] = t.get("aliases") or []
-            all_names = [t["name"]] + aliases
-            for alias in all_names:
-                if alias.strip().lower() == player_team_name.strip().lower():
-                    player_team_id = str(t["id"])
-                    break
-            if player_team_id:
-                break
+    player_team_id: str | None = resolve_team_id(supabase, player_team_name) if player_team_name else None
 
     # Fetch games in this series
     games_resp = (
@@ -457,22 +447,7 @@ def get_player_schedule(
         # 4. Cache miss — resolve team UUID from teams table via alias matching.
         # players.team stores a name like "G2 Esports" or "Fnatic".
         # teams.aliases is an array that includes the canonical name and variants.
-        team_id: str | None = None
-
-        all_teams_resp = (
-            supabase.table("teams")
-            .select("id, name, aliases")
-            .execute()
-        )
-        for t in (all_teams_resp.data or []):
-            aliases: list[str] = t.get("aliases") or []
-            all_names = [t["name"]] + aliases
-            for alias in all_names:
-                if alias.strip().lower() == player_team.strip().lower():
-                    team_id = str(t["id"])
-                    break
-            if team_id:
-                break
+        team_id: str | None = resolve_team_id(supabase, player_team)
 
         if not team_id:
             logger.warning(
