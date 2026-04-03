@@ -307,7 +307,7 @@ async def get_player_score_history(
     if series_ids_for_lookup:
         pgs_resp = (
             supabase.table("player_game_stats")
-            .select("gold_diff_15, xp_diff_15, game_duration_min, games(series_id)")
+            .select("gold_diff_15, xp_diff_15, games(series_id, duration_min)")
             .eq("player_id", str(player_id))
             .execute()
         )
@@ -324,8 +324,9 @@ async def get_player_score_history(
                 gold_by_series.setdefault(sid, []).append(float(pgs_row["gold_diff_15"]))
             if pgs_row.get("xp_diff_15") is not None:
                 xp_by_series.setdefault(sid, []).append(float(pgs_row["xp_diff_15"]))
-            if pgs_row.get("game_duration_min") is not None:
-                duration_by_series.setdefault(sid, []).append(float(pgs_row["game_duration_min"]))
+            duration = game.get("duration_min")
+            if duration is not None:
+                duration_by_series.setdefault(sid, []).append(float(duration))
         for sid in series_ids_for_lookup:
             gold_vals = gold_by_series.get(sid, [])
             xp_vals = xp_by_series.get(sid, [])
