@@ -303,16 +303,18 @@ async def get_player_score_history(
     # Build per-series averages
     series_gold_diff: dict[str, float | None] = {}
     series_xp_diff: dict[str, float | None] = {}
+    series_avg_duration: dict[str, float] = {}
     if series_ids_for_lookup:
         pgs_resp = (
             supabase.table("player_game_stats")
-            .select("gold_diff_15, xp_diff_15, games(series_id)")
+            .select("gold_diff_15, xp_diff_15, game_duration_min, games(series_id)")
             .eq("player_id", str(player_id))
             .execute()
         )
         # Group by series_id
         gold_by_series: dict[str, list[float]] = {}
         xp_by_series: dict[str, list[float]] = {}
+        duration_by_series: dict[str, list[float]] = {}
         for pgs_row in (pgs_resp.data or []):
             game = pgs_row.get("games") or {}
             sid = str(game.get("series_id") or "")
@@ -322,11 +324,15 @@ async def get_player_score_history(
                 gold_by_series.setdefault(sid, []).append(float(pgs_row["gold_diff_15"]))
             if pgs_row.get("xp_diff_15") is not None:
                 xp_by_series.setdefault(sid, []).append(float(pgs_row["xp_diff_15"]))
+            if pgs_row.get("game_duration_min") is not None:
+                duration_by_series.setdefault(sid, []).append(float(pgs_row["game_duration_min"]))
         for sid in series_ids_for_lookup:
             gold_vals = gold_by_series.get(sid, [])
             xp_vals = xp_by_series.get(sid, [])
+            dur_vals = duration_by_series.get(sid, [])
             series_gold_diff[sid] = round(sum(gold_vals) / len(gold_vals), 1) if gold_vals else None
             series_xp_diff[sid] = round(sum(xp_vals) / len(xp_vals), 1) if xp_vals else None
+            series_avg_duration[sid] = sum(dur_vals) / len(dur_vals) if dur_vals else 33.4
 
     stats = []
     for row in raw_series:
@@ -361,6 +367,7 @@ async def get_player_score_history(
         stat_breakdown: dict[str, float] | None = None
         if role in ROLE_WEIGHTS:
             weights = ROLE_WEIGHTS[role]
+            avg_duration = series_avg_duration.get(sid, 33.4) or 33.4
             stat_source = {
                 "kills": float(row.get("avg_kills") or 0),
                 "deaths": float(row.get("avg_deaths") or 0),
@@ -375,6 +382,8 @@ async def get_player_score_history(
                 if stat not in stat_source:
                     continue
                 value = stat_source[stat]
+                if stat in STATS_TO_NORMALIZE:
+                    value = value / avg_duration
                 stat_breakdown[stat] = round(value * weight, 2)
 
         stats.append({
