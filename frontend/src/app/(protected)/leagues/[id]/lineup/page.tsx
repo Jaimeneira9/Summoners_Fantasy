@@ -119,6 +119,27 @@ export default function LineupPage() {
           <EmptyRoster leagueId={leagueId} />
         ) : (
           <>
+            {/* Incomplete roster warning */}
+            {(() => {
+              const STARTER_SLOT_KEYS = ["starter_1", "starter_2", "starter_3", "starter_4", "starter_5"];
+              const filledStartersCount = roster.players.filter((p) => STARTER_SLOT_KEYS.includes(p.slot)).length;
+              const missing = 5 - filledStartersCount;
+              if (missing <= 0) return null;
+              return (
+                <div className="mb-6 mx-0 px-4 py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl animate-fade-in">
+                  <div className="flex items-start gap-3">
+                    <span className="text-yellow-400 text-lg flex-shrink-0">⚠️</span>
+                    <div>
+                      <p className="text-yellow-300 font-semibold text-sm">Equipo incompleto</p>
+                      <p className="text-yellow-400/70 text-xs mt-0.5">
+                        Necesitás {missing} titular{missing > 1 ? "es" : ""} más para puntuar esta semana.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Starters */}
             <section>
               <h2 className="text-xs uppercase tracking-widest mb-3 font-semibold" style={{ color: "var(--text-muted)" }}>
