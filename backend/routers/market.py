@@ -794,8 +794,8 @@ async def activate_clause(
             detail="No podés activar la cláusula de un jugador que ya es tuyo",
         )
 
-    # Validar que la cláusula existe y no ha expirado
-    if not rp.get("clause_expires_at"):
+    # Validar que la cláusula existe
+    if not rp.get("clause_expires_at") or rp.get("clause_amount") is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Este jugador no tiene cláusula activa",
@@ -804,10 +804,11 @@ async def activate_clause(
     clause_expires = datetime.fromisoformat(rp["clause_expires_at"])
     if clause_expires.tzinfo is None:
         clause_expires = clause_expires.replace(tzinfo=timezone.utc)
-    if clause_expires <= now:
+    # Rechazar si el jugador aún está en período de protección
+    if clause_expires > now:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="La cláusula de este jugador ha expirado",
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El jugador está en período de protección y no puede ser fichado por cláusula todavía",
         )
 
     clause_amount = float(rp["clause_amount"])
@@ -891,13 +892,16 @@ async def activate_clause(
     supabase.table("roster_players").delete().eq("id", roster_player_id).execute()
 
     # 4. Insertar en el roster del comprador
+    # clause_amount = MAX(price_paid, current_price): la cláusula vale al menos
+    # lo que se pagó, y crece si el jugador vale más en el mercado ahora.
+    new_clause_amount = max(clause_amount, float(player["current_price"]))
     supabase.table("roster_players").insert({
         "roster_id": buyer_roster_id,
         "player_id": player_id,
         "slot": bench_slot,
         "price_paid": clause_amount,
         "clause_expires_at": new_clause_expires,
-        "clause_amount": float(player["current_price"]),
+        "clause_amount": new_clause_amount,
     }).execute()
 
     # 5. Registrar transacción
@@ -1040,7 +1044,7 @@ async def get_clause_info(
             expires = datetime.fromisoformat(clause_expires_at)
             if expires.tzinfo is None:
                 expires = expires.replace(tzinfo=timezone.utc)
-            clause_active = expires > datetime.now(timezone.utc)
+            clause_active = expires <= datetime.now(timezone.utc)
         except (ValueError, TypeError):
             clause_active = False
 

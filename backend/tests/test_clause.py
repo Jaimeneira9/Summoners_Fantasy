@@ -25,14 +25,16 @@ FAKE_USER = {"id": USER_ID, "email": "test@test.com"}
 
 BUYER_MEMBER = {"id": BUYER_MEMBER_ID, "remaining_budget": 100.0}
 
-# clause_expires_at: 7 días en el futuro (cláusula vigente)
-FUTURE_EXPIRES = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+# clause_expires_at en el PASADO: protección expirada → se puede activar la cláusula
 PAST_EXPIRES = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+# clause_expires_at en el FUTURO: protección activa → NO se puede activar la cláusula
+FUTURE_EXPIRES = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
+# Roster player con protección EXPIRADA (estado correcto para activar cláusula)
 ROSTER_PLAYER = {
     "id": ROSTER_PLAYER_ID,
     "player_id": PLAYER_ID,
-    "clause_expires_at": FUTURE_EXPIRES,
+    "clause_expires_at": PAST_EXPIRES,
     "clause_amount": 15.0,
     "rosters": {
         "member_id": OWNER_MEMBER_ID,
@@ -40,6 +42,7 @@ ROSTER_PLAYER = {
     },
 }
 
+# current_price > clause_amount: la nueva cláusula debe ser MAX(15.0, 18.0) = 18.0
 PLAYER = {"current_price": 18.0, "role": "mid"}
 
 BUYER_ROSTER = {"id": BUYER_ROSTER_ID}
@@ -124,7 +127,11 @@ def override_user():
 
 
 def _make_sb_happy_path() -> MagicMock:
-    """Mocks para el flujo feliz: comprador rival activa la cláusula con éxito."""
+    """Mocks para el flujo feliz: comprador rival activa la cláusula con éxito.
+
+    ROSTER_PLAYER tiene clause_expires_at en el PASADO (protección expirada),
+    que es el único estado en que la activación debe proceder.
+    """
     # league_members: solo el buyer (1 execute en _get_member)
     lm_chain = _chain([BUYER_MEMBER])
 
@@ -178,11 +185,12 @@ def _make_sb_happy_path() -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# Happy path — rival activa la cláusula con éxito
+# Happy path — rival activa la cláusula con éxito (protección expirada)
 # ---------------------------------------------------------------------------
 
 
 def test_activate_clause_ok() -> None:
+    """Activación exitosa: protección expirada, presupuesto suficiente."""
     sb = _make_sb_happy_path()
 
     r = _client(sb).post(f"/market/{LEAGUE_ID}/clause/{ROSTER_PLAYER_ID}/activate")
@@ -211,13 +219,18 @@ def test_activate_clause_ok() -> None:
     assert add_calls[0].args[1]["p_member_id"] == OWNER_MEMBER_ID
     assert add_calls[0].args[1]["p_amount"] == 15.0
 
-    # roster_players: el insert nuevo contiene clause_amount = current_price del jugador (18.0)
-    # y clause_expires_at ~14 días en el futuro
+    # roster_players: el insert nuevo contiene clause_amount = MAX(price_paid=15.0, current_price=18.0) = 18.0
     rp_table = sb.table("roster_players")
     insert_calls = rp_table.insert.call_args_list
     assert insert_calls, "Se esperaba al menos un insert en roster_players"
     inserted_payload = insert_calls[-1].args[0]
-    assert inserted_payload["clause_amount"] == float(PLAYER["current_price"])
+    assert inserted_payload["clause_amount"] == 18.0, (
+        f"clause_amount debe ser MAX(price_paid=15.0, current_price=18.0) = 18.0, "
+        f"got {inserted_payload['clause_amount']}"
+    )
+    assert inserted_payload["price_paid"] == 15.0, (
+        f"price_paid debe ser el clause_amount pagado (15.0), got {inserted_payload['price_paid']}"
+    )
     assert inserted_payload["roster_id"] == BUYER_ROSTER_ID
     assert inserted_payload["player_id"] == PLAYER_ID
 
@@ -227,6 +240,66 @@ def test_activate_clause_ok() -> None:
         expires_dt = expires_dt.replace(tzinfo=timezone.utc)
     expected = datetime.now(timezone.utc) + timedelta(days=14)
     assert abs((expires_dt - expected).total_seconds()) < 60
+
+
+# ---------------------------------------------------------------------------
+# Precio de cláusula no puede ser menor que price_paid
+# ---------------------------------------------------------------------------
+
+
+def test_activate_clause_new_clause_amount_ge_price_paid() -> None:
+    """clause_amount >= price_paid siempre: cuando current_price < price_paid se usa price_paid."""
+    # Jugador que bajó de precio: current_price < clause_amount (price_paid)
+    cheap_player = {"current_price": 10.0, "role": "mid"}
+
+    lm_chain = _chain([BUYER_MEMBER])
+    rp_chain = _chain([ROSTER_PLAYER], [], [], [], [{}])
+    pl_chain = _chain([cheap_player])
+    ro_chain = _chain([BUYER_ROSTER])
+    so_chain = _chain([])
+    tx_chain = _chain([{}])
+
+    sb = _sb_multi(
+        ("league_members", lm_chain),
+        ("roster_players", rp_chain),
+        ("players", pl_chain),
+        ("rosters", ro_chain),
+        ("sell_offers", so_chain),
+        ("transactions", tx_chain),
+    )
+
+    deduct_result = MagicMock()
+    deduct_result.data = True
+    deduct_chain = MagicMock()
+    deduct_chain.execute.return_value = deduct_result
+
+    add_result = MagicMock()
+    add_result.data = None
+    add_chain = MagicMock()
+    add_chain.execute.return_value = add_result
+
+    def rpc_side_effect(fn_name: str, params: dict):
+        if fn_name == "deduct_budget":
+            return deduct_chain
+        return add_chain
+
+    sb.rpc.side_effect = rpc_side_effect
+
+    r = _client(sb).post(f"/market/{LEAGUE_ID}/clause/{ROSTER_PLAYER_ID}/activate")
+
+    assert r.status_code == 200
+    rp_table = sb.table("roster_players")
+    insert_calls = rp_table.insert.call_args_list
+    inserted_payload = insert_calls[-1].args[0]
+
+    # clause_amount = MAX(price_paid=15.0, current_price=10.0) = 15.0
+    assert inserted_payload["clause_amount"] == 15.0, (
+        f"clause_amount debe ser MAX(price_paid=15.0, current_price=10.0) = 15.0, "
+        f"got {inserted_payload['clause_amount']}"
+    )
+    assert inserted_payload["clause_amount"] >= inserted_payload["price_paid"], (
+        "clause_amount nunca puede ser menor que price_paid"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -259,18 +332,19 @@ def test_activate_clause_own_player_returns_409() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Expired clause guard — clause_expires_at en el pasado
+# Protection guard — clause_expires_at en el FUTURO → protección activa → 403
 # ---------------------------------------------------------------------------
 
 
-def test_activate_clause_expired_returns_409() -> None:
-    expired_rp = {
+def test_activate_clause_during_protection_returns_403() -> None:
+    """Intentar activar la cláusula mientras el jugador está en período de protección → 403."""
+    protected_rp = {
         **ROSTER_PLAYER,
-        "clause_expires_at": PAST_EXPIRES,
+        "clause_expires_at": FUTURE_EXPIRES,  # protección activa
     }
 
     lm_chain = _chain([BUYER_MEMBER])
-    rp_chain = _chain([expired_rp])
+    rp_chain = _chain([protected_rp])
 
     sb = _sb_multi(
         ("league_members", lm_chain),
@@ -279,8 +353,8 @@ def test_activate_clause_expired_returns_409() -> None:
 
     r = _client(sb).post(f"/market/{LEAGUE_ID}/clause/{ROSTER_PLAYER_ID}/activate")
 
-    assert r.status_code == 409
-    assert "expirado" in r.json()["detail"].lower() or "expirada" in r.json()["detail"].lower()
+    assert r.status_code == 403
+    assert "protección" in r.json()["detail"].lower() or "proteccion" in r.json()["detail"].lower()
 
 
 # ---------------------------------------------------------------------------
