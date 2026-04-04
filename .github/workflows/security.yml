@@ -9,7 +9,6 @@ on:
 
 jobs:
   security:
-    if: false # temporarily disabled — no Anthropic API credits
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
