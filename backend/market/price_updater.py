@@ -123,6 +123,26 @@ def _update_single_player_price(supabase: Client, player_id: str) -> None:
         "ask_price": new_price,
     }).eq("player_id", player_id).execute()
 
+    # 13. UPDATE roster_players: clause_amount = MAX(price_paid, new_price)
+    # Solo actualiza si new_price supera el clause_amount actual (la cláusula solo sube, nunca baja).
+    # Filtramos solo los roster_players con cláusula activa (clause_amount IS NOT NULL).
+    rp_resp = (
+        supabase.table("roster_players")
+        .select("id, price_paid, clause_amount")
+        .eq("player_id", player_id)
+        .execute()
+    )
+    for rp_row in rp_resp.data or []:
+        if rp_row.get("clause_amount") is None:
+            continue
+        price_paid = float(rp_row.get("price_paid") or 0)
+        current_clause = float(rp_row["clause_amount"])
+        updated_clause = max(price_paid, new_price, current_clause)
+        if updated_clause > current_clause:
+            supabase.table("roster_players").update({
+                "clause_amount": round(updated_clause, 2),
+            }).eq("id", rp_row["id"]).execute()
+
     logger.info(
         "Price updated player=%s old=%.2f new=%.2f delta=%.2f%%",
         player_id,

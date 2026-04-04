@@ -446,8 +446,9 @@ function ClausePanel({
     color: "#444",
   };
 
-  // Owned by me + clause active: show upgrade UI
-  if (info.owned_by_me && info.clause_active && info.clause_amount !== null && info.clause_expires_at !== null) {
+  // Owned by me + protection active (clause_active = false = window still open): show upgrade UI
+  // clause_active = false → expires > now → protection period not yet over
+  if (info.owned_by_me && info.clause_amount !== null && info.clause_expires_at !== null && !info.clause_active) {
     const days = daysRemaining(info.clause_expires_at);
     return (
       <div style={{ ...cardStyle, border: "1px solid #3A2E00" }}>
@@ -563,19 +564,15 @@ function ClausePanel({
     );
   }
 
-  // Owned by someone else + clause active: show activate button
-  if (info.is_owned && !info.owned_by_me && info.clause_active && info.clause_amount !== null && info.clause_expires_at !== null) {
-    const days = daysRemaining(info.clause_expires_at);
+  // Owned by someone else + protection expired (clause_active = true = can activate): show activate button
+  // clause_active = true → expires <= now → protection period is over, rival can trigger clause
+  if (info.is_owned && !info.owned_by_me && info.clause_active && info.clause_amount !== null) {
     return (
       <div style={{ ...cardStyle, border: "1px solid #2A1A00", background: "#130F00" }}>
         <div style={{ flex: 1, display: "flex", gap: 16, flexWrap: "wrap" as const, alignItems: "center" }}>
           <span style={labelStyle}>Cláusula:</span>
           <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 18, fontWeight: 700, color: "#FCD400" }}>
             {info.clause_amount.toFixed(1)}M
-          </span>
-          <span style={mutedStyle}>|</span>
-          <span style={{ ...mutedStyle, color: days <= 3 ? "#EF5350" : "#888" }}>
-            {days} días restantes
           </span>
         </div>
 
@@ -689,8 +686,28 @@ function ClausePanel({
     );
   }
 
-  // Owned but clause not active
-  if (info.is_owned && !info.clause_active) {
+  // Owned by someone else + protection still active (clause_active = false): rival can't activate yet
+  if (info.is_owned && !info.owned_by_me && !info.clause_active && info.clause_amount !== null && info.clause_expires_at !== null) {
+    const days = daysRemaining(info.clause_expires_at);
+    return (
+      <div style={{ ...cardStyle, border: "1px solid #1A2A1A", background: "#0D130D" }}>
+        <div style={{ flex: 1, display: "flex", gap: 16, flexWrap: "wrap" as const, alignItems: "center" }}>
+          <span style={{ ...labelStyle, color: "#4CAF50" }}>Período de protección</span>
+          <span style={mutedStyle}>|</span>
+          <span style={{ ...mutedStyle, color: "#888" }}>
+            {days} días restantes
+          </span>
+          <span style={mutedStyle}>|</span>
+          <span style={{ ...mutedStyle }}>
+            Cláusula: <span style={{ color: "#FCD400" }}>{info.clause_amount.toFixed(1)}M</span>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Owned but no clause (clause_amount is null)
+  if (info.is_owned) {
     return (
       <div style={cardStyle}>
         <span style={mutedStyle}>Sin cláusula activa</span>

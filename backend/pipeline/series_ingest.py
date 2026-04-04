@@ -414,22 +414,26 @@ def _update_series_result(
 # ---------------------------------------------------------------------------
 
 
-def _team_names_match(scraped_name: str, series_name: str) -> bool:
-    """
-    Compara dos nombres de equipo con tolerancia a variaciones menores.
-    Usa substring case-insensitive (misma heurística que el resto del pipeline).
-    """
-    a = scraped_name.strip().lower()
-    b = series_name.strip().lower()
-    return bool(a) and bool(b) and (a in b or b in a)
-
-
-def _game_belongs_to_series(meta: GameMeta, team_home: str, team_away: str) -> bool:
+def _game_belongs_to_series(
+    supabase: Client,
+    meta: GameMeta,
+    team_home_id: str,
+    team_away_id: str,
+) -> bool:
     """
     Verifica que el game scrapeado pertenezca a la serie esperada.
 
-    Devuelve True si al menos uno de los equipos del game (winner o loser)
-    coincide con alguno de los equipos de la serie (home o away).
+    Resuelve los nombres scrapeados del game (winner_team / loser_team) a UUIDs
+    de equipo via aliases — igual que se hace para los equipos del matchlist —
+    y compara los IDs resultantes contra team_home_id y team_away_id.
+
+    Esto evita el problema de substring matching entre nombres cortos del
+    matchlist ("NAVI") y nombres completos del game page ("Natus Vincere"):
+      "navi" in "natus vincere" → False  (bug anterior)
+      resolve("Natus Vincere") == resolve("NAVI") → True  (fix)
+
+    Devuelve True si al menos un equipo del game coincide con alguno de los
+    equipos esperados de la serie.
     Devuelve False si ninguno coincide — señal de que el game_id es incorrecto.
 
     Si no hay suficiente información en el meta (winner_team y loser_team ambos
@@ -439,13 +443,14 @@ def _game_belongs_to_series(meta: GameMeta, team_home: str, team_away: str) -> b
     if not meta.winner_team and not meta.loser_team:
         return True
 
-    series_teams = {team_home, team_away}
-    game_teams = {t for t in (meta.winner_team, meta.loser_team) if t}
+    series_ids = {team_home_id, team_away_id}
 
-    for game_team in game_teams:
-        for series_team in series_teams:
-            if _team_names_match(game_team, series_team):
-                return True
+    for scraped_name in (meta.winner_team, meta.loser_team):
+        if not scraped_name:
+            continue
+        resolved_id = _resolve_team_by_alias(supabase, scraped_name)
+        if resolved_id and resolved_id in series_ids:
+            return True
 
     return False
 
@@ -486,15 +491,15 @@ async def _process_game(
     # gol.gg no garantiza IDs consecutivos: el ID del game 1 viene del HTML del
     # matchlist, pero los IDs de game 2, 3, etc. se construyen como base_id+1,
     # base_id+2. Si hay gaps en los IDs, se scrapearía un game de otra serie.
-    if not _game_belongs_to_series(meta, entry.team_home, entry.team_away):
+    if not _game_belongs_to_series(supabase, meta, team_home_id, team_away_id):
         logger.error(
             "[INVALID GAME ID] game_id=%s scraped teams (winner='%s', loser='%s') "
-            "do not match expected series %s vs %s — skipping game",
+            "do not match expected series home_id=%s vs away_id=%s — skipping game",
             game_id,
             meta.winner_team,
             meta.loser_team,
-            entry.team_home,
-            entry.team_away,
+            team_home_id,
+            team_away_id,
         )
         return None, None
 

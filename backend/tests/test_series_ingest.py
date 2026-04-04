@@ -2,11 +2,16 @@
 Tests de series_ingest.py — funciones puras sin DB ni red.
 """
 from __future__ import annotations
+from unittest.mock import MagicMock
 
 import pytest
 
-from pipeline.gol_gg import PlayerRawStats
-from pipeline.series_ingest import _best_multikill, _upsert_player_series_stats
+from pipeline.gol_gg import GameMeta, PlayerRawStats
+from pipeline.series_ingest import (
+    _best_multikill,
+    _game_belongs_to_series,
+    _upsert_player_series_stats,
+)
 from scoring.engine import calculate_match_points
 
 
@@ -222,3 +227,126 @@ def test_scoring_engine_long_game_normalization():
 
     # Partida larga → puntos reducidos por normalización
     assert points_long < points_short
+
+
+# ---------------------------------------------------------------------------
+# Tests de _game_belongs_to_series — resolución por ID via aliases
+# ---------------------------------------------------------------------------
+
+
+def _make_supabase_mock(resolve_map: dict[str, str | None]) -> MagicMock:
+    """
+    Construye un mock de supabase donde _resolve_team_by_alias retorna el UUID
+    correspondiente según resolve_map {team_name_lower → uuid}.
+
+    El mock implementa la cadena:
+      supabase.table("teams").select(...).contains(...).limit(1).execute()
+    con un fallback all_teams que devuelve rows con name y aliases.
+    """
+    # Construimos rows de teams a partir del mapa: cada entrada es un equipo
+    # cuyo name es la clave del mapa.
+    teams_rows = [
+        {"id": uuid, "name": name, "aliases": [name]}
+        for name, uuid in resolve_map.items()
+        if uuid is not None
+    ]
+
+    # Mock para .contains(...).limit(1).execute() → devuelve vacío (fuerza fallback)
+    contains_chain = MagicMock()
+    contains_chain.limit.return_value.execute.return_value = MagicMock(data=[])
+
+    # Mock para all_teams (sin filtros): devuelve todos los rows
+    all_teams_chain = MagicMock()
+    all_teams_chain.execute.return_value = MagicMock(data=teams_rows)
+
+    # Mock para .select("id, name, aliases") sin .contains → all_teams path
+    select_mock = MagicMock()
+    select_mock.contains.return_value = contains_chain
+    select_mock.execute.return_value = MagicMock(data=teams_rows)
+
+    table_mock = MagicMock()
+    table_mock.select.return_value = select_mock
+
+    supabase = MagicMock()
+    supabase.table.return_value = table_mock
+    return supabase
+
+
+def test_game_belongs_to_series_alias_mismatch_resolved_by_id():
+    """
+    Reproduce el bug: matchlist tiene "NAVI"/"MKOI", game page tiene
+    "Natus Vincere"/"Movistar KOI". El substring matching fallaba.
+    Con resolución por UUID, ambos nombres resuelven al mismo ID → True.
+    """
+    navi_id = "uuid-navi"
+    mkoi_id = "uuid-mkoi"
+
+    # La DB conoce los nombres completos del game page (aliases incluyen ambas formas)
+    resolve_map = {
+        "Natus Vincere": navi_id,
+        "Movistar KOI": mkoi_id,
+    }
+    supabase = _make_supabase_mock(resolve_map)
+
+    meta = GameMeta(duration_min=32.0, winner_team="Natus Vincere", loser_team="Movistar KOI")
+
+    result = _game_belongs_to_series(supabase, meta, navi_id, mkoi_id)
+
+    assert result is True, (
+        "El game debería pertenecer a la serie: los nombres completos del game page "
+        "deben resolverse al mismo UUID que los nombres cortos del matchlist"
+    )
+
+
+def test_game_belongs_to_series_wrong_game_rejected():
+    """
+    Un game de otra serie (equipos completamente distintos) debe retornar False.
+    """
+    navi_id = "uuid-navi"
+    mkoi_id = "uuid-mkoi"
+    g2_id = "uuid-g2"
+    fnc_id = "uuid-fnc"
+
+    resolve_map = {
+        "G2 Esports": g2_id,
+        "Fnatic": fnc_id,
+    }
+    supabase = _make_supabase_mock(resolve_map)
+
+    meta = GameMeta(duration_min=28.0, winner_team="G2 Esports", loser_team="Fnatic")
+
+    result = _game_belongs_to_series(supabase, meta, navi_id, mkoi_id)
+
+    assert result is False, (
+        "Un game de G2 vs FNC no debe pertenecer a la serie NAVI vs MKOI"
+    )
+
+
+def test_game_belongs_to_series_no_meta_assumed_valid():
+    """
+    Si meta no tiene winner_team ni loser_team, no se puede validar → True.
+    """
+    supabase = MagicMock()
+    meta = GameMeta(duration_min=25.0, winner_team="", loser_team="")
+
+    result = _game_belongs_to_series(supabase, meta, "uuid-a", "uuid-b")
+
+    assert result is True
+    supabase.table.assert_not_called()  # No debe tocar la DB si no hay nombres
+
+
+def test_game_belongs_to_series_partial_meta_one_team_match():
+    """
+    Si solo winner_team está disponible y matchea, es suficiente para True.
+    """
+    navi_id = "uuid-navi"
+    mkoi_id = "uuid-mkoi"
+
+    resolve_map = {"Natus Vincere": navi_id}
+    supabase = _make_supabase_mock(resolve_map)
+
+    meta = GameMeta(duration_min=30.0, winner_team="Natus Vincere", loser_team="")
+
+    result = _game_belongs_to_series(supabase, meta, navi_id, mkoi_id)
+
+    assert result is True
