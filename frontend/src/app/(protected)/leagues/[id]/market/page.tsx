@@ -534,6 +534,21 @@ function PlayerCard({
             </span>
           )}
 
+          {/* Countdown */}
+          {listing.closes_at && !closed && countdown && (
+            <p
+              className="font-mono"
+              style={{ fontSize: "10px", color: "#888888", margin: 0 }}
+            >
+              ⏱ {countdown}
+            </p>
+          )}
+          {closed && (
+            <p style={{ fontSize: "10px", color: "#C62828", margin: 0 }}>
+              Cerrado
+            </p>
+          )}
+
           {/* Row 5: action button */}
           <div style={{ marginTop: "auto" }}>
             <button

@@ -163,14 +163,14 @@ function TeamRow({
           {entry.team_name}
         </span>
         {(entry.wins > 0 || entry.losses > 0) && (
-          <span style={{ fontSize: 11, color: "#444444", flexShrink: 0 }}>
+          <span style={{ fontSize: 11, color: "#444444" }}>
             {entry.wins}W {entry.losses}L
           </span>
         )}
       </div>
 
       {/* W */}
-      <div style={{ width: 36, flexShrink: 0, textAlign: "center" }}>
+      <div style={{ width: 28, flexShrink: 0, textAlign: "center" }}>
         <span style={{
           fontFamily: "'Barlow Condensed', sans-serif",
           fontSize: 16,
@@ -182,7 +182,7 @@ function TeamRow({
       </div>
 
       {/* L */}
-      <div style={{ width: 36, flexShrink: 0, textAlign: "center" }}>
+      <div style={{ width: 28, flexShrink: 0, textAlign: "center" }}>
         <span style={{
           fontFamily: "'Barlow Condensed', sans-serif",
           fontSize: 16,
@@ -205,8 +205,8 @@ function TeamRow({
         </span>
       </div>
 
-      {/* KDA */}
-      <div style={{ width: 56, flexShrink: 0, textAlign: "center" }}>
+      {/* KDA — desktop only */}
+      <div style={{ width: 56, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
         <span style={{
           fontSize: 12,
           fontFamily: "'Barlow Condensed', sans-serif",
@@ -463,16 +463,16 @@ export default function TeamsPage() {
               <div style={{ flex: 1 }}>
                 <span style={headerLabelStyle}>EQUIPO</span>
               </div>
-              <div style={{ width: 36, flexShrink: 0, textAlign: "center" }}>
+              <div style={{ width: 28, flexShrink: 0, textAlign: "center" }}>
                 <span style={headerLabelStyle}>W</span>
               </div>
-              <div style={{ width: 36, flexShrink: 0, textAlign: "center" }}>
+              <div style={{ width: 28, flexShrink: 0, textAlign: "center" }}>
                 <span style={headerLabelStyle}>L</span>
               </div>
               <div style={{ width: 48, flexShrink: 0, textAlign: "center" }}>
                 <span style={headerLabelStyle}>W%</span>
               </div>
-              <div style={{ width: 56, flexShrink: 0, textAlign: "center" }}>
+              <div style={{ width: 56, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
                 <span style={{ ...headerLabelStyle, color: sortKey === "avg_kda" ? "#FCD400" : "#333333" }}>KDA</span>
               </div>
               <div style={{ width: 72, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
