@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from supabase import create_client, Client
@@ -153,12 +153,16 @@ def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
+DEBUG_SECRET = os.environ.get("DEBUG_SECRET", "")
+
+
 @app.post("/debug/series-ingest", tags=["debug"])
-def debug_series_ingest() -> dict:
-    """Fuerza el pipeline de series desde gol.gg (sin auth, solo dev)."""
-    if os.environ.get("ENVIRONMENT") != "development":
-        from fastapi import HTTPException as _HTTPException
-        raise _HTTPException(status_code=403, detail="Solo disponible en development")
+def debug_series_ingest(x_debug_secret: str = Header(default="")) -> dict:
+    """Fuerza el pipeline de series desde gol.gg (sin auth, solo dev o con secret)."""
+    env = os.environ.get("ENVIRONMENT", "development")
+    if env == "production":
+        if not DEBUG_SECRET or x_debug_secret != DEBUG_SECRET:
+            raise HTTPException(status_code=403, detail="Forbidden")
     _job_series_ingest()
     return {"message": "Series ingest completado"}
 
