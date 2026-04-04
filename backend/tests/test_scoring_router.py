@@ -291,3 +291,252 @@ def test_invalid_uuid_returns_422():
     sb = _sb_multi(("players", _chain([])))
     r = _client(sb).get("/scoring/player/no-es-uuid/history")
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Fixture con player_game_stats que expone duration_min desde games
+# (necesaria para stat_breakdown y tests de normalización)
+# ---------------------------------------------------------------------------
+
+# Datos de player_game_stats con join a games(series_id, duration_min)
+# Simula dos juegos de la misma serie con duración ~33 min cada uno
+PLAYER_GAME_STATS = [
+    {
+        "gold_diff_15": 250.0,
+        "xp_diff_15": 180.0,
+        "games": {"series_id": SERIES_ID_1, "duration_min": 33.0},
+    },
+    {
+        "gold_diff_15": 300.0,
+        "xp_diff_15": 220.0,
+        "games": {"series_id": SERIES_ID_1, "duration_min": 34.0},
+    },
+    {
+        "gold_diff_15": -100.0,
+        "xp_diff_15": -50.0,
+        "games": {"series_id": SERIES_ID_2, "duration_min": 28.0},
+    },
+]
+
+
+@pytest.fixture
+def history_response_with_duration():
+    """
+    Fixture que incluye player_game_stats con duration_min.
+    Necesaria para probar que stat_breakdown usa duración real desde games.duration_min.
+    """
+    teams_chain = _chain(ALL_TEAMS, TEAMS_BY_ID)
+    pss_chain = _chain(SERIES_STATS, TOTAL_SERIES_STATS)
+    pgs_chain = _chain(PLAYER_GAME_STATS)
+
+    sb = _sb_multi(
+        ("players", _chain([PLAYER])),
+        ("teams", teams_chain),
+        ("player_series_stats", pss_chain),
+        ("player_game_stats", pgs_chain),
+        ("competitions", _chain(ACTIVE_COMPETITION)),
+    )
+
+    r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+# ---------------------------------------------------------------------------
+# Tests: stat_breakdown
+# ---------------------------------------------------------------------------
+
+def test_stat_breakdown_present_in_each_stat(history_response_with_duration):
+    """stat_breakdown debe estar presente en cada stat cuando el jugador tiene rol."""
+    stats = history_response_with_duration["stats"]
+    assert len(stats) > 0
+    for stat in stats:
+        assert "stat_breakdown" in stat, f"Falta stat_breakdown en stat: {stat}"
+
+
+def test_stat_breakdown_is_dict_or_none(history_response_with_duration):
+    """stat_breakdown debe ser dict (con rol conocido) o None."""
+    stats = history_response_with_duration["stats"]
+    for stat in stats:
+        breakdown = stat["stat_breakdown"]
+        assert breakdown is None or isinstance(breakdown, dict), (
+            f"stat_breakdown debe ser dict o None, got: {type(breakdown)}"
+        )
+
+
+def test_stat_breakdown_has_expected_keys_for_mid(history_response_with_duration):
+    """Para rol mid, stat_breakdown debe tener kills, deaths, assists, cs_per_min, dpm."""
+    stats = history_response_with_duration["stats"]
+    for stat in stats:
+        breakdown = stat["stat_breakdown"]
+        if breakdown is not None:
+            for expected_key in ("kills", "deaths", "assists", "cs_per_min", "dpm"):
+                assert expected_key in breakdown, (
+                    f"Falta '{expected_key}' en stat_breakdown: {breakdown}"
+                )
+
+
+def test_stat_breakdown_values_are_numeric(history_response_with_duration):
+    """Todos los valores de stat_breakdown deben ser numéricos."""
+    stats = history_response_with_duration["stats"]
+    for stat in stats:
+        breakdown = stat["stat_breakdown"]
+        if breakdown is not None:
+            for key, val in breakdown.items():
+                assert isinstance(val, (int, float)), (
+                    f"stat_breakdown['{key}'] = {val!r} no es numérico"
+                )
+
+
+def test_stat_breakdown_kills_in_realistic_range(history_response_with_duration):
+    """
+    Regresión del bug de normalización:
+    stat_breakdown['kills'] para stats típicas (kills≈5, duration≈33min) debe ser ~12 pts,
+    NO ~420 pts (que es lo que producía el bug de stats brutas × pesos/min).
+    """
+    stats = history_response_with_duration["stats"]
+    for stat in stats:
+        breakdown = stat["stat_breakdown"]
+        if breakdown is not None and "kills" in breakdown:
+            kills_pts = breakdown["kills"]
+            assert kills_pts < 50.0, (
+                f"stat_breakdown['kills'] = {kills_pts} es demasiado alto. "
+                "Si supera 50 pts, el endpoint está usando stats brutas × pesos calibrados/min "
+                "(el bug que se fixeó en 2026-03-25)."
+            )
+
+
+def test_stat_breakdown_total_in_realistic_range(history_response_with_duration):
+    """
+    La suma de stat_breakdown no debe superar ~60 pts para stats típicas de mid.
+    Valores >100 indican que se están usando stats brutas (el bug).
+    """
+    stats = history_response_with_duration["stats"]
+    for stat in stats:
+        breakdown = stat["stat_breakdown"]
+        if breakdown is not None:
+            total = sum(v for v in breakdown.values() if v > 0)
+            assert total < 100.0, (
+                f"Suma de componentes positivos de stat_breakdown = {total}. "
+                "Supera el límite de 100 pts — posible regresión del bug de normalización."
+            )
+
+
+def test_stat_breakdown_deaths_contributes_negatively(history_response_with_duration):
+    """deaths debe contribuir negativamente al stat_breakdown (peso negativo)."""
+    stats = history_response_with_duration["stats"]
+    for stat in stats:
+        breakdown = stat["stat_breakdown"]
+        # Solo chequeamos series con muertes > 0
+        if breakdown is not None and "deaths" in breakdown:
+            deaths_raw = stat.get("deaths", 0)
+            if deaths_raw > 0:
+                assert breakdown["deaths"] < 0, (
+                    f"stat_breakdown['deaths'] = {breakdown['deaths']} debe ser negativo "
+                    f"cuando hay {deaths_raw} muertes (peso negativo en todos los roles)"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Tests: duration leída desde games.duration_min (no de columna inexistente)
+# ---------------------------------------------------------------------------
+
+def test_duration_from_games_duration_min():
+    """
+    Verifica que el endpoint lee duration_min desde el join games(duration_min)
+    en player_game_stats, en lugar de una columna que no existe.
+    La duración real debe afectar los valores de stat_breakdown.
+    """
+    # Juego corto (~20 min) → kills/min más alto → más pts en stat_breakdown
+    pgs_short = [
+        {
+            "gold_diff_15": 200.0,
+            "xp_diff_15": 100.0,
+            "games": {"series_id": SERIES_ID_1, "duration_min": 20.0},
+        }
+    ]
+    # Juego largo (~45 min) → kills/min más bajo → menos pts en stat_breakdown
+    pgs_long = [
+        {
+            "gold_diff_15": 200.0,
+            "xp_diff_15": 100.0,
+            "games": {"series_id": SERIES_ID_1, "duration_min": 45.0},
+        }
+    ]
+
+    def _build_client(pgs_data):
+        teams_chain = _chain(ALL_TEAMS, TEAMS_BY_ID)
+        pss_chain = _chain(SERIES_STATS, TOTAL_SERIES_STATS)
+        pgs_chain = _chain(pgs_data)
+        sb = _sb_multi(
+            ("players", _chain([PLAYER])),
+            ("teams", teams_chain),
+            ("player_series_stats", pss_chain),
+            ("player_game_stats", pgs_chain),
+            ("competitions", _chain(ACTIVE_COMPETITION)),
+        )
+        return _client(sb)
+
+    r_short = _build_client(pgs_short).get(f"/scoring/player/{PLAYER_ID}/history")
+    r_long = _build_client(pgs_long).get(f"/scoring/player/{PLAYER_ID}/history")
+
+    assert r_short.status_code == 200, r_short.text
+    assert r_long.status_code == 200, r_long.text
+
+    stats_short = r_short.json()["stats"]
+    stats_long = r_long.json()["stats"]
+
+    # Buscar la serie que tiene el game mockeado (SERIES_ID_1)
+    def _find_series(stats_list, series_id):
+        return next((s for s in stats_list if s["series_id"] == series_id), None)
+
+    stat_short = _find_series(stats_short, SERIES_ID_1)
+    stat_long = _find_series(stats_long, SERIES_ID_1)
+
+    assert stat_short is not None, "No se encontró la serie en respuesta con juego corto"
+    assert stat_long is not None, "No se encontró la serie en respuesta con juego largo"
+
+    bd_short = stat_short.get("stat_breakdown") or {}
+    bd_long = stat_long.get("stat_breakdown") or {}
+
+    # Con duración corta, kills/min es mayor → más pts de kills
+    if "kills" in bd_short and "kills" in bd_long:
+        assert bd_short["kills"] > bd_long["kills"], (
+            f"Con duración 20 min las kills deben generar más pts que con 45 min. "
+            f"short={bd_short['kills']}, long={bd_long['kills']}. "
+            "Si son iguales, el endpoint no está leyendo duration_min desde games."
+        )
+
+
+def test_no_player_game_stats_uses_default_duration():
+    """
+    Si player_game_stats no devuelve datos para una serie, stat_breakdown
+    debe usar la duración por defecto (33.4 min) y no romper.
+    """
+    teams_chain = _chain(ALL_TEAMS, TEAMS_BY_ID)
+    pss_chain = _chain(SERIES_STATS, TOTAL_SERIES_STATS)
+    pgs_chain = _chain([])  # sin datos de duración
+
+    sb = _sb_multi(
+        ("players", _chain([PLAYER])),
+        ("teams", teams_chain),
+        ("player_series_stats", pss_chain),
+        ("player_game_stats", pgs_chain),
+        ("competitions", _chain(ACTIVE_COMPETITION)),
+    )
+
+    r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history")
+    assert r.status_code == 200, r.text
+
+    stats = r.json()["stats"]
+    assert len(stats) > 0
+
+    for stat in stats:
+        breakdown = stat.get("stat_breakdown")
+        if breakdown is not None:
+            # Con duración default (33.4), kills debe estar en rango razonable
+            if "kills" in breakdown:
+                assert breakdown["kills"] < 50.0, (
+                    f"Con duración default 33.4 min, kills pts = {breakdown['kills']} "
+                    "supera el límite esperado de 50 pts."
+                )
