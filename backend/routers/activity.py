@@ -70,12 +70,31 @@ async def get_activity(
     if member_ids:
         members_resp = (
             supabase.table("league_members")
-            .select("id, display_name")
+            .select("id, user_id, display_name")
             .in_("id", list(member_ids))
             .execute()
         )
-        for m in (members_resp.data or []):
-            names[m["id"]] = m.get("display_name") or "Manager"
+        members_data = members_resp.data or []
+
+        # Resolve usernames from profiles (same source as leaderboard)
+        user_ids = [m["user_id"] for m in members_data if m.get("user_id")]
+        profiles_map: dict[str, str] = {}
+        if user_ids:
+            profiles_resp = (
+                supabase.table("profiles")
+                .select("id, username")
+                .in_("id", user_ids)
+                .execute()
+            )
+            profiles_map = {
+                p["id"]: p["username"]
+                for p in (profiles_resp.data or [])
+                if p.get("username")
+            }
+
+        for m in members_data:
+            profile_username = profiles_map.get(m.get("user_id", ""))
+            names[m["id"]] = m.get("display_name") or profile_username or "Manager"
 
     result = []
     for tx in transactions:
