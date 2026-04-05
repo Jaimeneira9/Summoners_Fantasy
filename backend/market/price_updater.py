@@ -21,7 +21,12 @@ CAP_DOWN = -0.10
 PRICE_FLOOR = 1.0
 
 
-def update_player_prices_post_series(supabase: Client, player_ids: list[str], week: int | None = None) -> None:
+def update_player_prices_post_series(
+    supabase: Client,
+    player_ids: list[str],
+    week: int | None = None,
+    rival_map: dict[str, str] | None = None,
+) -> None:
     """Llamado después de que se ingesta una jornada de series.
 
     Actualiza precios para todos los jugadores afectados. Un fallo en un
@@ -29,12 +34,13 @@ def update_player_prices_post_series(supabase: Client, player_ids: list[str], we
     """
     for player_id in player_ids:
         try:
-            _update_single_player_price(supabase, player_id, week=week)
+            rival = (rival_map or {}).get(player_id)
+            _update_single_player_price(supabase, player_id, week=week, rival=rival)
         except Exception as exc:
             logger.warning("Price update failed for player %s: %s", player_id, exc)
 
 
-def _update_single_player_price(supabase: Client, player_id: str, week: int | None = None) -> None:
+def _update_single_player_price(supabase: Client, player_id: str, week: int | None = None, rival: str | None = None) -> None:
     """Recalcula y persiste el precio de un jugador individual."""
     # 1. Fetch player: current_price, avg_points_baseline, price_history
     player_resp = (
@@ -109,6 +115,8 @@ def _update_single_player_price(supabase: Client, player_id: str, week: int | No
     }
     if week is not None:
         history_entry["week"] = week
+    if rival is not None:
+        history_entry["rival"] = rival
     history.append(history_entry)
 
     # 10. Trim price_history to last 90 entries

@@ -299,6 +299,7 @@ export type PriceHistoryEntry = {
   delta_pct: number;
   week?: number;
   rival?: string;
+  series_points?: number;
 };
 export type PriceHistoryResponse = {
   player_id: string;

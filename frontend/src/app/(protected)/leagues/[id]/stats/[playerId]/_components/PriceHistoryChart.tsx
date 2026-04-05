@@ -17,6 +17,9 @@ function PriceTooltip({ active, payload }: { active?: boolean; payload?: Array<{
       {entry.rival && (
         <div style={{ color: "#888", marginTop: 2 }}>vs {entry.rival}</div>
       )}
+      {entry.series_points != null && entry.series_points > 0 && (
+        <div style={{ color: "#ccc", marginTop: 2 }}>{entry.series_points.toFixed(1)} pts</div>
+      )}
       {entry.delta_pct !== 0 && (
         <div style={{ color: deltaColor }}>{entry.delta_pct > 0 ? "+" : ""}{(entry.delta_pct * 100).toFixed(1)}%</div>
       )}

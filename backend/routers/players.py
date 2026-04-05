@@ -375,35 +375,148 @@ class PriceHistoryEntry(BaseModel):
     date: str
     price: float
     delta_pct: float
+    week: int | None = None
+    rival: str | None = None
+    series_points: float | None = None
+
 
 class PriceHistoryResponse(BaseModel):
     player_id: str
     entries: list[PriceHistoryEntry]
+
 
 @router.get("/{player_id}/price-history", response_model=PriceHistoryResponse)
 async def get_player_price_history(
     player_id: UUID,
     supabase: Client = Depends(get_supabase),
 ) -> PriceHistoryResponse:
-    resp = (
+    """Devuelve historial de precios enriquecido con jornadas, rival y puntos.
+
+    Para cada jornada jugada en la competición activa:
+    - week / date desde series
+    - series_points desde player_series_stats
+    - rival: el equipo contrario en esa serie
+    - price: interpolación forward desde price_history JSONB (último precio conocido con week <= semana actual)
+    - delta_pct: de la entrada de price_history correspondiente (0 si no hubo cambio ese week)
+    """
+    # 1. Fetch player: team name + price_history JSONB
+    player_resp = (
         supabase.table("players")
-        .select("price_history")
+        .select("team, price_history")
         .eq("id", str(player_id))
         .single()
         .execute()
     )
-    if not resp.data:
+    if not player_resp.data:
         raise HTTPException(status_code=404, detail="Jugador no encontrado")
-    raw: list[dict] = resp.data.get("price_history") or []
-    entries = [
-        PriceHistoryEntry(
-            date=e["date"],
-            price=float(e["price"]),
-            delta_pct=float(e.get("delta_pct", 0)),
+
+    player_data = player_resp.data
+    player_team_name: str = player_data.get("team") or ""
+    raw_price_history: list[dict] = player_data.get("price_history") or []
+
+    # 2. Resolver team_id del jugador para determinar el rival
+    player_team_id: str | None = resolve_team_id(supabase, player_team_name) if player_team_name else None
+
+    # 3. Fetch jornadas jugadas en la competición activa
+    #    JOIN series → competitions (is_active=True) → teams (home y away)
+    series_resp = (
+        supabase.table("player_series_stats")
+        .select(
+            "series_id, series_points,"
+            " series(week, date, team_home_id, team_away_id,"
+            "   teams_home:teams!series_team_home_id_fkey(id, name),"
+            "   teams_away:teams!series_team_away_id_fkey(id, name),"
+            "   competitions(is_active))"
         )
-        for e in raw
-        if e.get("date") and e.get("price") is not None
-    ]
+        .eq("player_id", str(player_id))
+        .execute()
+    )
+    series_rows = series_resp.data or []
+
+    # Filtrar solo jornadas de la competición activa y que tengan semana
+    played: list[dict] = []
+    for row in series_rows:
+        s = row.get("series") or {}
+        comp = s.get("competitions") or {}
+        if not comp.get("is_active"):
+            continue
+        week = s.get("week")
+        if week is None:
+            continue
+        played.append({
+            "week": week,
+            "date": str(s.get("date") or ""),
+            "series_points": float(row["series_points"]) if row.get("series_points") is not None else None,
+            "team_home_id": s.get("team_home_id"),
+            "team_away_id": s.get("team_away_id"),
+            "home_name": (s.get("teams_home") or {}).get("name"),
+            "away_name": (s.get("teams_away") or {}).get("name"),
+        })
+
+    # Ordenar por week ASC
+    played.sort(key=lambda r: r["week"])
+
+    # 4. Construir mapa week → {price, delta_pct} desde price_history JSONB
+    #    Solo usamos entradas que tengan week explícito
+    price_by_week: dict[int, dict] = {}
+    for entry in raw_price_history:
+        w = entry.get("week")
+        if w is not None:
+            price_by_week[int(w)] = {
+                "price": float(entry["price"]),
+                "delta_pct": float(entry.get("delta_pct", 0)),
+            }
+
+    # 5. Ensamblar respuesta con interpolación forward del precio
+    entries: list[PriceHistoryEntry] = []
+    last_known_price: dict | None = None
+
+    # Si no hay ningún precio con week, usar la última entrada cronológica del JSONB
+    # como precio inicial (fallback)
+    fallback_price: float | None = None
+    fallback_delta: float = 0.0
+    if raw_price_history:
+        last_entry = raw_price_history[-1]
+        fallback_price = float(last_entry.get("price", 0))
+        fallback_delta = float(last_entry.get("delta_pct", 0))
+
+    sorted_price_weeks = sorted(price_by_week.keys())
+
+    for row in played:
+        week = row["week"]
+
+        # Interpolación forward: último precio cuyo week <= semana actual
+        for w in sorted_price_weeks:
+            if w <= week:
+                last_known_price = price_by_week[w]
+
+        if last_known_price is not None:
+            price = last_known_price["price"]
+            # delta_pct solo es relevante si esta semana tiene entrada propia; si es interpolado → 0
+            delta_pct = price_by_week[week]["delta_pct"] if week in price_by_week else 0.0
+        elif fallback_price is not None:
+            price = fallback_price
+            delta_pct = fallback_delta
+        else:
+            continue  # Sin precio conocido, omitir
+
+        # Determinar rival
+        rival: str | None = None
+        if player_team_id:
+            if row["team_home_id"] == player_team_id:
+                rival = row["away_name"]
+            else:
+                rival = row["home_name"]
+
+        entries.append(PriceHistoryEntry(
+            date=row["date"],
+            price=price,
+            delta_pct=delta_pct,
+            week=week,
+            rival=rival,
+            series_points=row["series_points"],
+        ))
+
     return PriceHistoryResponse(player_id=str(player_id), entries=entries)
 
 
