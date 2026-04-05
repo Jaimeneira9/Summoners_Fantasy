@@ -83,19 +83,21 @@ export function PriceHistoryChart({ entries }: Props) {
           </div>
         )}
       </div>
-      <ResponsiveContainer width="100%" height={150}>
-        <LineChart data={entries} margin={{ top: 4, right: 4, bottom: 35, left: 0 }}>
+      <ResponsiveContainer width="100%" height={160}>
+        <LineChart data={entries} margin={{ top: 8, right: 20, bottom: 40, left: 20 }}>
           <XAxis
             dataKey="week"
+            type="category"
             tick={<RivalTick />}
             interval={0}
             axisLine={false}
             tickLine={false}
+            padding={{ left: 30, right: 30 }}
           />
-          <YAxis domain={[minP * 0.95, maxP * 1.05]} hide />
+          <YAxis domain={[minP * 0.92, maxP * 1.08]} hide />
           <Tooltip content={<PriceTooltip />} cursor={{ stroke: "#2A2A2A" }} wrapperStyle={{ outline: "none" }} />
           <ReferenceLine y={first} stroke="#2A2A2A" strokeDasharray="3 3" />
-          <Line type="monotone" dataKey="price" stroke="#FCD400" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: "#FCD400", stroke: "#0A0A0A", strokeWidth: 2 }} />
+          <Line type="monotone" dataKey="price" stroke="#FCD400" strokeWidth={2} dot={{ fill: "#FCD400", r: 3, strokeWidth: 0 }} activeDot={{ r: 4, fill: "#FCD400", stroke: "#0A0A0A", strokeWidth: 2 }} />
         </LineChart>
       </ResponsiveContainer>
     </div>
