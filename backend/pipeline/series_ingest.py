@@ -470,6 +470,10 @@ async def _process_game(
     # acumulador para stats de serie (player_id → list[(stats, points, duration_min)])
     series_player_stats: dict[str, list[tuple[PlayerRawStats, float, float]]],
     unresolved_players: List[str],
+    # game_ids que ya tenían stats en la DB antes de este run
+    existing_game_ids: set[str],
+    # acumulador de player_ids con stats NUEVAS (para price update)
+    new_price_player_ids: set[str],
 ) -> tuple[str | None, str | None]:
     """
     Procesa un game individual: fetch stats + meta, upsert games y player_game_stats.
@@ -577,6 +581,10 @@ async def _process_game(
         # Acumular para series stats (stats, puntos, duración del game)
         series_player_stats[player_id].append((stats, game_points, meta.duration_min))
 
+        # Solo marcar para price update si este game es NUEVO (no estaba en la DB antes del run)
+        if game_db_id not in existing_game_ids:
+            new_price_player_ids.add(player_id)
+
     return game_db_id, winner_team_id
 
 
@@ -591,6 +599,8 @@ async def _process_series(
     series_entries: list[GameEntry],
     team_home_id: str,
     team_away_id: str,
+    existing_game_ids: set[str],
+    new_price_player_ids: set[str],
 ) -> tuple[set[str], str | None]:
     """
     Procesa todos los games de una serie:
@@ -643,6 +653,8 @@ async def _process_series(
             team_away_id=team_away_id,
             series_player_stats=series_player_stats,
             unresolved_players=unresolved_players,
+            existing_game_ids=existing_game_ids,
+            new_price_player_ids=new_price_player_ids,
         )
         if winner_team_id == team_home_id:
             home_wins += 1
@@ -880,8 +892,33 @@ async def run_series_ingest(supabase: Client) -> None:
 
     logger.info("Grouped into %d series", len(series_map))
 
-    # 4. Procesar cada serie
+    # 4a. Snapshot de game_ids que ya tienen stats en la DB antes de este run.
+    #     Sólo los players con stats de games NUEVOS recibirán price update.
+    #     Esto evita que re-runs acumulen el price update múltiples veces.
+    existing_game_ids: set[str] = set()
+    try:
+        existing_resp = (
+            supabase.table("player_game_stats")
+            .select("game_id")
+            .execute()
+        )
+        existing_game_ids = {str(row["game_id"]) for row in (existing_resp.data or [])}
+        logger.info(
+            "Pre-run snapshot: %d game_ids already have player_game_stats",
+            len(existing_game_ids),
+        )
+    except Exception as exc:
+        logger.warning(
+            "Could not snapshot existing game_ids — price update will be skipped this run "
+            "to avoid compounding prices: %s",
+            exc,
+        )
+        # Ante la duda, marcar todos los IDs como existentes para no actualizar precios
+        existing_game_ids = None  # type: ignore[assignment]
+
+    # 4b. Procesar cada serie
     processed_player_ids: set[str] = set()
+    new_price_player_ids: set[str] = set()
     processed_series_ids: list[str] = []
     for (team_home_name, team_away_name, game_date), entries in series_map.items():
         # Resolver IDs de equipos
@@ -906,6 +943,8 @@ async def run_series_ingest(supabase: Client) -> None:
                 series_entries=entries,
                 team_home_id=team_home_id,
                 team_away_id=team_away_id,
+                existing_game_ids=existing_game_ids if existing_game_ids is not None else set(),
+                new_price_player_ids=new_price_player_ids,
             )
             processed_player_ids.update(series_player_ids)
             if series_id:
@@ -922,17 +961,28 @@ async def run_series_ingest(supabase: Client) -> None:
             )
             # Continuamos con la siguiente serie en lugar de abortar todo
 
-    # 5. Actualizar precios post-serie para todos los jugadores procesados
-    if processed_player_ids:
+    # 5. Actualizar precios post-serie SOLO para jugadores con stats de games NUEVOS.
+    #    Si existing_game_ids es None (falló el snapshot), se omite para no componer.
+    if existing_game_ids is None:
+        logger.warning(
+            "Price update skipped — could not snapshot pre-run game_ids safely"
+        )
+    elif new_price_player_ids:
+        logger.info(
+            "Price update will run for %d player(s) with new game stats",
+            len(new_price_player_ids),
+        )
         try:
             from market.price_updater import update_player_prices_post_series
-            update_player_prices_post_series(supabase, list(processed_player_ids))
+            update_player_prices_post_series(supabase, list(new_price_player_ids))
         except Exception as exc:
             logger.error(
                 "Price update failed after series ingest (non-blocking): %s",
                 exc,
                 exc_info=True,
             )
+    else:
+        logger.info("No new game stats inserted — price update skipped")
 
     # 6. Actualizar total_points de managers para las series procesadas
     if processed_series_ids:
