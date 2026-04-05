@@ -39,7 +39,6 @@ export function PriceHistoryChart({ entries }: Props) {
   const subtitle = hasWeeks
     ? (() => {
         const weeks = entries.map(e => e.week).filter((w): w is number => w !== undefined);
-        const minWeek = Math.min(...weeks);
         const maxWeek = Math.max(...weeks);
         return `LEC Spring 2026 · J1–J${maxWeek}`;
       })()
