@@ -2,11 +2,28 @@
 reconstruct_price_history.py
 
 Reconstructs price_history JSONB for all active players from scratch,
-using the exact same formula as backend/market/price_updater.py.
+processing by SERIES (not by week) — matching the exact behavior of
+backend/market/price_updater.py (_update_single_player_price).
+
+Key difference from previous version:
+  - Old: one history entry per WEEK, initial price from tier_price(baseline)
+  - New: one history entry per SERIES (each series triggers a price update),
+         initial price back-calculated from current_price by undoing all deltas
+
+Algorithm per player:
+  1. Fetch all finished LEC Spring 2026 series the player participated in,
+     ordered by series.date ASC, then game order within each series.
+  2. Simulate the rolling-window exactly as price_updater does:
+       games_seen grows one series at a time (all games in that series appended)
+       recent = games_seen[-ROLLING_WINDOW:]
+       delta = clamp((mean(recent) - baseline) / baseline * SENSITIVITY, CAP_DOWN, CAP_UP)
+  3. Back-calculate P0 = current_price / ∏(1 + delta_i)
+  4. Forward-apply from P0 to build history (one entry per series).
+  5. Last price in history should equal current_price (modulo rounding).
+
+Only updates price_history. Does NOT touch current_price.
 
 Idempotent: running it twice produces the same result.
-Filters to LEC Spring 2026 (competition_id = '4169a7c1-9e99-418d-a804-b556c318996f').
-Includes rival team name per week entry.
 """
 from __future__ import annotations
 
@@ -42,7 +59,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 from supabase import create_client  # noqa: E402 — after env is loaded
 
 # ---------------------------------------------------------------------------
-# Price-update constants (mirror price_updater.py exactly)
+# Price-update constants — mirror price_updater.py exactly
 # ---------------------------------------------------------------------------
 ROLLING_WINDOW = 5
 SENSITIVITY    = 0.3
@@ -55,19 +72,6 @@ DEFAULT_BASELINE = 20.0  # used when avg_points_baseline is NULL
 LEC_SPRING_2026_COMPETITION_ID = "4169a7c1-9e99-418d-a804-b556c318996f"
 
 
-def tier_price(baseline: float) -> float:
-    """Initial price from tier based on avg_points_baseline."""
-    if baseline >= 40:
-        return 30.0
-    if baseline >= 33:
-        return 25.0
-    if baseline >= 24:
-        return 20.0
-    if baseline >= 18:
-        return 15.0
-    return 10.0
-
-
 def clamp(val: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, val))
 
@@ -76,7 +80,7 @@ def clamp(val: float, lo: float, hi: float) -> float:
 # Fetch helpers
 # ---------------------------------------------------------------------------
 
-def fetch_active_players(sb):
+def fetch_active_players(sb) -> list[dict]:
     """Returns list of dicts: id, name, avg_points_baseline, current_price, team."""
     resp = (
         sb.table("players")
@@ -87,74 +91,24 @@ def fetch_active_players(sb):
     return resp.data or []
 
 
-def fetch_completed_weeks(sb):
-    """
-    Returns list of (week, earliest_date_str) tuples, ordered by week ASC.
-    Only series with status='finished' for LEC Spring 2026 are considered.
-    """
-    resp = (
-        sb.table("series")
-        .select("week, date")
-        .eq("status", "finished")
-        .eq("competition_id", LEC_SPRING_2026_COMPETITION_ID)
-        .not_.is_("week", "null")
-        .order("week", desc=False)
-        .order("date", desc=False)
-        .execute()
-    )
-    rows = resp.data or []
-
-    # Group by week → pick earliest date
-    week_dates: dict[int, str] = {}
-    for row in rows:
-        w = row["week"]
-        d = row["date"]
-        if w is None or d is None:
-            continue
-        if w not in week_dates or d < week_dates[w]:
-            week_dates[w] = d
-
-    return sorted(week_dates.items())  # [(week_num, date_str), ...]
-
-
-def fetch_series_for_competition(sb) -> list[dict]:
-    """
-    Fetches all finished series for LEC Spring 2026 with team_home_id, team_away_id, week, date.
-    Returns list of dicts.
-    """
-    resp = (
-        sb.table("series")
-        .select("id, week, date, team_home_id, team_away_id")
-        .eq("status", "finished")
-        .eq("competition_id", LEC_SPRING_2026_COMPETITION_ID)
-        .not_.is_("week", "null")
-        .order("week", desc=False)
-        .order("date", desc=False)
-        .execute()
-    )
-    return resp.data or []
-
-
 def fetch_teams_name_map(sb) -> dict[str, str]:
-    """
-    Returns: { team_id: team_name }
-    """
-    resp = (
-        sb.table("teams")
-        .select("id, name")
-        .execute()
-    )
-    return {row["id"]: row["name"] for row in (resp.data or []) if row.get("id") and row.get("name")}
+    """Returns: { team_id: team_name }"""
+    resp = sb.table("teams").select("id, name").execute()
+    return {
+        row["id"]: row["name"]
+        for row in (resp.data or [])
+        if row.get("id") and row.get("name")
+    }
 
 
-def fetch_all_game_stats_with_week(sb):
+def fetch_all_game_stats(sb) -> list[dict]:
     """
-    Fetches all player_game_stats rows joined with series.week, series.date,
-    series.home_team, series.away_team — filtered to LEC Spring 2026.
-    Returns list of dicts: player_id, game_points, week, series_date, series_id.
+    Fetches all player_game_stats rows joined with series info,
+    filtered to finished LEC Spring 2026 series.
 
-    We do this in bulk (paginated) to avoid N+1 queries per player.
-    Uses PostgREST nested select: game_id → games(series_id → series(...))
+    Returns list of dicts with:
+      player_id, game_points, series_id, series_date, series_week,
+      team_home_id, team_away_id, game_id
     """
     print("  Fetching all player_game_stats (this may take a moment)...")
     all_rows: list[dict] = []
@@ -165,8 +119,9 @@ def fetch_all_game_stats_with_week(sb):
         resp = (
             sb.table("player_game_stats")
             .select(
-                "player_id, game_points, "
-                "games!inner(series!inner(id, week, date, status, competition_id, team_home_id, team_away_id))"
+                "player_id, game_points, game_id, "
+                "games!inner(id, series_id, "
+                "series!inner(id, week, date, status, competition_id, team_home_id, team_away_id))"
             )
             .not_.is_("game_points", "null")
             .range(offset, offset + page_size - 1)
@@ -183,15 +138,31 @@ def fetch_all_game_stats_with_week(sb):
     return all_rows
 
 
-def build_player_stats_index(
-    raw_rows: list[dict],
-) -> dict[str, list[tuple[int, str, float, str]]]:
+def build_player_series_index(raw_rows: list[dict]) -> dict[str, dict]:
     """
-    Returns: { player_id: [(week, date_str, game_points, series_id), ...] }
-    Only includes rows from 'finished' LEC Spring 2026 series with a non-null week.
-    Sorted by (week, date_str) ascending.
+    Builds a per-player index of series, where each series accumulates
+    the game_points for that player IN ORDER (by game_id ascending as proxy
+    for game order within the series).
+
+    Returns:
+    {
+        player_id: {
+            series_id: {
+                "date": str,
+                "week": int | None,
+                "team_home_id": str,
+                "team_away_id": str,
+                "game_points": [float, ...],  # ordered by game_id
+                "game_ids": [str, ...]
+            },
+            ...
+        }
+    }
+
+    Only includes rows from finished LEC Spring 2026 series.
     """
-    index: dict[str, list[tuple[int, str, float, str]]] = defaultdict(list)
+    # player_id → series_id → data
+    index: dict[str, dict[str, dict]] = defaultdict(dict)
 
     for row in raw_rows:
         game_points = row.get("game_points")
@@ -206,135 +177,142 @@ def build_player_stats_index(
         if isinstance(series_obj, list):
             series_obj = series_obj[0] if series_obj else {}
 
-        week = series_obj.get("week")
-        date_str = series_obj.get("date")
-        status = series_obj.get("status")
-        competition_id = series_obj.get("competition_id")
-        series_id = series_obj.get("id", "")
-
-        if week is None or date_str is None:
+        if not series_obj:
             continue
+
+        status       = series_obj.get("status")
+        competition  = series_obj.get("competition_id")
+        series_id    = series_obj.get("id")
+        date_str     = series_obj.get("date")
+        week         = series_obj.get("week")
+        team_home_id = series_obj.get("team_home_id") or ""
+        team_away_id = series_obj.get("team_away_id") or ""
+        game_id      = game.get("id") or row.get("game_id") or ""
+
         if status != "finished":
             continue
-        if competition_id != LEC_SPRING_2026_COMPETITION_ID:
+        if competition != LEC_SPRING_2026_COMPETITION_ID:
+            continue
+        if not series_id or date_str is None:
             continue
 
-        index[row["player_id"]].append((int(week), date_str, float(game_points), series_id))
+        pid = row["player_id"]
 
-    # Sort each player's list by (week, date) ascending
-    for pid in index:
-        index[pid].sort(key=lambda t: (t[0], t[1]))
+        if series_id not in index[pid]:
+            index[pid][series_id] = {
+                "date":         date_str,
+                "week":         week,
+                "team_home_id": team_home_id,
+                "team_away_id": team_away_id,
+                "game_points":  [],
+                "game_ids":     [],
+            }
+
+        index[pid][series_id]["game_points"].append((game_id, float(game_points)))
+
+    # Sort game_points within each series by game_id (proxy for game order)
+    for pid, series_map in index.items():
+        for sid, sdata in series_map.items():
+            sdata["game_points"].sort(key=lambda t: t[0])
+            # Flatten to just points list after sorting
+            sdata["game_points"] = [gp for _, gp in sdata["game_points"]]
 
     return dict(index)
 
 
-def build_team_id_to_name_index(
-    series_list: list[dict],
-    teams_map: dict[str, str],
-) -> dict[str, str]:
+def resolve_rival(serie: dict, player_team: str, teams_map: dict[str, str]) -> str | None:
     """
-    Returns: { team_id: team_name } resolved from series teams.
-    Delegates to teams_map directly; this is a pass-through for clarity.
+    Given a series dict and the player's team name, return the rival team name.
+    Returns None if resolution fails.
     """
-    return teams_map
+    home_id   = serie.get("team_home_id") or ""
+    away_id   = serie.get("team_away_id") or ""
+    home_name = teams_map.get(home_id, "")
+    away_name = teams_map.get(away_id, "")
 
+    if not player_team or not home_name or not away_name:
+        return None
 
-def build_series_rival_index(
-    series_list: list[dict],
-) -> dict[str, dict]:
-    """
-    Returns: { series_id: { team_home_id, team_away_id, week, date } }
-    """
-    return {
-        s["id"]: s
-        for s in series_list
-        if s.get("id")
-    }
+    if player_team == home_name:
+        return away_name
+    else:
+        return home_name
 
 
 # ---------------------------------------------------------------------------
 # Core reconstruction
 # ---------------------------------------------------------------------------
 
-def reconstruct_for_player(
+def reconstruct_player(
     player: dict,
-    stats_by_week_and_date: list[tuple[int, str, float, str]],  # sorted asc
-    completed_weeks: list[tuple[int, str]],
-    series_index: dict[str, dict],
+    series_map: dict[str, dict],
     teams_map: dict[str, str],
-) -> list[dict]:
+) -> tuple[list[dict], float, float]:
     """
-    Returns reconstructed price_history list for one player.
-    Includes rival team name per week entry.
-    series_index: { series_id: { team_home_id, team_away_id, ... } }
-    teams_map: { team_id: team_name }
+    Reconstructs price_history for one player, one entry per series.
+
+    Returns:
+      (history, initial_price, final_price_from_history)
+
+    history entries:
+      { date, price, delta_pct, week (if set), rival (if resolved) }
     """
-    baseline_raw = player.get("avg_points_baseline")
-    baseline = float(baseline_raw) if baseline_raw is not None else DEFAULT_BASELINE
-    initial_price = tier_price(baseline)
-    player_team = player.get("team") or ""  # team name string
+    baseline_raw  = player.get("avg_points_baseline")
+    baseline      = float(baseline_raw) if baseline_raw is not None else DEFAULT_BASELINE
+    current_price = float(player["current_price"])
+    player_team   = player.get("team") or ""
 
-    history: list[dict] = []
-    current_price = initial_price
+    # Sort series by date ASC
+    series_list = sorted(series_map.values(), key=lambda s: s["date"])
 
-    # Accumulate game points seen up to each week (sliding window)
-    games_seen: list[float] = []  # ordered, all points up to current week
+    if not series_list:
+        return [], current_price, current_price
 
-    # Build a lookup: week → list of (game_points, series_id) for this player that week
-    week_data: dict[int, list[tuple[float, str]]] = defaultdict(list)
-    for (week, _date, gp, series_id) in stats_by_week_and_date:
-        week_data[week].append((gp, series_id))
+    # ------------------------------------------------------------------
+    # Step 1: Simulate rolling window to collect deltas
+    # ------------------------------------------------------------------
+    games_seen: list[float] = []
+    deltas: list[float] = []
 
-    for (week_num, week_date) in completed_weeks:
-        # Add this week's games to cumulative list
-        week_entries = week_data.get(week_num, [])
-        week_points = [gp for gp, _ in week_entries]
-        games_seen.extend(week_points)
-
-        if not games_seen:
-            # No stats for this player up to this week — skip
-            continue
-
-        # Determine rival: pick the first series this player played this week
-        rival: str | None = None
-        if week_entries:
-            first_series_id = week_entries[0][1]
-            series = series_index.get(first_series_id)
-            if series:
-                home_team_id = series.get("team_home_id") or ""
-                away_team_id = series.get("team_away_id") or ""
-                home_team_name = teams_map.get(home_team_id, "")
-                away_team_name = teams_map.get(away_team_id, "")
-                if player_team and home_team_name and away_team_name:
-                    # If player's team matches home team name, rival is away, else rival is home
-                    if player_team == home_team_name:
-                        rival = away_team_name
-                    else:
-                        rival = home_team_name
-
-        # Rolling window: last ROLLING_WINDOW games
-        recent = games_seen[-ROLLING_WINDOW:]
+    for serie in series_list:
+        games_seen.extend(serie["game_points"])
+        recent     = games_seen[-ROLLING_WINDOW:]
         recent_avg = mean(recent)
+        delta      = clamp((recent_avg - baseline) / baseline * SENSITIVITY, CAP_DOWN, CAP_UP)
+        deltas.append(delta)
 
-        delta_pct = (recent_avg - baseline) / baseline * SENSITIVITY
-        delta_pct = clamp(delta_pct, CAP_DOWN, CAP_UP)
+    # ------------------------------------------------------------------
+    # Step 2: Back-calculate initial price
+    #   P0 = current_price / ∏(1 + delta_i)
+    # ------------------------------------------------------------------
+    compound = 1.0
+    for d in deltas:
+        compound *= (1 + d)
+    initial_price = round(current_price / compound, 2)
 
-        new_price = max(round(current_price * (1 + delta_pct), 2), PRICE_FLOOR)
+    # ------------------------------------------------------------------
+    # Step 3: Forward-apply to build history
+    # ------------------------------------------------------------------
+    history: list[dict] = []
+    price = initial_price
+
+    for i, serie in enumerate(series_list):
+        price  = max(round(price * (1 + deltas[i]), 2), PRICE_FLOOR)
+        rival  = resolve_rival(serie, player_team, teams_map)
 
         entry: dict = {
-            "date":      week_date,
-            "price":     round(new_price, 2),
-            "delta_pct": round(delta_pct, 4),
-            "week":      week_num,
+            "date":      serie["date"],
+            "price":     round(price, 2),
+            "delta_pct": round(deltas[i], 4),
         }
+        if serie.get("week") is not None:
+            entry["week"] = serie["week"]
         if rival:
             entry["rival"] = rival
 
         history.append(entry)
 
-        current_price = new_price
-
-    return history
+    return history, initial_price, price
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +322,7 @@ def reconstruct_for_player(
 def main():
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    print("=== Reconstructing price_history for all active players ===")
+    print("=== Reconstructing price_history for all active players (by series) ===")
     print(f"    Competition filter: LEC Spring 2026 ({LEC_SPRING_2026_COMPETITION_ID})\n")
 
     # 1. Fetch players
@@ -352,84 +330,69 @@ def main():
     players = fetch_active_players(sb)
     print(f"  Found {len(players)} active players.\n")
 
-    # 2. Fetch completed weeks
-    print("Step 2: Fetching completed weeks from series table (LEC Spring 2026 only)...")
-    completed_weeks = fetch_completed_weeks(sb)
-    print(f"  Completed weeks: {[w for w, _ in completed_weeks]}\n")
-
-    if not completed_weeks:
-        print("WARNING: No completed weeks found. Nothing to reconstruct.")
-        return
-
-    # 3. Fetch series metadata for rival lookup
-    print("Step 3: Fetching series metadata for rival resolution...")
-    series_list = fetch_series_for_competition(sb)
-    series_index = build_series_rival_index(series_list)
-    print(f"  Series fetched: {len(series_list)}\n")
-
-    # 3b. Fetch teams name map (team_id → team_name)
-    print("Step 3b: Fetching teams name map...")
+    # 2. Fetch teams map
+    print("Step 2: Fetching teams name map...")
     teams_map = fetch_teams_name_map(sb)
     print(f"  Teams fetched: {len(teams_map)}\n")
 
-    # 4. Bulk-fetch all game stats
-    print("Step 4: Fetching all player_game_stats...")
-    raw_rows = fetch_all_game_stats_with_week(sb)
-    stats_index = build_player_stats_index(raw_rows)
-    print(f"  Players with game stats: {len(stats_index)}\n")
+    # 3. Bulk-fetch all game stats
+    print("Step 3: Fetching all player_game_stats with series info...")
+    raw_rows     = fetch_all_game_stats(sb)
+    player_index = build_player_series_index(raw_rows)
+    print(f"  Players with game stats: {len(player_index)}\n")
 
-    # 5. Reconstruct and update
-    print("Step 5: Reconstructing price_history and updating players...\n")
+    # 4. Reconstruct and update
+    print("Step 4: Reconstructing price_history and updating players...\n")
     updated_count = 0
     skipped_count = 0
-    total_entries: list[int] = []
-
-    sample_output: list[dict] = []
+    mismatch_count = 0
 
     for player in players:
-        pid = player["id"]
+        pid  = player["id"]
         name = player.get("name", pid)
-        player_stats = stats_index.get(pid, [])
 
-        history = reconstruct_for_player(player, player_stats, completed_weeks, series_index, teams_map)
+        series_map = player_index.get(pid, {})
+        history, initial_price, final_price = reconstruct_player(player, series_map, teams_map)
 
-        # Always write (even empty list — replaces corrupted data)
+        # Always write (even empty list — replaces stale data)
         sb.table("players").update({
             "price_history": history,
         }).eq("id", pid).execute()
 
-        if history:
-            updated_count += 1
-            total_entries.append(len(history))
-            rival_sample = history[0].get("rival", "?")
-            print(f"  [OK] {name}: {len(history)} entries | "
-                  f"start={history[0]['price']}M → end={history[-1]['price']}M | "
-                  f"rival[0]={rival_sample}")
-            if len(sample_output) < 3:
-                sample_output.append({"player": name, "history": history})
-        else:
+        if not history:
             skipped_count += 1
             print(f"  [--] {name}: no stats → price_history = []")
+            continue
 
-    # 6. Summary
-    avg_entries = round(mean(total_entries), 1) if total_entries else 0
+        updated_count += 1
+        current_price = float(player["current_price"])
+        diff          = abs(final_price - current_price)
+        mismatch_flag = " *** MISMATCH" if diff > 0.05 else ""
+        if diff > 0.05:
+            mismatch_count += 1
+
+        # Build delta summary string
+        delta_parts = []
+        for entry in history:
+            w   = entry.get("week", "?")
+            pct = entry["delta_pct"] * 100
+            delta_parts.append(f"J{w}: {pct:+.1f}%")
+        delta_summary = ", ".join(delta_parts)
+
+        print(
+            f"  [OK] {name}: {len(history)} series | "
+            f"P0={initial_price:.2f}M → {final_price:.2f}M "
+            f"(current={current_price:.2f}M){mismatch_flag} | "
+            f"{delta_summary}"
+        )
+
     print(f"""
 === SUMMARY ===
-  Total active players:    {len(players)}
-  Players with history:    {updated_count}
-  Players with no stats:   {skipped_count}
-  Avg entries per player:  {avg_entries}
-  Weeks processed:         {len(completed_weeks)}
+  Total active players:       {len(players)}
+  Players with history:       {updated_count}
+  Players with no stats:      {skipped_count}
+  Price mismatch (>0.05M):    {mismatch_count}
 """)
-
-    print("=== SAMPLE OUTPUT (up to 3 players) ===")
-    for sample in sample_output:
-        print(f"\nPlayer: {sample['player']}")
-        for entry in sample["history"]:
-            rival_str = entry.get("rival", "N/A")
-            print(f"  Week {entry['week']:>2} | {entry['date']} | "
-                  f"price={entry['price']:>6.2f}M | delta={entry['delta_pct']:+.2%} | "
-                  f"rival={rival_str}")
 
 
 if __name__ == "__main__":
