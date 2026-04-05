@@ -72,7 +72,7 @@ export function LeagueRow({ league }: { league: League }) {
                     border: "1px solid rgba(107,33,232,0.2)",
                   }}
                 >
-                  Comisionado
+                  Admin
                 </span>
               )}
             </div>
