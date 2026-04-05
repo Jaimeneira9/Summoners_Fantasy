@@ -3,6 +3,7 @@
 import React from "react";
 import type { Split } from "@/lib/api";
 import type { WeekStat } from "./types";
+import { BarChart as RBarChart, Bar, Cell, XAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 type BarChartProps = {
   matchStats: WeekStat[];
@@ -15,19 +16,25 @@ type BarChartProps = {
   onSelectSplit: (splitId: string, newWeek: number) => void;
 };
 
-export const BarChart = React.forwardRef<HTMLDivElement, BarChartProps>(function BarChart(
-  {
-    matchStats,
-    selectedWeek,
-    selectedSplitId,
-    splits,
-    maxPts,
-    historyDataStats,
-    onSelectWeek,
-    onSelectSplit,
-  },
-  ref
-) {
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: WeekStat }> }) {
+  if (!active || !payload?.length) return null;
+  const stat = payload[0].payload;
+  return (
+    <div style={{ background: "#1A1A1A", border: "1px solid #2A2A2A", borderRadius: 6, padding: "4px 8px", fontSize: 11, fontFamily: "'Space Grotesk', sans-serif" }}>
+      <span style={{ color: "#FCD400", fontWeight: 700 }}>{Math.round(stat.fantasy_points)}</span>
+    </div>
+  );
+}
+
+export function BarChart({
+  matchStats,
+  selectedWeek,
+  selectedSplitId,
+  splits,
+  historyDataStats,
+  onSelectWeek,
+  onSelectSplit,
+}: BarChartProps) {
   return (
     <div style={{
       flex: 1.4,
@@ -91,41 +98,36 @@ export const BarChart = React.forwardRef<HTMLDivElement, BarChartProps>(function
             </div>
           </div>
 
-          <div ref={ref} style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 140 }}>
-            {matchStats.map((stat) => {
-              const isActive = stat.week === selectedWeek;
-              const heightPx = Math.max((stat.fantasy_points / maxPts) * 110, 2);
-              return (
-                <div
-                  key={stat.week}
-                  onClick={() => onSelectWeek(stat.week)}
-                  style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer" }}
-                >
-                  <span className="bar-label" style={{
-                    fontSize: 10,
-                    color: isActive ? "#FCD400" : "#555",
-                    fontFamily: "'Barlow Condensed', sans-serif",
-                    fontWeight: 700,
-                  }}>
-                    {Math.round(stat.fantasy_points)}
-                  </span>
-                  <div className="bar-item" style={{
-                    width: "100%",
-                    height: `${heightPx}px`,
-                    background: isActive ? "#FCD400" : "#2A2A2A",
-                    borderRadius: "4px 4px 0 0",
-                  }} />
-                  <span style={{
-                    fontSize: 9,
-                    color: isActive ? "#FCD400" : "#333",
-                    fontFamily: "'Barlow Condensed', sans-serif",
-                  }}>
-                    S{stat.week}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+          <ResponsiveContainer width="100%" height={140}>
+            <RBarChart
+              data={matchStats}
+              onClick={(data) => {
+                if (!data?.activePayload?.[0]) return;
+                onSelectWeek(data.activePayload[0].payload.week);
+              }}
+            >
+              <XAxis
+                dataKey="week"
+                tickFormatter={(v) => `S${v}`}
+                tick={{ fill: "#555", fontSize: 9, fontFamily: "'Barlow Condensed', sans-serif" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                content={<CustomTooltip />}
+                cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                wrapperStyle={{ outline: "none" }}
+              />
+              <Bar dataKey="fantasy_points" radius={[4, 4, 0, 0]}>
+                {matchStats.map((stat) => (
+                  <Cell
+                    key={stat.week}
+                    fill={selectedWeek === stat.week ? "#FCD400" : "#2A2A2A"}
+                  />
+                ))}
+              </Bar>
+            </RBarChart>
+          </ResponsiveContainer>
         </>
       ) : (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 140 }}>
@@ -134,4 +136,4 @@ export const BarChart = React.forwardRef<HTMLDivElement, BarChartProps>(function
       )}
     </div>
   );
-});
+}

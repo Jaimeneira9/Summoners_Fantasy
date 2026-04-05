@@ -1,12 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { api, type PlayerSplitHistory, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat } from "@/lib/api";
-import gsap from "gsap";
-import { useGSAP } from "@gsap/react";
-gsap.registerPlugin(useGSAP);
+import { api, type PlayerSplitHistory, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat, type PriceHistoryEntry } from "@/lib/api";
 
 import type { PlayerHistoryResponse, WeekStat } from "./_components/types";
 import { LoadingSkeleton } from "./_components/LoadingSkeleton";
@@ -19,6 +16,7 @@ import { WeekSelector } from "./_components/WeekSelector";
 import { StatCards } from "./_components/StatCards";
 import { BarChart } from "./_components/BarChart";
 import { MatchHistoryList } from "./_components/MatchHistoryList";
+import { PriceHistoryChart } from "./_components/PriceHistoryChart";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -54,8 +52,6 @@ export default function PlayerStatsPage() {
   const searchParams = useSearchParams();
   const fromScout = searchParams.get("from") === "scout";
 
-  const chartRef = useRef<HTMLDivElement>(null);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [historyData, setHistoryData] = useState<PlayerHistoryResponse | null>(null);
@@ -71,6 +67,7 @@ export default function PlayerStatsPage() {
   const [expandedSeriesId, setExpandedSeriesId] = useState<string | null>(null);
   const [gamesCache, setGamesCache] = useState<Map<string, GameDetailStat[]>>(new Map());
   const [gamesLoading, setGamesLoading] = useState<string | null>(null);
+  const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +113,13 @@ export default function PlayerStatsPage() {
       .then((data) => setSchedule(data.upcoming))
       .catch(() => setSchedule([]))
       .finally(() => setScheduleLoading(false));
+  }, [playerId]);
+
+  // Independent price history fetch
+  useEffect(() => {
+    api.players.priceHistory(playerId)
+      .then((data) => setPriceHistory(data.entries))
+      .catch(() => setPriceHistory([]));
   }, [playerId]);
 
   // Independent clause fetch — silent failure if endpoint not yet available
@@ -220,28 +224,6 @@ export default function PlayerStatsPage() {
 
   // Bar chart max
   const maxPts = Math.max(...matchStats.map((s) => s.fantasy_points), 1);
-
-  // ---------------------------------------------------------------------------
-  // GSAP: animación del gráfico de barras
-  // ---------------------------------------------------------------------------
-
-  useGSAP(() => {
-    if (matchStats.length === 0) return;
-    gsap.from(".bar-item", {
-      scaleY: 0,
-      transformOrigin: "bottom center",
-      duration: 0.6,
-      ease: "power3.out",
-      stagger: 0.04,
-    });
-    gsap.from(".bar-label", {
-      autoAlpha: 0,
-      y: 8,
-      duration: 0.4,
-      delay: 0.3,
-      stagger: 0.04,
-    });
-  }, { scope: chartRef, dependencies: [selectedSplitId, matchStats.length] });
 
   // ---------------------------------------------------------------------------
   // Loading / error states
@@ -382,7 +364,6 @@ export default function PlayerStatsPage() {
 
           {/* Col izquierda: Selector de splits + Bar chart */}
           <BarChart
-            ref={chartRef}
             matchStats={matchStats}
             selectedWeek={selectedWeek}
             selectedSplitId={selectedSplitId}
@@ -396,26 +377,29 @@ export default function PlayerStatsPage() {
             }}
           />
 
-          {/* Col derecha: Historial de jornadas */}
-          <MatchHistoryList
-            matchStats={matchStats}
-            selectedWeek={selectedWeek}
-            expandedSeriesId={expandedSeriesId}
-            gamesCache={gamesCache}
-            gamesLoading={gamesLoading}
-            player={player}
-            playerId={playerId}
-            onSelectWeek={setSelectedWeek}
-            onGamesLoaded={(seriesId, games) => {
-              setGamesCache((prev) => {
-                const next = new Map(prev);
-                next.set(seriesId, games);
-                return next;
-              });
-            }}
-            onGamesLoadingChange={setGamesLoading}
-            onExpandedSeriesIdChange={setExpandedSeriesId}
-          />
+          {/* Col derecha: Price history + Historial de jornadas */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
+            <PriceHistoryChart entries={priceHistory} />
+            <MatchHistoryList
+              matchStats={matchStats}
+              selectedWeek={selectedWeek}
+              expandedSeriesId={expandedSeriesId}
+              gamesCache={gamesCache}
+              gamesLoading={gamesLoading}
+              player={player}
+              playerId={playerId}
+              onSelectWeek={setSelectedWeek}
+              onGamesLoaded={(seriesId, games) => {
+                setGamesCache((prev) => {
+                  const next = new Map(prev);
+                  next.set(seriesId, games);
+                  return next;
+                });
+              }}
+              onGamesLoadingChange={setGamesLoading}
+              onExpandedSeriesIdChange={setExpandedSeriesId}
+            />
+          </div>
 
         </div>
 

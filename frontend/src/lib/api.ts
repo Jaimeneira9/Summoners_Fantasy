@@ -293,6 +293,16 @@ export type PlayerSchedule = {
   upcoming: UpcomingMatch[];
 };
 
+export type PriceHistoryEntry = {
+  date: string;
+  price: number;
+  delta_pct: number;
+};
+export type PriceHistoryResponse = {
+  player_id: string;
+  entries: PriceHistoryEntry[];
+};
+
 export type TeamStandingEntry = {
   team_id: string;
   team_name: string;
@@ -445,6 +455,8 @@ export const api = {
       req<PlayerSchedule>(`/players/${playerId}/schedule`),
     seriesGames: (playerId: string, seriesId: string) =>
       req<SeriesGamesResponse>(`/players/${playerId}/series/${seriesId}/games`),
+    priceHistory: (playerId: string) =>
+      req<PriceHistoryResponse>(`/players/${playerId}/price-history`),
   },
   activity: {
     feed: (leagueId: string, limit = 50) =>

@@ -371,6 +371,42 @@ async def get_player_series_games(
     return SeriesGamesResponse(series_id=str(series_id), games=detail_games)
 
 
+class PriceHistoryEntry(BaseModel):
+    date: str
+    price: float
+    delta_pct: float
+
+class PriceHistoryResponse(BaseModel):
+    player_id: str
+    entries: list[PriceHistoryEntry]
+
+@router.get("/{player_id}/price-history", response_model=PriceHistoryResponse)
+async def get_player_price_history(
+    player_id: UUID,
+    supabase: Client = Depends(get_supabase),
+) -> PriceHistoryResponse:
+    resp = (
+        supabase.table("players")
+        .select("price_history")
+        .eq("id", str(player_id))
+        .single()
+        .execute()
+    )
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Jugador no encontrado")
+    raw: list[dict] = resp.data.get("price_history") or []
+    entries = [
+        PriceHistoryEntry(
+            date=e["date"],
+            price=float(e["price"]),
+            delta_pct=float(e.get("delta_pct", 0)),
+        )
+        for e in raw
+        if e.get("date") and e.get("price") is not None
+    ]
+    return PriceHistoryResponse(player_id=str(player_id), entries=entries)
+
+
 @router.get("/{player_id}", response_model=PlayerOut)
 async def get_player(
     player_id: UUID,
