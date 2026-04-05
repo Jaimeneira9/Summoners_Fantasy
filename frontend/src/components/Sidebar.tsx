@@ -43,7 +43,7 @@ export default function Sidebar({ leagueId, leagueName }: SidebarProps) {
       {/* Navegación */}
       <nav className="flex-1 px-3 py-4 space-y-1">
         {/* Mis ligas */}
-        <Link href="/dashboard" className={itemClass(pathname === "/dashboard")}>
+        <Link href={`/leagues/${leagueId}/ligas`} className={itemClass(pathname.includes("/ligas"))}>
           <span className="material-symbols-outlined text-xl">home</span>
           <span>Mis ligas</span>
         </Link>
@@ -164,7 +164,7 @@ export default function Sidebar({ leagueId, leagueName }: SidebarProps) {
           Mi perfil
         </Link>
         <Link
-          href="/dashboard"
+          href={`/leagues/${leagueId}/ligas`}
           className="flex items-center gap-2 px-3 py-2 text-xs text-white/30 hover:text-[var(--color-primary)] transition-colors"
         >
           <span className="material-symbols-outlined text-base">arrow_back</span>

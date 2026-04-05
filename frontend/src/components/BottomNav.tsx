@@ -19,8 +19,8 @@ export default function BottomNav({ leagueId }: BottomNavProps) {
     {
       label: "Ligas",
       icon: "home",
-      href: "/dashboard",
-      isActive: pathname.includes("/dashboard"),
+      href: `/leagues/${leagueId}/ligas`,
+      isActive: pathname.includes("/ligas"),
     },
     {
       label: "Roster",
