@@ -49,9 +49,17 @@ const URL_TAB_MAP: Record<string, Tab> = {
   scout:  "explorar",
 };
 
+const MOBILE_TABS: { key: string; label: string }[] = [
+  { key: "live",   label: "En vivo" },
+  { key: "bids",   label: "Mis Pujas" },
+  { key: "offers", label: "Ofertas" },
+  { key: "scout",  label: "Explorar" },
+];
+
 export default function MarketPage() {
   const { id: leagueId } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -66,6 +74,7 @@ export default function MarketPage() {
 
   const [budget, setBudget]               = useState<number | null>(null);
   const [retainedBudget, setRetainedBudget] = useState(0);
+  const [bidsByListing, setBidsByListing] = useState<Map<string, number>>(new Map());
   const [league, setLeague]               = useState<League | null>(null);
   const [split, setSplit]                 = useState<Split | null>(null);
 
@@ -75,6 +84,9 @@ export default function MarketPage() {
         const active = bids.filter((b) => b.status === "active");
         const sum = active.reduce((acc, b) => acc + b.bid_amount, 0);
         setRetainedBudget(sum);
+        const map = new Map<string, number>();
+        active.forEach((b) => map.set(b.listing_id, b.bid_amount));
+        setBidsByListing(map);
       })
       .catch(() => {});
   }, [leagueId]);
@@ -201,9 +213,34 @@ export default function MarketPage() {
         </div>
       </div>
 
+      {/* Mobile pill tab bar — hidden on sm+ */}
+      <div className="block sm:hidden px-4 pt-3 pb-1 overflow-x-auto">
+        <div className="flex gap-2 min-w-max">
+          {MOBILE_TABS.map(({ key, label }) => {
+            const isActive = tab === URL_TAB_MAP[key];
+            return (
+              <button
+                key={key}
+                onClick={() => router.push(`?tab=${key}`)}
+                className="px-4 py-2 text-xs font-bold transition-all active:scale-95 flex-shrink-0"
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  borderRadius: "20px",
+                  background: isActive ? "#FCD400" : "#1A1A1A",
+                  color:      isActive ? "#111111" : "#555555",
+                  border:     isActive ? "1px solid #FCD400" : "1px solid #2A2A2A",
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-24">
-        {tab === "mercado"   && <MarketTab  leagueId={leagueId} budget={budget} availableBudget={budget !== null ? budget - retainedBudget : null} splitName={split?.name} onBid={refreshBudget} isMobile={isMobile} />}
+        {tab === "mercado"   && <MarketTab  leagueId={leagueId} budget={budget} availableBudget={budget !== null ? budget - retainedBudget : null} splitName={split?.name} onBid={refreshBudget} isMobile={isMobile} bidsByListing={bidsByListing} />}
         {tab === "mis-pujas" && <MyBidsTab  leagueId={leagueId} />}
         {tab === "ofertas"   && <OffersTab  leagueId={leagueId} />}
         {tab === "explorar"  && <ScoutTab   leagueId={leagueId} />}
@@ -223,6 +260,7 @@ function MarketTab({
   splitName,
   onBid,
   isMobile,
+  bidsByListing,
 }: {
   leagueId: string;
   budget: number | null;
@@ -230,6 +268,7 @@ function MarketTab({
   splitName?: string;
   onBid: () => void;
   isMobile?: boolean;
+  bidsByListing?: Map<string, number>;
 }) {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading]   = useState(true);
@@ -237,9 +276,10 @@ function MarketTab({
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [search, setSearch]     = useState("");
   const router = useRouter();
-  const [popupListing, setPopupListing]     = useState<Listing | null>(null);
-  const [popupLoading, setPopupLoading]     = useState(false);
-  const [popupError, setPopupError]         = useState<string | null>(null);
+  const [popupListing, setPopupListing]         = useState<Listing | null>(null);
+  const [popupExistingBid, setPopupExistingBid] = useState<number | null>(null);
+  const [popupLoading, setPopupLoading]         = useState(false);
+  const [popupError, setPopupError]             = useState<string | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
@@ -348,7 +388,8 @@ function MarketTab({
               budget={budget}
               splitName={splitName}
               isMobile={isMobile}
-              onOpenPopup={() => { setPopupListing(l); setPopupError(null); }}
+              existingBid={bidsByListing?.get(l.id)}
+              onOpenPopup={() => { setPopupListing(l); setPopupExistingBid(bidsByListing?.get(l.id) ?? null); setPopupError(null); }}
               onOpenStats={() => router.push(`/leagues/${leagueId}/stats/${l.player_id}`)}
             />
           </div>
@@ -359,16 +400,17 @@ function MarketTab({
       {popupListing && (
         <ActionPopup
           isOpen={!!popupListing}
-          onClose={() => { setPopupListing(null); setPopupError(null); }}
-          title={`Fichar a ${popupListing.players.name}`}
+          onClose={() => { setPopupListing(null); setPopupExistingBid(null); setPopupError(null); }}
+          title={popupExistingBid != null ? `Actualizar puja — ${popupListing.players.name}` : `Fichar a ${popupListing.players.name}`}
           playerName={popupListing.players.name}
           playerRole={popupListing.players.role}
           playerTeam={popupListing.players.team}
           playerImage={popupListing.players.image_url ?? undefined}
           mode="input"
           minAmount={popupListing.players.current_price}
-          maxAmount={availableBudget ?? undefined}
-          confirmLabel="Pujar"
+          maxAmount={availableBudget !== null ? availableBudget + (popupExistingBid ?? 0) : undefined}
+          existingBid={popupExistingBid ?? undefined}
+          confirmLabel={popupExistingBid != null ? "Actualizar puja" : "Pujar"}
           previewText={(amount) => `Puja de ${amount.toFixed(1)}M`}
           onConfirm={async (amount) => {
             if (!amount) return;
@@ -377,6 +419,7 @@ function MarketTab({
             try {
               await api.bids.place(leagueId, popupListing.id, amount);
               setPopupListing(null);
+              setPopupExistingBid(null);
               onBid();
               load();
             } catch (e) {
@@ -416,6 +459,7 @@ function PlayerCard({
   isMobile,
   onOpenPopup,
   onOpenStats,
+  existingBid,
 }: {
   listing: Listing;
   leagueId: string;
@@ -424,6 +468,7 @@ function PlayerCard({
   isMobile?: boolean;
   onOpenPopup: () => void;
   onOpenStats: () => void;
+  existingBid?: number;
 }) {
   const [success, setSuccess]   = useState(false);
 
@@ -555,24 +600,41 @@ function PlayerCard({
             </span>
           </div>
 
-          {/* Row 4: bid count badge — always rendered to reserve space */}
-          <span
-            style={{
-              display: "inline-block",
-              alignSelf: "flex-start",
-              fontSize: "9px",
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontWeight: 600,
-              color: "#FCD400",
-              background: "rgba(252,212,0,0.08)",
-              border: "1px solid rgba(252,212,0,0.18)",
-              borderRadius: "4px",
-              padding: "1px 5px",
-              visibility: (listing.bid_count ?? 0) >= 1 ? "visible" : "hidden",
-            }}
-          >
-            {listing.bid_count} {listing.bid_count === 1 ? "puja" : "pujas"}
-          </span>
+          {/* Row 4: badges row */}
+          <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+            <span
+              style={{
+                display: "inline-block",
+                fontSize: "9px",
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontWeight: 600,
+                color: "#FCD400",
+                background: "rgba(252,212,0,0.08)",
+                border: "1px solid rgba(252,212,0,0.18)",
+                borderRadius: "4px",
+                padding: "1px 5px",
+                visibility: (listing.bid_count ?? 0) >= 1 ? "visible" : "hidden",
+              }}
+            >
+              {listing.bid_count} {listing.bid_count === 1 ? "puja" : "pujas"}
+            </span>
+            {existingBid != null && existingBid > 0 && (
+              <span
+                style={{
+                  fontSize: "9px",
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontWeight: 600,
+                  color: "#E8834A",
+                  background: "rgba(232,131,74,0.08)",
+                  border: "1px solid rgba(232,131,74,0.2)",
+                  borderRadius: "4px",
+                  padding: "1px 5px",
+                }}
+              >
+                Tu puja: {existingBid.toFixed(1)}M
+              </span>
+            )}
+          </div>
 
           {/* Countdown */}
           {listing.closes_at && !closed && countdown && (
@@ -611,7 +673,7 @@ function PlayerCard({
                 ),
               }}
             >
-              {success ? "✓ Enviada" : closed ? "Cerrado" : "Fichar"}
+              {success ? "✓ Enviada" : closed ? "Cerrado" : existingBid != null && existingBid > 0 ? "Actualizar" : "Fichar"}
             </button>
           </div>
         </div>
@@ -824,6 +886,26 @@ function PlayerCard({
           {listing.bid_count} {listing.bid_count === 1 ? "puja" : "pujas"}
         </span>
 
+        {existingBid != null && existingBid > 0 && (
+          <span
+            style={{
+              display: "inline-block",
+              alignSelf: "flex-start",
+              fontSize: "10px",
+              fontFamily: "'Space Grotesk', sans-serif",
+              fontWeight: 600,
+              color: "#E8834A",
+              background: "rgba(232,131,74,0.08)",
+              border: "1px solid rgba(232,131,74,0.2)",
+              borderRadius: "4px",
+              padding: "2px 7px",
+              marginTop: "2px",
+            }}
+          >
+            Tu puja: {existingBid.toFixed(1)}M
+          </span>
+        )}
+
         {/* Fila 4 — Bid button */}
         <div style={{ marginTop: "auto", paddingTop: "4px" }}>
           <button
@@ -846,7 +928,7 @@ function PlayerCard({
               ),
             }}
           >
-            {success ? "✓ Puja enviada" : closed ? "Cerrado" : "Fichar"}
+            {success ? "✓ Puja enviada" : closed ? "Cerrado" : existingBid != null && existingBid > 0 ? "Actualizar" : "Fichar"}
           </button>
         </div>
       </div>

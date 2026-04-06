@@ -26,6 +26,9 @@ export interface ActionPopupProps {
   /** Monto máximo permitido para mode="input" (ej: presupuesto disponible) */
   maxAmount?: number;
 
+  /** Puja existente del usuario para este listing — pre-llena el input y ajusta el label */
+  existingBid?: number;
+
   /** Texto del botón de confirmación */
   confirmLabel?: string;
 
@@ -56,6 +59,7 @@ export function ActionPopup({
   mode,
   minAmount = 0,
   maxAmount,
+  existingBid,
   confirmLabel = "Confirmar",
   previewText,
   confirmMessage,
@@ -64,14 +68,19 @@ export function ActionPopup({
   error = null,
 }: ActionPopupProps) {
   const [mounted, setMounted] = useState(false);
-  const [amount, setAmount] = useState(minAmount > 0 ? minAmount.toFixed(1) : "");
+  const [amount, setAmount] = useState(
+    existingBid != null ? existingBid.toFixed(1)
+    : minAmount > 0     ? minAmount.toFixed(1)
+    : ""
+  );
 
   useEffect(() => { setMounted(true); }, []);
 
-  // Sync minAmount cuando cambia el listing seleccionado
+  // Sync amount cuando cambia el listing seleccionado
   useEffect(() => {
-    if (minAmount > 0) setAmount(minAmount.toFixed(1));
-  }, [minAmount]);
+    if (existingBid != null) setAmount(existingBid.toFixed(1));
+    else if (minAmount > 0)  setAmount(minAmount.toFixed(1));
+  }, [minAmount, existingBid]);
 
   // Cerrar con Escape
   useEffect(() => {
