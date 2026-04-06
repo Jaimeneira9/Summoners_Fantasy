@@ -175,7 +175,7 @@ export default function LineupPage() {
               <h2 className="text-xs uppercase tracking-widest mb-3 font-semibold" style={{ color: "var(--text-muted)" }}>
                 Titulares
               </h2>
-              <div ref={startersRef} className={isMobile ? "flex flex-col gap-3" : "flex flex-wrap justify-center gap-4"}>
+              <div ref={startersRef} className={isMobile ? "flex flex-col gap-3" : "grid grid-cols-5 gap-4"}>
                 {STARTER_SLOTS.map(({ slot, role }) => {
                   const rp = playerBySlot(slot);
                   return (
