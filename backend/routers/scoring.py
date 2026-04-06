@@ -190,8 +190,8 @@ async def get_leaderboard(
                     mid: snapped.get(mid, []) for mid in member_ids
                 }
             else:
-                # No snapshot: fall back to current roster (backwards compat)
-                week_starter_player_ids = member_starter_player_ids
+                # No snapshot: manager had no starters this week → 0 points
+                week_starter_player_ids = {mid: [] for mid in member_ids}
 
             # Fetch player_series_stats para todos los starters de esta semana
             all_starter_ids = list({pid for pids in week_starter_player_ids.values() for pid in pids})
