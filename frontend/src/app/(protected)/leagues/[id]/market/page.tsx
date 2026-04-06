@@ -618,22 +618,6 @@ function PlayerCard({
             >
               {listing.bid_count} {listing.bid_count === 1 ? "puja" : "pujas"}
             </span>
-            {existingBid != null && existingBid > 0 && (
-              <span
-                style={{
-                  fontSize: "9px",
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  fontWeight: 600,
-                  color: "#E8834A",
-                  background: "rgba(232,131,74,0.08)",
-                  border: "1px solid rgba(232,131,74,0.2)",
-                  borderRadius: "4px",
-                  padding: "1px 5px",
-                }}
-              >
-                Tu puja: {existingBid.toFixed(1)}M
-              </span>
-            )}
           </div>
 
           {/* Countdown */}
@@ -673,7 +657,7 @@ function PlayerCard({
                 ),
               }}
             >
-              {success ? "✓ Enviada" : closed ? "Cerrado" : existingBid != null && existingBid > 0 ? "Actualizar" : "Fichar"}
+              {success ? "✓ Enviada" : closed ? "Cerrado" : existingBid != null && existingBid > 0 ? `${existingBid.toFixed(1)}M` : "Fichar"}
             </button>
           </div>
         </div>
@@ -886,25 +870,6 @@ function PlayerCard({
           {listing.bid_count} {listing.bid_count === 1 ? "puja" : "pujas"}
         </span>
 
-        {existingBid != null && existingBid > 0 && (
-          <span
-            style={{
-              display: "inline-block",
-              alignSelf: "flex-start",
-              fontSize: "10px",
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontWeight: 600,
-              color: "#E8834A",
-              background: "rgba(232,131,74,0.08)",
-              border: "1px solid rgba(232,131,74,0.2)",
-              borderRadius: "4px",
-              padding: "2px 7px",
-              marginTop: "2px",
-            }}
-          >
-            Tu puja: {existingBid.toFixed(1)}M
-          </span>
-        )}
 
         {/* Fila 4 — Bid button */}
         <div style={{ marginTop: "auto", paddingTop: "4px" }}>
@@ -928,7 +893,7 @@ function PlayerCard({
               ),
             }}
           >
-            {success ? "✓ Puja enviada" : closed ? "Cerrado" : existingBid != null && existingBid > 0 ? "Actualizar" : "Fichar"}
+            {success ? "✓ Puja enviada" : closed ? "Cerrado" : existingBid != null && existingBid > 0 ? `${existingBid.toFixed(1)}M` : "Fichar"}
           </button>
         </div>
       </div>
