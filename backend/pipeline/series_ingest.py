@@ -873,48 +873,14 @@ def _update_manager_total_points(
                     if snap_slots.get(slot)
                 ]
             else:
-                # Fall back to current roster_players
+                # No snapshot for this week: manager had no starters → 0 points
                 if week is not None:
-                    logger.warning(
-                        "[SCORING FALLBACK] No snapshot for member %s week=%s — using current roster",
+                    logger.info(
+                        "[SCORING] No snapshot for member %s week=%s — 0 points (no starters that week)",
                         member_id,
                         week,
                     )
-
-                # 2b. Obtener roster del manager
-                roster_resp = (
-                    supabase.table("rosters")
-                    .select("id")
-                    .eq("member_id", member_id)
-                    .limit(1)
-                    .execute()
-                )
-                if not roster_resp.data:
-                    continue
-                roster_id: str = roster_resp.data[0]["id"]
-
-                # 3b. Verificar que tenga exactamente 5 titulares
-                roster_resp2 = (
-                    supabase.table("roster_players")
-                    .select("slot, player_id")
-                    .eq("roster_id", roster_id)
-                    .execute()
-                )
-                roster_rows = roster_resp2.data or []
-                filled_starters = {r["slot"] for r in roster_rows} & starter_slots
-                if len(filled_starters) < 5:
-                    logger.info(
-                        "[SCORING SKIP] member %s has %d/5 starters — no points added for this series",
-                        member_id,
-                        len(filled_starters),
-                    )
-                    continue
-
-                starter_player_ids = [
-                    r["player_id"]
-                    for r in roster_rows
-                    if r["slot"] in starter_slots and r.get("player_id")
-                ]
+                continue
 
             if not starter_player_ids:
                 continue
