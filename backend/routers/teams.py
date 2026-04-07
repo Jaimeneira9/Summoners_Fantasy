@@ -19,10 +19,10 @@ class TeamStandingEntry(BaseModel):
     wins: int
     losses: int
     win_rate: float
+    game_wins: int
+    game_losses: int
     avg_kda: float | None
     avg_gold_diff_15: float | None
-    avg_dpm: float | None
-    avg_cs_per_min: float | None
     games_played: int
 
 
@@ -141,6 +141,32 @@ def get_team_standings(
             if loser in losses:
                 losses[loser] += 1
 
+    # 3b. Contar game W/L desde la tabla games
+    series_ids_finished = [s["id"] for s in series_list]
+
+    game_wins: dict[str, int] = {tid: 0 for tid in team_ids}
+    game_losses: dict[str, int] = {tid: 0 for tid in team_ids}
+
+    if series_ids_finished:
+        games_resp = (
+            supabase.table("games")
+            .select("team_home_id, team_away_id, winner_id, status")
+            .in_("series_id", series_ids_finished)
+            .eq("status", "finished")
+            .execute()
+        )
+        for g in (games_resp.data or []):
+            home = g.get("team_home_id")
+            away = g.get("team_away_id")
+            winner = g.get("winner_id")
+            if not home or not away or not winner:
+                continue
+            loser = away if winner == home else home
+            if winner in game_wins:
+                game_wins[winner] += 1
+            if loser in game_losses:
+                game_losses[loser] += 1
+
     # 4. Traer player_game_stats para todos los jugadores de los equipos en la competition
     # Necesitamos player.team (nombre del equipo) para agrupar por equipo
     # Obtenemos todos los jugadores activos de los equipos de la competition
@@ -170,8 +196,6 @@ def get_team_standings(
             "deaths": [],
             "assists": [],
             "gold_diff_15": [],
-            "dpm": [],
-            "cs_per_min": [],
         }
         for tid in team_ids
     }
@@ -182,7 +206,7 @@ def get_team_standings(
         # Fetch player_game_stats filtrado por competition via games → series join
         pgs_resp = (
             supabase.table("player_game_stats")
-            .select("player_id, game_id, kills, deaths, assists, gold_diff_15, dpm, cs_per_min, games(series(competition_id))")
+            .select("player_id, game_id, kills, deaths, assists, gold_diff_15, games(series(competition_id))")
             .in_("player_id", player_ids_in_competition)
             .execute()
         )
@@ -210,10 +234,6 @@ def get_team_standings(
                 acc["assists"].append(float(row["assists"]))
             if row.get("gold_diff_15") is not None:
                 acc["gold_diff_15"].append(float(row["gold_diff_15"]))
-            if row.get("dpm") is not None:
-                acc["dpm"].append(float(row["dpm"]))
-            if row.get("cs_per_min") is not None:
-                acc["cs_per_min"].append(float(row["cs_per_min"]))
 
     # 5. Armar la respuesta
     def _safe_avg(values: list[float]) -> float | None:
@@ -231,8 +251,6 @@ def get_team_standings(
         avg_deaths = _safe_avg(acc["deaths"])
         avg_assists = _safe_avg(acc["assists"])
         avg_gold_diff_15 = _safe_avg(acc["gold_diff_15"])
-        avg_dpm = _safe_avg(acc["dpm"])
-        avg_cs_per_min = _safe_avg(acc["cs_per_min"])
 
         if avg_kills is not None and avg_assists is not None:
             _deaths = avg_deaths if avg_deaths and avg_deaths > 0 else 1.0
@@ -250,10 +268,10 @@ def get_team_standings(
                 wins=w,
                 losses=l,
                 win_rate=win_rate,
+                game_wins=game_wins[tid],
+                game_losses=game_losses[tid],
                 avg_kda=avg_kda,
                 avg_gold_diff_15=avg_gold_diff_15,
-                avg_dpm=avg_dpm,
-                avg_cs_per_min=avg_cs_per_min,
                 games_played=games_played,
             )
         )

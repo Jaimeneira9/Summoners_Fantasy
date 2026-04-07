@@ -69,8 +69,8 @@ export function ActionPopup({
 }: ActionPopupProps) {
   const [mounted, setMounted] = useState(false);
   const [amount, setAmount] = useState(
-    existingBid != null ? existingBid.toFixed(1)
-    : minAmount > 0     ? minAmount.toFixed(1)
+    existingBid != null ? existingBid.toFixed(2)
+    : minAmount > 0     ? minAmount.toFixed(2)
     : ""
   );
 
@@ -78,8 +78,8 @@ export function ActionPopup({
 
   // Sync amount cuando cambia el listing seleccionado
   useEffect(() => {
-    if (existingBid != null) setAmount(existingBid.toFixed(1));
-    else if (minAmount > 0)  setAmount(minAmount.toFixed(1));
+    if (existingBid != null) setAmount(existingBid.toFixed(2));
+    else if (minAmount > 0)  setAmount(minAmount.toFixed(2));
   }, [minAmount, existingBid]);
 
   // Cerrar con Escape

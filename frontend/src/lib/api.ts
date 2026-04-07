@@ -313,10 +313,10 @@ export type TeamStandingEntry = {
   wins: number;
   losses: number;
   win_rate: number;
+  game_wins: number;
+  game_losses: number;
   avg_kda: number | null;
   avg_gold_diff_15: number | null;
-  avg_dpm: number | null;
-  avg_cs_per_min: number | null;
   games_played: number;
 };
 

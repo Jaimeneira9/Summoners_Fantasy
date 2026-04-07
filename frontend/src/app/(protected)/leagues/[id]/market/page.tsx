@@ -595,7 +595,7 @@ function PlayerCard({
             </span>
             <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", color: "#888888" }}>pts</span>
             <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "11px", color: "#777777", marginLeft: "auto", display: "flex", alignItems: "baseline", gap: "3px" }}>
-              {p.current_price.toFixed(1)}M
+              {p.current_price.toFixed(2)}M
               <PriceTrend changePct={p.last_price_change_pct ?? 0} />
             </span>
           </div>
@@ -830,7 +830,7 @@ function PlayerCard({
               gap: "4px",
             }}
           >
-            {p.current_price.toFixed(1)}M
+            {p.current_price.toFixed(2)}M
             <PriceTrend changePct={p.last_price_change_pct ?? 0} />
           </span>
         </div>
@@ -1707,7 +1707,7 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
                 color: "#444444",
               }}
             >
-              {p.current_price.toFixed(1)}M
+              {p.current_price.toFixed(2)}M
               {p.last_price_change_pct !== 0 && (
                 <PriceTrend changePct={p.last_price_change_pct ?? 0} />
               )}
