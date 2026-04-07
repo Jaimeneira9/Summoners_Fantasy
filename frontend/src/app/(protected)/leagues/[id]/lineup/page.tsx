@@ -6,7 +6,7 @@ import Link from "next/link";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 gsap.registerPlugin(useGSAP);
-import { api, type Roster, type RosterPlayer, type Slot, type Split, type LeaderboardResponse } from "@/lib/api";
+import { api, type Roster, type RosterPlayer, type Slot, type Split } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
@@ -37,38 +37,22 @@ function SplitResetWarning({ split, leagueId }: { split: Split | null; leagueId:
   const hoursLeft = Math.ceil(hoursUntilReset);
 
   return (
-    <div className="mx-4 sm:mx-6 mt-4 px-4 py-3 bg-orange-500/10 border border-orange-500/30 rounded-xl animate-fade-in">
-      <div className="flex items-start gap-3">
-        <span className="text-orange-400 text-lg flex-shrink-0">⚠️</span>
+    <div className="mx-4 sm:mx-6 mt-4 animate-fade-in rounded-xl" style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", padding: "12px 16px" }}>
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="text-orange-300 font-semibold text-sm">Reset de split en {hoursLeft}h</p>
-          <p className="text-orange-400/70 text-xs mt-0.5">
-            Los equipos se reiniciarán al comenzar el nuevo split. Puedes proteger 1 jugador para que se quede contigo.
+          <p style={{ color: "#e5e5e5", fontWeight: 600, fontSize: 13, margin: 0 }}>Reset de split en {hoursLeft}h</p>
+          <p style={{ color: "#737373", fontSize: 11, marginTop: 2 }}>
+            Podés proteger 1 jugador antes del reinicio.
           </p>
-          <Link href={`/leagues/${leagueId}/lineup`} className="text-orange-400 text-xs underline mt-1 inline-block">
-            Elegir jugador protegido →
-          </Link>
         </div>
+        <Link href={`/leagues/${leagueId}/lineup`} style={{ color: "#737373", fontSize: 11, whiteSpace: "nowrap", fontWeight: 500 }}>
+          Proteger →
+        </Link>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot banner — shown when current week has been snapshotted
-// ---------------------------------------------------------------------------
-function SnapshotBanner({ week }: { week: number }) {
-  return (
-    <div className="mx-4 sm:mx-6 mt-4 px-4 py-3 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-      <p className="text-blue-300 font-semibold text-sm">
-        Equipo fijado para J{week}
-      </p>
-      <p className="text-blue-400/70 text-xs mt-0.5">
-        Tu alineación de esta jornada ya fue registrada. Podés seguir operando en el mercado con libertad.
-      </p>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Page
@@ -78,7 +62,6 @@ export default function LineupPage() {
   const router = useRouter();
   const [roster, setRoster]   = useState<Roster | null>(null);
   const [split, setSplit]     = useState<Split | null>(null);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -97,26 +80,15 @@ export default function LineupPage() {
     Promise.all([
       api.roster.get(leagueId),
       api.splits.active().catch(() => null),
-      api.scoring.leaderboard(leagueId).catch(() => null),
     ])
-      .then(([rosterData, splitData, boardData]) => {
+      .then(([rosterData, splitData]) => {
         setRoster(rosterData);
         setSplit(splitData);
-        setLeaderboard(boardData);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [leagueId]);
 
-  // Derive snapshot state: current week appears in available_weeks → snapshot taken
-  const snapshotWeek: number | null = (() => {
-    if (!leaderboard) return null;
-    const { current_week, available_weeks } = leaderboard;
-    if (current_week != null && available_weeks.includes(current_week)) {
-      return current_week;
-    }
-    return null;
-  })();
 
   useEffect(() => { load(); }, [load]);
 
@@ -136,7 +108,6 @@ export default function LineupPage() {
   return (
     <div className="min-h-[100dvh] overflow-x-hidden" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
       <SplitResetWarning split={split} leagueId={leagueId} />
-      {snapshotWeek != null && <SnapshotBanner week={snapshotWeek} />}
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-24 sm:py-8">
         {error && (
@@ -149,33 +120,13 @@ export default function LineupPage() {
           <EmptyRoster leagueId={leagueId} />
         ) : (
           <>
-            {/* Incomplete roster warning */}
-            {(() => {
-              const STARTER_SLOT_KEYS = ["starter_1", "starter_2", "starter_3", "starter_4", "starter_5"];
-              const filledStartersCount = roster.players.filter((p) => STARTER_SLOT_KEYS.includes(p.slot)).length;
-              const missing = 5 - filledStartersCount;
-              if (missing <= 0) return null;
-              return (
-                <div className="mb-6 mx-0 px-4 py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl animate-fade-in">
-                  <div className="flex items-start gap-3">
-                    <span className="text-yellow-400 text-lg flex-shrink-0">⚠️</span>
-                    <div>
-                      <p className="text-yellow-300 font-semibold text-sm">Equipo incompleto</p>
-                      <p className="text-yellow-400/70 text-xs mt-0.5">
-                        Necesitás {missing} titular{missing > 1 ? "es" : ""} más para puntuar esta semana.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
 
             {/* Starters */}
             <section>
               <h2 className="text-xs uppercase tracking-widest mb-3 font-semibold" style={{ color: "var(--text-muted)" }}>
                 Titulares
               </h2>
-              <div ref={startersRef} className={isMobile ? "flex flex-col gap-3" : "grid grid-cols-5 gap-4"}>
+              <div ref={startersRef} className={isMobile ? "flex flex-col gap-3" : "grid grid-cols-5 gap-6"}>
                 {STARTER_SLOTS.map(({ slot, role }) => {
                   const rp = playerBySlot(slot);
                   return (
@@ -244,6 +195,7 @@ function PlayerCard({
           <span className={`text-xs font-bold ${roleColor.text}`}>
             {ROLE_LABEL[expectedRole] ?? "BENCH"}
           </span>
+          <span style={{ color: "#ef4444", fontSize: 18, fontWeight: 700, lineHeight: 1, marginLeft: "auto" }}>!</span>
         </div>
       );
     }
@@ -251,7 +203,7 @@ function PlayerCard({
       <div
         className={`relative rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-2 ${roleColor.border} opacity-60`}
         style={{
-          width: "200px",
+          width: "100%",
           minHeight: "340px",
           background: "var(--bg-panel)",
         }}
@@ -262,6 +214,7 @@ function PlayerCard({
         <span className={`text-xs font-bold ${roleColor.text}`}>
           {ROLE_LABEL[expectedRole] ?? "BENCH"}
         </span>
+        <span style={{ color: "#ef4444", fontSize: 18, fontWeight: 700, lineHeight: 1 }}>!</span>
       </div>
     );
   }
@@ -493,7 +446,7 @@ function PlayerCardFilled({
     <div
       className="group relative flex flex-col overflow-hidden hover:-translate-y-1 transition-transform duration-150"
       style={{
-        width: "200px",
+        width: "100%",
         minHeight: "340px",
         borderRadius: "12px",
         border: "1px solid #222222",

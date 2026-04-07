@@ -5,9 +5,10 @@ import Link from "next/link";
 
 interface BottomNavProps {
   leagueId: string;
+  hasIncompleteRoster?: boolean;
 }
 
-export default function BottomNav({ leagueId }: BottomNavProps) {
+export default function BottomNav({ leagueId, hasIncompleteRoster }: BottomNavProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab");
@@ -56,20 +57,28 @@ export default function BottomNav({ leagueId }: BottomNavProps) {
 
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around px-1 pb-8 pt-3 bg-background/90 backdrop-blur-xl shadow-[0_-10px_30px_rgba(0,0,0,0.05)]">
-      {NAV_ITEMS.map(({ label, icon, href, isActive }) => (
-        <Link
-          key={label}
-          href={href}
-          className={`flex flex-col items-center gap-0.5 transition-all ${
-            isActive
-              ? "nav-item-active rounded-2xl py-2 px-3 scale-110"
-              : "opacity-50 hover:opacity-100 active:scale-90 transition-all"
-          }`}
-        >
-          <span className="material-symbols-outlined text-[18px]">{icon}</span>
-          <span className="text-[9px] font-semibold">{label}</span>
-        </Link>
-      ))}
+      {NAV_ITEMS.map(({ label, icon, href, isActive }) => {
+        const showDot = label === "Roster" && hasIncompleteRoster;
+        return (
+          <Link
+            key={label}
+            href={href}
+            className={`flex flex-col items-center gap-0.5 transition-all ${
+              isActive
+                ? "nav-item-active rounded-2xl py-2 px-3 scale-110"
+                : "opacity-50 hover:opacity-100 active:scale-90 transition-all"
+            }`}
+          >
+            <span className="relative inline-flex">
+              <span className="material-symbols-outlined text-[18px]">{icon}</span>
+              {showDot && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
+              )}
+            </span>
+            <span className="text-[9px] font-semibold">{label}</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }

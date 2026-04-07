@@ -368,7 +368,7 @@ def _upsert_player_series_stats(
         "avg_objective_steals": _avg([s.objective_steals for s in game_stats_list]),
         "wins": sum(1 for s in game_stats_list if s.result == 1),
         "best_multikill": _best_multikill(game_stats_list),
-        "series_points": round(sum(game_points_list) / len(game_points_list), 2),
+        "series_points": round(sum(game_points_list) / len(game_points_list), 2) if game_points_list else 0.0,
         "avg_dpm": avg_dpm,
         "avg_wards_per_min": avg_wards_per_min,
         # kill_participation requiere team_kills, que no está disponible en PlayerRawStats.

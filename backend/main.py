@@ -74,10 +74,11 @@ def _bootstrap_closes_at(supabase: Client) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from datetime import datetime, timedelta
     sb = _get_supabase()
 
-    _scheduler.add_job(_job_market_refresh,   "interval", hours=1,  id="market_refresh",    replace_existing=True)
-    _scheduler.add_job(_job_series_ingest,    "interval", hours=1,  id="series_ingest",     replace_existing=True)
+    _scheduler.add_job(_job_market_refresh,   "interval", hours=1,  id="market_refresh",    replace_existing=True, next_run_time=datetime.now() + timedelta(hours=1))
+    _scheduler.add_job(_job_series_ingest,    "interval", hours=1,  id="series_ingest",     replace_existing=True, next_run_time=datetime.now() + timedelta(hours=1))
     _scheduler.add_job(_job_check_split_reset,"cron",     hour=1,   minute=0, id="split_reset_check", replace_existing=True)
     _scheduler.start()
     logger.info("Background scheduler started")
@@ -93,6 +94,7 @@ async def lifespan(app: FastAPI):
 from routers import players, leagues, market, scoring, trades, roster, activity, bids, teams as teams_router
 from routers import splits as splits_router
 from routers import series as series_router
+from routers import match_detail as match_detail_router
 
 app = FastAPI(title="Summoner's Fantasy API", version="0.1.0", lifespan=lifespan)
 
@@ -145,7 +147,8 @@ app.include_router(activity.router,     prefix="/activity",  tags=["activity"])
 app.include_router(bids.router,         prefix="/bids",      tags=["bids"])
 app.include_router(splits_router.router,prefix="/splits",    tags=["splits"])
 app.include_router(teams_router.router,  prefix="/teams",     tags=["teams"])
-app.include_router(series_router.router, prefix="/series",    tags=["series"])
+app.include_router(series_router.router,       prefix="/series",    tags=["series"])
+app.include_router(match_detail_router.router, prefix="/series",    tags=["match-detail"])
 
 
 @app.get("/health")

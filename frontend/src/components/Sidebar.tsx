@@ -7,6 +7,7 @@ import { useState } from "react";
 interface SidebarProps {
   leagueId: string;
   leagueName?: string;
+  hasIncompleteRoster?: boolean;
 }
 
 const itemClass = (active: boolean) =>
@@ -16,7 +17,7 @@ const itemClass = (active: boolean) =>
       : "text-foreground hover:bg-white/5 hover:translate-x-1"
   }`;
 
-export default function Sidebar({ leagueId, leagueName }: SidebarProps) {
+export default function Sidebar({ leagueId, leagueName, hasIncompleteRoster }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -55,6 +56,9 @@ export default function Sidebar({ leagueId, leagueName }: SidebarProps) {
         >
           <span className="material-symbols-outlined text-xl">groups</span>
           <span>Roster</span>
+          {hasIncompleteRoster && (
+            <span className="ml-auto w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+          )}
         </Link>
 
         {/* Mercado (acordeón) */}

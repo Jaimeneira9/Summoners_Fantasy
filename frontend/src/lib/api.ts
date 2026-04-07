@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import type { MatchDetailEnvelope } from "@/types/match-detail";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL!;
 
@@ -497,5 +498,7 @@ export const api = {
       req<CalendarResponse>(`/series/${leagueId}/calendar`),
     h2h: (seriesId: string, leagueId: string) =>
       req<H2HResponse>(`/series/${seriesId}/h2h?league_id=${leagueId}`),
+    matchDetail: (seriesId: string, leagueId: string) =>
+      req<MatchDetailEnvelope>(`/series/${seriesId}/match-detail?league_id=${leagueId}`),
   },
 };
