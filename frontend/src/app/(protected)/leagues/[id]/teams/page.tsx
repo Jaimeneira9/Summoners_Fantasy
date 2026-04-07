@@ -7,14 +7,12 @@ import { api, type TeamStandingEntry, type TeamStandingsOut, type Split } from "
 // ---------------------------------------------------------------------------
 // Sort types
 // ---------------------------------------------------------------------------
-type SortKey = "wins" | "avg_kda" | "avg_gold_diff_15" | "avg_dpm" | "avg_cs_per_min";
+type SortKey = "wins" | "avg_kda" | "avg_gold_diff_15";
 
 const SORT_PILLS: { key: SortKey; label: string }[] = [
   { key: "wins", label: "Resultados" },
   { key: "avg_kda", label: "KDA" },
   { key: "avg_gold_diff_15", label: "Gold @15" },
-  { key: "avg_dpm", label: "DPM" },
-  { key: "avg_cs_per_min", label: "CS/min" },
 ];
 
 const TEAM_LOGO_BASE =
@@ -63,6 +61,23 @@ function SkeletonRows() {
       ))}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Playoff bracket row styling
+// ---------------------------------------------------------------------------
+function getPlayoffRowStyle(pos: number): React.CSSProperties {
+  const green = "#22C55E";
+  const yellow = "#EAB308";
+  const red = "#EF4444";
+  const borderWidth = 3;
+
+  if (pos === 1) return { borderLeft: `${borderWidth}px solid ${green}`, borderTop: `1px solid ${green}`, borderTopLeftRadius: 6 };
+  if (pos >= 2 && pos <= 3) return { borderLeft: `${borderWidth}px solid ${green}` };
+  if (pos === 4) return { borderLeft: `${borderWidth}px solid ${green}`, borderBottom: `1px solid ${green}`, borderBottomLeftRadius: 6 };
+  if (pos === 5) return { borderLeft: `${borderWidth}px solid ${yellow}`, borderTop: `1px solid ${yellow}`, borderTopLeftRadius: 6 };
+  if (pos === 6) return { borderLeft: `${borderWidth}px solid ${yellow}`, borderBottom: `1px solid ${yellow}`, borderBottomLeftRadius: 6 };
+  return { borderLeft: `${borderWidth}px solid ${red}` }; // rows 7+ — open-ended red indicator
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +135,7 @@ function TeamRow({
     alignItems: "center",
     gap: 12,
     animationDelay: `${animationDelay}ms`,
+    ...getPlayoffRowStyle(pos),
   };
 
   const wl = entry.wins + entry.losses;
@@ -162,11 +178,6 @@ function TeamRow({
         >
           {entry.team_name}
         </span>
-        {(entry.wins > 0 || entry.losses > 0) && (
-          <span style={{ fontSize: 11, color: "#444444" }}>
-            {entry.wins}W {entry.losses}L
-          </span>
-        )}
       </div>
 
       {/* W */}
@@ -205,6 +216,30 @@ function TeamRow({
         </span>
       </div>
 
+      {/* GW — desktop only */}
+      <div style={{ width: 28, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
+        <span style={{
+          fontFamily: "'Barlow Condensed', sans-serif",
+          fontSize: 16,
+          fontWeight: 700,
+          color: "#22C55E",
+        }}>
+          {entry.game_wins}
+        </span>
+      </div>
+
+      {/* GL — desktop only */}
+      <div style={{ width: 28, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
+        <span style={{
+          fontFamily: "'Barlow Condensed', sans-serif",
+          fontSize: 16,
+          fontWeight: 700,
+          color: "#EF4444",
+        }}>
+          {entry.game_losses}
+        </span>
+      </div>
+
       {/* KDA — desktop only */}
       <div style={{ width: 56, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
         <span style={{
@@ -235,29 +270,6 @@ function TeamRow({
         )}
       </div>
 
-      {/* DPM — desktop only */}
-      <div style={{ width: 60, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
-        <span style={{
-          fontSize: 12,
-          fontFamily: "'Barlow Condensed', sans-serif",
-          fontWeight: 600,
-          color: activeSort === "avg_dpm" && entry.avg_dpm != null ? "#FCD400" : entry.avg_dpm == null ? "#555555" : "#888888",
-        }}>
-          {entry.avg_dpm != null ? Math.round(entry.avg_dpm).toLocaleString() : "—"}
-        </span>
-      </div>
-
-      {/* CS/MIN — desktop only */}
-      <div style={{ width: 60, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
-        <span style={{
-          fontSize: 12,
-          fontFamily: "'Barlow Condensed', sans-serif",
-          fontWeight: 600,
-          color: activeSort === "avg_cs_per_min" && entry.avg_cs_per_min != null ? "#FCD400" : entry.avg_cs_per_min == null ? "#555555" : "#888888",
-        }}>
-          {fmt(entry.avg_cs_per_min, 1)}
-        </span>
-      </div>
     </div>
   );
 }
@@ -448,41 +460,76 @@ export default function TeamsPage() {
         {/* Table */}
         {!loading && !error && data && data.entries.length > 0 && (
           <div>
-            {/* Table header */}
+            {/* Table header — two rows */}
+            <div style={{ paddingInline: 20, marginBottom: 8 }}>
+              {/* Row 1 — group labels */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 2 }}>
+                <div style={{ width: 40, flexShrink: 0 }} />
+                <div style={{ flex: 1 }} />
+                {/* BO group: W(28) + gap(12) + L(28) + gap(12) + W%(48) = 128px */}
+                <div style={{ width: 128, flexShrink: 0, textAlign: "center" }}>
+                  <span style={{ ...headerLabelStyle, color: "#555555" }}>BO</span>
+                </div>
+                {/* GAMES group: GW(28) + gap(12) + GL(28) = 68px */}
+                <div style={{ width: 68, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
+                  <span style={{ ...headerLabelStyle, color: "#555555" }}>GAMES</span>
+                </div>
+                <div style={{ width: 56, flexShrink: 0 }} className="hidden sm:block" />
+                <div style={{ width: 72, flexShrink: 0 }} className="hidden sm:block" />
+              </div>
+
+              {/* Row 2 — column labels */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ width: 40, flexShrink: 0 }}>
+                  <span style={headerLabelStyle}>POS</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <span style={headerLabelStyle}>EQUIPO</span>
+                </div>
+                <div style={{ width: 28, flexShrink: 0, textAlign: "center" }}>
+                  <span style={headerLabelStyle}>W</span>
+                </div>
+                <div style={{ width: 28, flexShrink: 0, textAlign: "center" }}>
+                  <span style={headerLabelStyle}>L</span>
+                </div>
+                <div style={{ width: 48, flexShrink: 0, textAlign: "center" }}>
+                  <span style={headerLabelStyle}>W%</span>
+                </div>
+                <div style={{ width: 28, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
+                  <span style={headerLabelStyle}>GW</span>
+                </div>
+                <div style={{ width: 28, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
+                  <span style={headerLabelStyle}>GL</span>
+                </div>
+                <div style={{ width: 56, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
+                  <span style={{ ...headerLabelStyle, color: sortKey === "avg_kda" ? "#FCD400" : "#333333" }}>KDA</span>
+                </div>
+                <div style={{ width: 72, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
+                  <span style={{ ...headerLabelStyle, color: sortKey === "avg_gold_diff_15" ? "#FCD400" : "#333333" }}>GOLD@15</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Playoff Legend — above the rows */}
             <div style={{
               display: "flex",
-              alignItems: "center",
-              paddingInline: 20,
-              marginBottom: 8,
-              gap: 12,
+              gap: 16,
+              marginBottom: 16,
+              paddingInline: 4,
+              flexWrap: "wrap",
             }}>
-              <div style={{ width: 40, flexShrink: 0 }}>
-                <span style={headerLabelStyle}>POS</span>
-              </div>
-              <div style={{ flex: 1 }}>
-                <span style={headerLabelStyle}>EQUIPO</span>
-              </div>
-              <div style={{ width: 28, flexShrink: 0, textAlign: "center" }}>
-                <span style={headerLabelStyle}>W</span>
-              </div>
-              <div style={{ width: 28, flexShrink: 0, textAlign: "center" }}>
-                <span style={headerLabelStyle}>L</span>
-              </div>
-              <div style={{ width: 48, flexShrink: 0, textAlign: "center" }}>
-                <span style={headerLabelStyle}>W%</span>
-              </div>
-              <div style={{ width: 56, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
-                <span style={{ ...headerLabelStyle, color: sortKey === "avg_kda" ? "#FCD400" : "#333333" }}>KDA</span>
-              </div>
-              <div style={{ width: 72, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
-                <span style={{ ...headerLabelStyle, color: sortKey === "avg_gold_diff_15" ? "#FCD400" : "#333333" }}>GOLD@15</span>
-              </div>
-              <div style={{ width: 60, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
-                <span style={{ ...headerLabelStyle, color: sortKey === "avg_dpm" ? "#FCD400" : "#333333" }}>DPM</span>
-              </div>
-              <div style={{ width: 60, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
-                <span style={{ ...headerLabelStyle, color: sortKey === "avg_cs_per_min" ? "#FCD400" : "#333333" }}>CS/MIN</span>
-              </div>
+              {[
+                { color: "#22C55E", label: "Winner Bracket (1-4)" },
+                { color: "#EAB308", label: "Lower Bracket (5-6)" },
+                { color: "#EF4444", label: "Eliminado (7+)" },
+              ].map(({ color, label }) => (
+                <div key={color} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
+                  <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 10, color: "#555555" }}>
+                    {label}
+                  </span>
+                </div>
+              ))}
             </div>
 
             {/* Rows — animationKey forces cascade restart on sort */}
