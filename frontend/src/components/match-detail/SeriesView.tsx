@@ -3,9 +3,10 @@ import { RoleRow, ROLE_ORDER } from "./RoleRow";
 
 interface SeriesViewProps {
   data: MatchDetailPlayed;
+  leagueId?: string;
 }
 
-export function SeriesView({ data }: SeriesViewProps) {
+export function SeriesView({ data, leagueId }: SeriesViewProps) {
   const { team_home, team_away, series_stats } = data;
 
   const byRole = (players: PlayerSeriesStatRow[], role: string) =>
@@ -33,12 +34,12 @@ export function SeriesView({ data }: SeriesViewProps) {
 
   return (
     <div className="flex flex-col gap-1 p-4">
-      {/* Team header row */}
+      {/* Team header row — mismo grid que RoleRow para alinear columnas */}
       <div
-        className="grid items-center px-3 pb-2 border-b border-[#1e1e1e] mb-1"
-        style={{ gridTemplateColumns: "68px 1fr auto 1fr 68px" }}
+        className="hidden sm:grid items-center px-3 pb-2 border-b border-[#1e1e1e] mb-1"
+        style={{ gridTemplateColumns: "auto 1fr auto 1fr auto", gap: "0 14px" }}
       >
-        <div />
+        <div style={{ width: 65 }} />
         <TeamLabel
           name={team_home.name}
           logoUrl={team_home.logo_url}
@@ -46,7 +47,7 @@ export function SeriesView({ data }: SeriesViewProps) {
           score={team_home.score}
           isWinner={homeIsSeriesWinner}
         />
-        <div className="w-6" />
+        <div style={{ width: 44 }} />
         <TeamLabel
           name={team_away.name}
           logoUrl={team_away.logo_url}
@@ -54,7 +55,7 @@ export function SeriesView({ data }: SeriesViewProps) {
           score={team_away.score}
           isWinner={!homeIsSeriesWinner}
         />
-        <div />
+        <div style={{ width: 65 }} />
       </div>
 
       {ROLE_ORDER.map((role) => {
@@ -75,6 +76,7 @@ export function SeriesView({ data }: SeriesViewProps) {
             away={awayPlayer}
             homeIsWinner={homeIsWinnerForRole}
             isMvp={mvpRole === role ? mvpSide : null}
+            leagueId={leagueId}
           />
         );
       })}

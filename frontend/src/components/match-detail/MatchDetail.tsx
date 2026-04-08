@@ -16,7 +16,7 @@ export function MatchDetail(props: MatchDetailProps) {
   const [selectedTab, setSelectedTab] = useState<"series" | number>("series");
 
   if (props.mode === "upcoming") {
-    const { data } = props;
+    const { data, leagueId } = props;
     return (
       <div className="min-h-screen bg-[#0a0a0a]">
         <MatchHeader
@@ -25,13 +25,13 @@ export function MatchDetail(props: MatchDetailProps) {
           mode="upcoming"
           scheduledAt={data.scheduled_at}
         />
-        <UpcomingView data={data} />
+        <UpcomingView data={data} leagueId={leagueId} />
       </div>
     );
   }
 
   // played mode
-  const { data } = props;
+  const { data, leagueId } = props;
   const currentGame =
     typeof selectedTab === "number"
       ? data.games.find((g) => g.game_number === selectedTab) ?? null
@@ -50,12 +50,13 @@ export function MatchDetail(props: MatchDetailProps) {
         onChange={setSelectedTab}
       />
       {selectedTab === "series" ? (
-        <SeriesView data={data} />
+        <SeriesView data={data} leagueId={leagueId} />
       ) : currentGame ? (
         <GameView
           game={currentGame}
           teamHome={data.team_home}
           teamAway={data.team_away}
+          leagueId={leagueId}
         />
       ) : null}
     </div>

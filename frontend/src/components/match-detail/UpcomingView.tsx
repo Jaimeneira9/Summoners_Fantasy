@@ -3,9 +3,10 @@ import { RoleRow, ROLE_ORDER } from "./RoleRow";
 
 interface UpcomingViewProps {
   data: MatchDetailUpcoming;
+  leagueId?: string;
 }
 
-export function UpcomingView({ data }: UpcomingViewProps) {
+export function UpcomingView({ data, leagueId }: UpcomingViewProps) {
   const { team_home, team_away, season_averages } = data;
 
   const byRole = (players: PlayerSeasonAvgRow[], role: string) =>
@@ -46,6 +47,7 @@ export function UpcomingView({ data }: UpcomingViewProps) {
             away={awayPlayer}
             homeIsWinner={homePts >= awayPts}
             isMvp={null}
+            leagueId={leagueId}
           />
         );
       })}

@@ -109,7 +109,7 @@ export default function LineupPage() {
     <div className="min-h-[100dvh] overflow-x-hidden" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
       <SplitResetWarning split={split} leagueId={leagueId} />
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-24 sm:py-8">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-8 pb-24 sm:py-8">
         {error && (
           <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm">{error}</div>
         )}

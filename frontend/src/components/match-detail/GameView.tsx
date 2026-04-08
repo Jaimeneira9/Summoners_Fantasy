@@ -9,6 +9,7 @@ interface GameViewProps {
   game: GameDetailData;
   teamHome: TeamDetailInfo;
   teamAway: TeamDetailInfo;
+  leagueId?: string;
 }
 
 function formatDuration(durationMin: number | null): string {
@@ -19,7 +20,7 @@ function formatDuration(durationMin: number | null): string {
   return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
-export function GameView({ game, teamHome, teamAway }: GameViewProps) {
+export function GameView({ game, teamHome, teamAway, leagueId }: GameViewProps) {
   const byRole = (players: PlayerGameStatRow[], role: string) =>
     players.find((p) => p.role === role) ?? null;
 
@@ -62,16 +63,16 @@ export function GameView({ game, teamHome, teamAway }: GameViewProps) {
         )}
       </div>
 
-      {/* Team header row */}
+      {/* Team header row — mismo grid que RoleRow para alinear columnas */}
       <div
-        className="grid items-center px-3 pb-2 border-b border-[#1e1e1e] mb-1"
-        style={{ gridTemplateColumns: "68px 1fr auto 1fr 68px" }}
+        className="hidden sm:grid items-center px-3 pb-2 border-b border-[#1e1e1e] mb-1"
+        style={{ gridTemplateColumns: "auto 1fr auto 1fr auto", gap: "0 14px" }}
       >
-        <div />
+        <div style={{ width: 65 }} />
         <TeamLabel name={teamHome.name} logoUrl={teamHome.logo_url} align="left" isWinner={homeIsGameWinner} />
-        <div className="w-6" />
+        <div style={{ width: 44 }} />
         <TeamLabel name={teamAway.name} logoUrl={teamAway.logo_url} align="right" isWinner={!homeIsGameWinner} />
-        <div />
+        <div style={{ width: 65 }} />
       </div>
 
       {ROLE_ORDER.map((role) => (
@@ -83,6 +84,7 @@ export function GameView({ game, teamHome, teamAway }: GameViewProps) {
           away={byRole(awayPlayers, role)}
           homeIsWinner={homeIsGameWinner}
           isMvp={mvpRole === role ? mvpSide : null}
+          leagueId={leagueId}
         />
       ))}
     </div>

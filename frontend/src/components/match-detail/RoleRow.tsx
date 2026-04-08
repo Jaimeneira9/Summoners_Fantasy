@@ -1,3 +1,5 @@
+import { type ReactNode } from "react";
+import Link from "next/link";
 import { RoleIcon } from "@/components/RoleIcon";
 import type {
   PlayerGameStatRow,
@@ -56,7 +58,7 @@ function Avatar({ name, imageUrl, isMvp }: AvatarProps) {
   const src = imageUrl ?? playerImageUrl(name);
 
   return (
-    <div className="relative shrink-0" style={{ width: 56, height: 56 }}>
+    <div className="relative shrink-0 w-9 h-9 sm:w-14 sm:h-14">
       <div
         className="w-full h-full rounded-lg overflow-hidden bg-[#1a1a1a] flex items-center justify-center"
         style={isMvp ? { outline: "2px solid #fcd400", outlineOffset: 1 } : undefined}
@@ -141,6 +143,25 @@ function StatsLine({ player, mode, align, isWinner }: StatsLineProps) {
   );
 }
 
+// ─── PlayerWrapper ────────────────────────────────────────────────────────────
+
+function PlayerWrapper({
+  href,
+  children,
+}: {
+  href: string | undefined;
+  children: ReactNode;
+}) {
+  if (href) {
+    return (
+      <Link href={href} className="flex items-center gap-2 min-w-0 cursor-pointer">
+        {children}
+      </Link>
+    );
+  }
+  return <div className="flex items-center gap-2 min-w-0">{children}</div>;
+}
+
 // ─── RoleRow ───────────────────────────────────────────────────────────────────
 
 export interface RoleRowProps {
@@ -150,9 +171,10 @@ export interface RoleRowProps {
   role: string;
   homeIsWinner: boolean;
   isMvp?: "home" | "away" | null;
+  leagueId?: string;
 }
 
-export function RoleRow({ home, away, mode, role, homeIsWinner, isMvp = null }: RoleRowProps) {
+export function RoleRow({ home, away, mode, role, homeIsWinner, isMvp = null, leagueId }: RoleRowProps) {
   const homePts = home ? getPoints(home, mode) : null;
   const awayPts = away ? getPoints(away, mode) : null;
 
@@ -178,6 +200,9 @@ export function RoleRow({ home, away, mode, role, homeIsWinner, isMvp = null }: 
     return pts % 1 === 0 ? pts.toFixed(1) : pts.toFixed(1);
   }
 
+  const homeHref = leagueId && home ? `/leagues/${leagueId}/stats/${home.player_id}` : undefined;
+  const awayHref = leagueId && away ? `/leagues/${leagueId}/stats/${away.player_id}` : undefined;
+
   return (
     <div
       className="rounded-xl overflow-hidden mb-2"
@@ -185,40 +210,43 @@ export function RoleRow({ home, away, mode, role, homeIsWinner, isMvp = null }: 
     >
       <div
         className="grid items-center p-3"
-        style={{ gridTemplateColumns: "auto 1fr auto 1fr auto", gap: "0 14px" }}
+        style={{ gridTemplateColumns: "1fr auto 1fr", gap: "0 14px" }}
       >
-        {/* ── Col 1: Home avatar ── */}
-        <div style={{ borderLeft: homeIsWinner ? "3px solid #fcd400" : "3px solid transparent", paddingLeft: 6 }}>
-          {home ? (
-            <Avatar
-              name={home.name}
-              imageUrl={home.image_url}
-              isMvp={isMvp === "home"}
-            />
-          ) : (
-            <div
-              className="rounded-lg"
-              style={{ width: 56, height: 56, background: "#1a1a1a", border: "1px solid #1e1e1e" }}
-            />
-          )}
-        </div>
+        {/* ── Col 1: Home (avatar + info) ── */}
+        <PlayerWrapper href={homeHref}>
+          {/* Avatar */}
+          <div
+            className="shrink-0"
+            style={{ borderLeft: homeIsWinner ? "3px solid #fcd400" : "3px solid transparent", paddingLeft: 6 }}
+          >
+            {home ? (
+              <Avatar
+                name={home.name}
+                imageUrl={home.image_url}
+                isMvp={isMvp === "home"}
+              />
+            ) : (
+              <div
+                className="w-9 h-9 sm:w-14 sm:h-14 rounded-lg"
+                style={{ background: "#1a1a1a", border: "1px solid #1e1e1e" }}
+              />
+            )}
+          </div>
 
-        {/* ── Col 2: Home info ── */}
-        <div className="flex items-center justify-between gap-2 min-w-0">
+          {/* Info */}
           {home ? (
-            <>
+            <div className="flex items-center justify-between gap-2 min-w-0 flex-1">
               <div className="flex flex-col min-w-0">
                 <span
-                  className="truncate leading-tight"
+                  className="hidden sm:block truncate leading-tight text-[11px] sm:text-[13px]"
                   style={{
                     color: homeIsWinner ? "#fff" : "#525252",
                     fontWeight: homeIsWinner ? 700 : 500,
-                    fontSize: 13,
                   }}
                 >
                   {home.name}
                 </span>
-                <div style={{ marginTop: 5 }}>
+                <div style={{ marginTop: 5 }} className="hidden sm:flex">
                   <StatsLine player={home} mode={mode} align="left" isWinner={homeIsWinner} />
                 </div>
               </div>
@@ -230,22 +258,22 @@ export function RoleRow({ home, away, mode, role, homeIsWinner, isMvp = null }: 
                     </span>
                   )}
                   <span
-                    className="tabular-nums font-black"
-                    style={{ color: homePtsColor, fontSize: 22, lineHeight: 1 }}
+                    className="tabular-nums font-black text-[13px] sm:text-[22px]"
+                    style={{ color: homePtsColor, lineHeight: 1 }}
                   >
                     {formatPts(homePts)}
                   </span>
                 </div>
               )}
-            </>
+            </div>
           ) : (
             <span style={{ color: "#404040", fontSize: 13 }}>—</span>
           )}
-        </div>
+        </PlayerWrapper>
 
-        {/* ── Col 3: Center (role icon + diff badge) ── */}
+        {/* ── Col 2: Center (role icon + diff badge) ── */}
         <div className="flex flex-col items-center justify-center gap-1 px-2">
-          <RoleIcon role={role} className="w-6 h-6 shrink-0 opacity-90" />
+          <RoleIcon role={role} className="w-4 h-4 sm:w-6 sm:h-6 shrink-0 opacity-90" />
           {diff !== null && (
             <span
               className="tabular-nums font-semibold"
@@ -263,10 +291,11 @@ export function RoleRow({ home, away, mode, role, homeIsWinner, isMvp = null }: 
           )}
         </div>
 
-        {/* ── Col 4: Away info (pts a la izq, nombre a la der) ── */}
-        <div className="flex items-center justify-between gap-2 min-w-0">
+        {/* ── Col 3: Away (info + avatar) ── */}
+        <PlayerWrapper href={awayHref}>
+          {/* Info away (pts a la izq, nombre a la der) */}
           {away ? (
-            <>
+            <div className="flex items-center justify-between gap-2 min-w-0 flex-1">
               {awayPts !== null && (
                 <div className="flex flex-col items-start shrink-0 gap-1">
                   {isMvp === "away" && (
@@ -275,49 +304,53 @@ export function RoleRow({ home, away, mode, role, homeIsWinner, isMvp = null }: 
                     </span>
                   )}
                   <span
-                    className="tabular-nums font-black"
-                    style={{ color: awayPtsColor, fontSize: 22, lineHeight: 1 }}
+                    className="tabular-nums font-black text-[13px] sm:text-[22px]"
+                    style={{ color: awayPtsColor, lineHeight: 1 }}
                   >
                     {formatPts(awayPts)}
                   </span>
                 </div>
               )}
-              <div className="flex flex-col min-w-0 items-end">
+              <div className="flex flex-col min-w-0 items-end flex-1">
                 <span
-                  className="truncate leading-tight"
+                  className="hidden sm:block truncate leading-tight text-[11px] sm:text-[13px]"
                   style={{
                     color: homeIsWinner ? "#525252" : "#fff",
                     fontWeight: homeIsWinner ? 500 : 700,
-                    fontSize: 13,
                   }}
                 >
                   {away.name}
                 </span>
-                <div style={{ marginTop: 5 }}>
+                <div style={{ marginTop: 5 }} className="hidden sm:flex">
                   <StatsLine player={away} mode={mode} align="right" isWinner={!homeIsWinner} />
                 </div>
               </div>
-            </>
+            </div>
           ) : (
-            <span style={{ color: "#404040", fontSize: 13, marginLeft: "auto" }}>—</span>
+            <div className="flex-1">
+              <span style={{ color: "#404040", fontSize: 13, display: "block", textAlign: "right" }}>—</span>
+            </div>
           )}
-        </div>
 
-        {/* ── Col 5: Away avatar ── */}
-        <div style={{ borderRight: homeIsWinner ? "3px solid transparent" : "3px solid #fcd400", paddingRight: 6 }}>
-          {away ? (
-            <Avatar
-              name={away.name}
-              imageUrl={away.image_url}
-              isMvp={isMvp === "away"}
-            />
-          ) : (
-            <div
-              className="rounded-lg"
-              style={{ width: 56, height: 56, background: "#1a1a1a", border: "1px solid #1e1e1e" }}
-            />
-          )}
-        </div>
+          {/* Avatar away */}
+          <div
+            className="shrink-0"
+            style={{ borderRight: homeIsWinner ? "3px solid transparent" : "3px solid #fcd400", paddingRight: 6 }}
+          >
+            {away ? (
+              <Avatar
+                name={away.name}
+                imageUrl={away.image_url}
+                isMvp={isMvp === "away"}
+              />
+            ) : (
+              <div
+                className="w-9 h-9 sm:w-14 sm:h-14 rounded-lg"
+                style={{ background: "#1a1a1a", border: "1px solid #1e1e1e" }}
+              />
+            )}
+          </div>
+        </PlayerWrapper>
       </div>
     </div>
   );
