@@ -741,6 +741,22 @@ def _take_lineup_snapshot_if_needed(
     )
 
     STARTER_SLOTS = ["starter_1", "starter_2", "starter_3", "starter_4", "starter_5"]
+
+    # Bulk fetch captain_selections for this week (avoid N+1 per member)
+    captain_by_member: dict[str, str | None] = {}
+    try:
+        cap_resp = (
+            supabase.table("captain_selections")
+            .select("member_id, captain_player_id")
+            .eq("competition_id", competition_id)
+            .eq("week", week)
+            .execute()
+        )
+        for cap_row in (cap_resp.data or []):
+            captain_by_member[cap_row["member_id"]] = cap_row["captain_player_id"]
+    except Exception as exc:
+        logger.warning("Failed to fetch captain_selections for snapshot week=%d: %s", week, exc)
+
     rows = []
 
     for member in (members_resp.data or []):
@@ -769,6 +785,9 @@ def _take_lineup_snapshot_if_needed(
         )
         filled = {row["slot"]: row["player_id"] for row in (rp_resp.data or [])}
 
+        # Lookup captain for this member (may be None if not set)
+        captain_player_id = captain_by_member.get(member_id)
+
         # Create one row per slot (NULL for empty)
         for slot in STARTER_SLOTS:
             rows.append({
@@ -778,6 +797,7 @@ def _take_lineup_snapshot_if_needed(
                 "week": week,
                 "slot": slot,
                 "player_id": filled.get(slot),
+                "captain_player_id": captain_player_id,
             })
 
     if rows:
@@ -828,11 +848,12 @@ def _update_manager_total_points(
 
     # 2. Pre-fetch snapshot rows for this week if available (bulk, avoid N+1)
     snapshot_by_member: dict[str, dict[str, str | None]] = {}
+    snapshot_captain_by_member: dict[str, str | None] = {}
     if week is not None and competition_id is not None:
         try:
             snap_resp = (
                 supabase.table("lineup_snapshots")
-                .select("member_id, slot, player_id")
+                .select("member_id, slot, player_id, captain_player_id")
                 .eq("competition_id", competition_id)
                 .eq("week", week)
                 .execute()
@@ -842,6 +863,10 @@ def _update_manager_total_points(
                 if mid not in snapshot_by_member:
                     snapshot_by_member[mid] = {}
                 snapshot_by_member[mid][row["slot"]] = row["player_id"]
+                # captain_player_id is the same in all rows for this member+week;
+                # store it once (first non-None value wins)
+                if row.get("captain_player_id") is not None and mid not in snapshot_captain_by_member:
+                    snapshot_captain_by_member[mid] = row["captain_player_id"]
         except Exception as exc:
             logger.warning(
                 "Failed to fetch lineup_snapshots for week=%s — will fall back to current roster: %s",
@@ -886,15 +911,23 @@ def _update_manager_total_points(
                 continue
 
             # 5. Sumar series_points de los titulares en las series procesadas
+            # Include player_id to identify the captain and apply x2 multiplier
             pss_resp = (
                 supabase.table("player_series_stats")
-                .select("series_points")
+                .select("player_id, series_points")
                 .in_("player_id", starter_player_ids)
                 .in_("series_id", series_ids)
                 .execute()
             )
+
+            captain_player_id = snapshot_captain_by_member.get(member_id)
+
             earned = sum(
-                float(r.get("series_points") or 0)
+                float(r.get("series_points") or 0) * (
+                    2 if captain_player_id is not None
+                    and str(r.get("player_id")) == str(captain_player_id)
+                    else 1
+                )
                 for r in (pss_resp.data or [])
             )
             if earned == 0:
@@ -906,10 +939,11 @@ def _update_manager_total_points(
             ).eq("id", member_id).execute()
 
             logger.info(
-                "[SCORING] member %s: +%.2f pts (total: %.2f)",
+                "[SCORING] member %s: +%.2f pts (total: %.2f)%s",
                 member_id,
                 earned,
                 current_total + earned,
+                f" [captain x2: player_id={captain_player_id}]" if captain_player_id else "",
             )
 
         except Exception as exc:

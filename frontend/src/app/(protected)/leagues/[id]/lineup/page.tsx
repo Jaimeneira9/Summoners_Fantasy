@@ -11,6 +11,7 @@ import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
 import { ActionPopup } from "@/components/ActionPopup";
+import { Button } from "@/components/ui/Button";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -67,6 +68,17 @@ export default function LineupPage() {
   const [isMobile, setIsMobile] = useState(false);
   const startersRef = useRef<HTMLDivElement>(null);
 
+  // Captain state
+  const [captainPlayerId, setCaptainPlayerId] = useState<string | null>(null);
+  const [currentWeek, setCurrentWeek] = useState<number | null>(null);
+  const [captainModal, setCaptainModal] = useState<{
+    open: boolean;
+    target: RosterPlayer | null;
+    mode: "assign" | "change" | "remove";
+  } | null>(null);
+  const [captainLoading, setCaptainLoading] = useState(false);
+  const [captainError, setCaptainError] = useState<string | null>(null);
+
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640);
     check();
@@ -84,6 +96,8 @@ export default function LineupPage() {
       .then(([rosterData, splitData]) => {
         setRoster(rosterData);
         setSplit(splitData);
+        setCaptainPlayerId(rosterData.captain_player_id ?? null);
+        setCurrentWeek(rosterData.current_week ?? null);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -105,11 +119,60 @@ export default function LineupPage() {
 
   const playerBySlot = (slot: Slot) => roster?.players.find((p) => p.slot === slot) ?? null;
 
+  // Captain helpers
+  const handleSetCaptain = (rp: RosterPlayer) => {
+    if (captainPlayerId === rp.player.id) {
+      // Already captain — open remove modal
+      setCaptainModal({ open: true, target: rp, mode: "remove" });
+    } else if (captainPlayerId) {
+      // Change captain
+      setCaptainModal({ open: true, target: rp, mode: "change" });
+    } else {
+      // Assign captain
+      setCaptainModal({ open: true, target: rp, mode: "assign" });
+    }
+  };
+
+  const handleCaptainConfirm = async () => {
+    if (!currentWeek) return;
+    const isRemove = captainModal?.mode === "remove";
+    const newCaptainId = isRemove ? null : (captainModal?.target?.player.id ?? null);
+    const prevCaptainId = captainPlayerId;
+    const prevModal = captainModal;
+
+    setCaptainLoading(true);
+    setCaptainError(null);
+    // Optimistic update
+    setCaptainPlayerId(newCaptainId);
+    setCaptainModal(null);
+    try {
+      await api.roster.setCaptain(leagueId, currentWeek, newCaptainId);
+    } catch (e) {
+      // Revert on error
+      setCaptainPlayerId(prevCaptainId);
+      setCaptainError(e instanceof Error ? e.message : "Error al asignar capitán");
+      if (prevModal) setCaptainModal({ ...prevModal, open: true });
+    } finally {
+      setCaptainLoading(false);
+    }
+  };
+
+  const captainPlayer = captainPlayerId
+    ? roster?.players.find((p) => p.player.id === captainPlayerId) ?? null
+    : null;
+
+  const captainModalTitle = () => {
+    if (!captainModal) return "";
+    if (captainModal.mode === "remove") return `¿Remover capitán a ${captainModal.target?.player.name}?`;
+    if (captainModal.mode === "change") return `¿Cambiar capitán de ${captainPlayer?.player.name} a ${captainModal.target?.player.name}?`;
+    return `¿Hacer capitán a ${captainModal.target?.player.name}?`;
+  };
+
   return (
-    <div className="min-h-[100dvh] overflow-x-hidden" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
+    <div className="min-h-[100dvh] flex flex-col overflow-x-hidden" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>
       <SplitResetWarning split={split} leagueId={leagueId} />
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 pt-8 pb-24 sm:py-8">
+      <main className="flex-1 flex flex-col justify-center max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 pb-24 sm:pb-8">
         {error && (
           <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm">{error}</div>
         )}
@@ -123,9 +186,32 @@ export default function LineupPage() {
 
             {/* Starters */}
             <section>
-              <h2 className="text-xs uppercase tracking-widest mb-3 font-semibold" style={{ color: "var(--text-muted)" }}>
-                Titulares
-              </h2>
+              <div className="flex items-center gap-3 mb-3">
+                <h2 className="text-xs uppercase tracking-widest font-semibold" style={{ color: "var(--text-muted)" }}>
+                  Titulares
+                </h2>
+                {captainPlayer ? (
+                  <button
+                    onClick={() => handleSetCaptain(captainPlayer)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      background: "rgba(252,212,0,0.1)",
+                      border: "1px solid rgba(252,212,0,0.3)",
+                      borderRadius: "20px",
+                      padding: "2px 8px",
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      color: "#FCD400",
+                      cursor: "pointer",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    C · {captainPlayer.player.name} · ×2
+                  </button>
+                ) : null}
+              </div>
               <div ref={startersRef} className={isMobile ? "flex flex-col gap-3" : "grid grid-cols-5 gap-6"}>
                 {STARTER_SLOTS.map(({ slot, role }) => {
                   const rp = playerBySlot(slot);
@@ -139,6 +225,8 @@ export default function LineupPage() {
                         isMobile={isMobile}
                         onRefresh={load}
                         onOpenStats={(playerId) => router.push(`/leagues/${leagueId}/stats/${playerId}`)}
+                        isCaptain={rp !== null && rp.player.id === captainPlayerId}
+                        onSetCaptain={rp ? () => handleSetCaptain(rp) : undefined}
                       />
                     </div>
                   );
@@ -149,6 +237,34 @@ export default function LineupPage() {
           </>
         )}
       </main>
+
+      {/* Captain confirmation modal */}
+      {captainModal?.target && (
+        <ActionPopup
+          isOpen={captainModal.open}
+          onClose={() => { setCaptainModal(null); setCaptainError(null); }}
+          title={captainModalTitle()}
+          playerName={captainModal.target.player.name}
+          playerRole={captainModal.target.player.role}
+          playerTeam={captainModal.target.player.team}
+          playerImage={
+            captainModal.target.player.image_url ||
+            `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosJugadoresLec/${captainModal.target.player.name.toLowerCase().replace(/ /g, "-")}.webp`
+          }
+          mode="confirm"
+          confirmLabel={captainModal.mode === "remove" ? "Remover" : captainModal.mode === "change" ? "Cambiar" : "Sí, capitán"}
+          confirmMessage={
+            captainModal.mode === "remove"
+              ? "Este jugador dejará de ser tu capitán y perderás el multiplicador ×2."
+              : captainModal.mode === "change"
+              ? `${captainPlayer?.player.name} dejará de ser capitán. ${captainModal.target.player.name} obtendrá el multiplicador ×2.`
+              : `${captainModal.target.player.name} obtendrá el multiplicador ×2 en sus puntos esta jornada.`
+          }
+          onConfirm={handleCaptainConfirm}
+          isLoading={captainLoading}
+          error={captainError}
+        />
+      )}
 
     </div>
   );
@@ -166,6 +282,8 @@ function PlayerCard({
   isMobile,
   onRefresh,
   onOpenStats,
+  isCaptain,
+  onSetCaptain,
 }: {
   expectedRole: string;
   rp: RosterPlayer | null;
@@ -174,6 +292,8 @@ function PlayerCard({
   isMobile?: boolean;
   onRefresh?: () => void;
   onOpenStats?: (playerId: string) => void;
+  isCaptain?: boolean;
+  onSetCaptain?: () => void;
 }) {
   const roleColor = ROLE_COLORS[expectedRole] ?? ROLE_COLORS.coach;
 
@@ -233,6 +353,8 @@ function PlayerCard({
       isMobile={isMobile}
       onRefresh={onRefresh}
       onOpenStats={onOpenStats ? () => onOpenStats(p.id) : undefined}
+      isCaptain={isCaptain ?? false}
+      onSetCaptain={onSetCaptain}
     />
   );
 }
@@ -246,6 +368,8 @@ function PlayerCardFilled({
   isMobile,
   onRefresh,
   onOpenStats,
+  isCaptain,
+  onSetCaptain,
 }: {
   rp: RosterPlayer;
   p: RosterPlayer["player"];
@@ -256,11 +380,12 @@ function PlayerCardFilled({
   isMobile?: boolean;
   onRefresh?: () => void;
   onOpenStats?: () => void;
+  isCaptain?: boolean;
+  onSetCaptain?: () => void;
 }) {
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupLoading, setPopupLoading] = useState(false);
   const [popupError, setPopupError] = useState<string | null>(null);
-
   const roleHex = getRoleColor(p.role);
 
   // Helpers para cláusula
@@ -321,6 +446,58 @@ function PlayerCardFilled({
             {rp.is_protected && (
               <div style={{ position: "absolute", top: 4, left: 4, fontSize: 10 }}>🛡</div>
             )}
+            {/* Captain badge / button */}
+            {isCaptain ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); onSetCaptain?.(); }}
+                style={{
+                  position: "absolute",
+                  bottom: 4,
+                  right: 4,
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  background: "#FCD400",
+                  border: "1.5px solid #000",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 8,
+                  fontWeight: 700,
+                  color: "#000",
+                  cursor: "pointer",
+                  zIndex: 10,
+                  padding: 0,
+                }}
+              >
+                C
+              </button>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); onSetCaptain?.(); }}
+                style={{
+                  position: "absolute",
+                  bottom: 4,
+                  right: 4,
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  background: "rgba(252,212,0,0.15)",
+                  border: "1px solid rgba(252,212,0,0.3)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 8,
+                  fontWeight: 700,
+                  color: "rgba(252,212,0,0.6)",
+                  cursor: "pointer",
+                  zIndex: 10,
+                  padding: 0,
+                }}
+              >
+                C
+              </button>
+            )}
           </div>
 
           {/* RIGHT: info stacked */}
@@ -375,42 +552,24 @@ function PlayerCardFilled({
             {/* Row 4: action buttons */}
             <div style={{ display: "flex", gap: "6px", marginTop: "auto" }}>
               {onOpenStats && (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={(e) => { e.stopPropagation(); onOpenStats(); }}
-                  style={{
-                    flex: 1,
-                    fontSize: "10px",
-                    color: "#FCD400",
-                    fontFamily: "'Space Grotesk', sans-serif",
-                    background: "rgba(252,212,0,0.06)",
-                    border: "1px solid rgba(252,212,0,0.2)",
-                    borderRadius: "5px",
-                    padding: "3px 6px",
-                    cursor: "pointer",
-                  }}
+                  className="flex-1"
                 >
                   Stats →
-                </button>
+                </Button>
               )}
               {clauseActive && (
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={(e) => { e.stopPropagation(); setPopupOpen(true); }}
-                  style={{
-                    flex: 1,
-                    fontSize: "10px",
-                    fontWeight: 700,
-                    color: "#5eead4",
-                    background: "rgba(20,184,166,0.15)",
-                    border: "1px solid rgba(20,184,166,0.3)",
-                    padding: "3px 6px",
-                    borderRadius: "5px",
-                    cursor: "pointer",
-                    fontFamily: "'Space Grotesk', sans-serif",
-                  }}
+                  className="flex-1"
                 >
                   🔒 {clauseDays}d
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -563,6 +722,58 @@ function PlayerCardFilled({
             🔒 {clauseDays}d
           </button>
         )}
+        {/* Captain badge / button (desktop) */}
+        {isCaptain ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSetCaptain?.(); }}
+            style={{
+              position: "absolute",
+              top: isMvp ? "36px" : "8px",
+              right: "8px",
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              background: "#FCD400",
+              border: "1.5px solid #000",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 10,
+              fontWeight: 700,
+              color: "#000",
+              cursor: "pointer",
+              zIndex: 10,
+              padding: 0,
+            }}
+          >
+            C
+          </button>
+        ) : (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSetCaptain?.(); }}
+            style={{
+              position: "absolute",
+              top: isMvp ? "36px" : "8px",
+              right: "8px",
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              background: "rgba(252,212,0,0.15)",
+              border: "1px solid rgba(252,212,0,0.3)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 9,
+              fontWeight: 700,
+              color: "rgba(252,212,0,0.6)",
+              cursor: "pointer",
+              zIndex: 10,
+              padding: 0,
+            }}
+          >
+            C
+          </button>
+        )}
       </div>
 
       {/* INFO ZONE */}
@@ -648,22 +859,14 @@ function PlayerCardFilled({
 
         {/* Fila 4 — Stats button */}
         {onOpenStats && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={(e) => { e.stopPropagation(); onOpenStats(); }}
-            style={{
-              fontSize: "11px",
-              color: "#FCD400",
-              fontFamily: "'Space Grotesk', sans-serif",
-              background: "none",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              textAlign: "left",
-            }}
+            className="w-full justify-start"
           >
             Ver stats →
-          </button>
+          </Button>
         )}
 
       </div>

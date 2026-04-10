@@ -252,6 +252,14 @@ export type Roster = {
   remaining_budget: number;
   total_points: number;
   players: RosterPlayer[];
+  captain_player_id: string | null;
+  current_week: number | null;
+};
+
+export type CaptainResponse = {
+  success: boolean;
+  captain_player_id: string | null;
+  message: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -405,6 +413,11 @@ export const api = {
       req<{ message: string; is_protected: boolean }>(`/roster/${leagueId}/protect`, {
         method: "PATCH",
         body: JSON.stringify({ roster_player_id: rosterPlayerId }),
+      }),
+    setCaptain: (leagueId: string, week: number, captainPlayerId: string | null) =>
+      req<CaptainResponse>(`/roster/${leagueId}/lineups/${week}/captain`, {
+        method: "PUT",
+        body: JSON.stringify({ captain_player_id: captainPlayerId }),
       }),
     setSellIntent: (leagueId: string, rosterPlayerId: string) =>
       req(`/market/${leagueId}/sell`, {

@@ -1,4 +1,5 @@
-from typing import Literal
+from datetime import date, datetime, timezone
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -52,6 +53,18 @@ class RosterOut(BaseModel):
     remaining_budget: float
     total_points: float
     players: list[RosterPlayerOut]
+    captain_player_id: Optional[UUID] = None
+    current_week: Optional[int] = None
+
+
+class CaptainRequest(BaseModel):
+    captain_player_id: Optional[UUID] = None  # None = remove captain
+
+
+class CaptainResponse(BaseModel):
+    success: bool
+    captain_player_id: Optional[UUID]
+    message: str
 
 
 class MoveRequest(BaseModel):
@@ -138,12 +151,51 @@ async def get_roster(
                 player=PlayerBrief(**row["players"]),
             ))
 
+    # Fetch active competition + current week to look up captain
+    captain_player_id: Optional[UUID] = None
+    current_week: Optional[int] = None
+    try:
+        comp_resp = (
+            supabase.table("competitions")
+            .select("id")
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
+        if comp_resp.data:
+            competition_id = comp_resp.data[0]["id"]
+            # Determine current week: max week from series
+            week_resp = (
+                supabase.table("series")
+                .select("week")
+                .eq("competition_id", competition_id)
+                .order("week", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if week_resp.data:
+                current_week = week_resp.data[0]["week"]
+                cap_resp = (
+                    supabase.table("captain_selections")
+                    .select("captain_player_id")
+                    .eq("member_id", member["id"])
+                    .eq("week", current_week)
+                    .limit(1)
+                    .execute()
+                )
+                if cap_resp.data and cap_resp.data[0]["captain_player_id"]:
+                    captain_player_id = cap_resp.data[0]["captain_player_id"]
+    except Exception:
+        pass  # captain is non-critical — don't fail roster load
+
     return RosterOut(
         league_id=league_id,
         member_id=member["id"],
         remaining_budget=float(member["remaining_budget"]),
         total_points=float(member["total_points"]),
         players=players_out,
+        captain_player_id=captain_player_id,
+        current_week=current_week,
     )
 
 
@@ -290,3 +342,127 @@ async def toggle_protect(
         "id", str(body.roster_player_id)
     ).execute()
     return {"message": "Jugador protegido para el reset", "is_protected": True}
+
+
+# ---------------------------------------------------------------------------
+# Captain
+# ---------------------------------------------------------------------------
+
+@router.put("/{league_id}/lineups/{week}/captain", response_model=CaptainResponse)
+async def set_captain(
+    league_id: UUID,
+    week: int,
+    body: CaptainRequest,
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> CaptainResponse:
+    """Asigna o remueve el capitán para la jornada indicada.
+
+    Validaciones:
+    - El manager debe ser miembro de la liga
+    - La jornada no debe haber comenzado (series.start_time > now)
+    - Si captain_player_id no es null: debe ser un starter en el roster actual
+    """
+    member = _get_member(supabase, str(league_id), user["id"])
+    member_id = member["id"]
+
+    # 1. Obtener competition_id activo
+    comp_resp = (
+        supabase.table("competitions")
+        .select("id")
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if not comp_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay competición activa")
+    competition_id = comp_resp.data[0]["id"]
+
+    # 2. Verificar que la jornada no haya iniciado
+    series_resp = (
+        supabase.table("series")
+        .select("date")
+        .eq("competition_id", competition_id)
+        .eq("week", week)
+        .order("date", desc=False)
+        .limit(1)
+        .execute()
+    )
+    if series_resp.data:
+        series_date = date.fromisoformat(series_resp.data[0]["date"])
+        if series_date <= datetime.now(timezone.utc).date():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La jornada ya comenzó, no podés cambiar el capitán",
+            )
+
+    # 3. Si se asigna capitán (no null): validar que es starter
+    if body.captain_player_id is not None:
+        starter_slots = {"starter_1", "starter_2", "starter_3", "starter_4", "starter_5"}
+
+        # Try snapshot first (if jornada already snapshotted)
+        snap_resp = (
+            supabase.table("lineup_snapshots")
+            .select("slot, player_id")
+            .eq("member_id", member_id)
+            .eq("competition_id", competition_id)
+            .eq("week", week)
+            .in_("slot", list(starter_slots))
+            .execute()
+        )
+        snapshot_player_ids = {
+            str(row["player_id"])
+            for row in (snap_resp.data or [])
+            if row["slot"] in starter_slots
+        }
+
+        is_valid_starter = str(body.captain_player_id) in snapshot_player_ids
+
+        if not is_valid_starter:
+            # Fallback: check current roster_players if no snapshot yet
+            roster_resp = (
+                supabase.table("rosters")
+                .select("id")
+                .eq("member_id", member_id)
+                .execute()
+            )
+            if roster_resp.data:
+                rp_resp = (
+                    supabase.table("roster_players")
+                    .select("player_id, slot")
+                    .eq("roster_id", roster_resp.data[0]["id"])
+                    .eq("player_id", str(body.captain_player_id))
+                    .execute()
+                )
+                if rp_resp.data and rp_resp.data[0]["slot"] in starter_slots:
+                    is_valid_starter = True
+
+        if not is_valid_starter:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El capitán debe ser un titular (starter_1 a starter_5)",
+            )
+
+    # 4. Upsert captain_selection
+    upsert_data = {
+        "member_id": str(member_id),
+        "competition_id": str(competition_id),
+        "week": week,
+        "captain_player_id": str(body.captain_player_id) if body.captain_player_id else None,
+        "set_at": datetime.now(timezone.utc).isoformat(),
+    }
+    supabase.table("captain_selections").upsert(
+        upsert_data,
+        on_conflict="member_id,week",
+    ).execute()
+
+    # 5. Also update lineup_snapshots if they already exist for this week
+    supabase.table("lineup_snapshots").update(
+        {"captain_player_id": str(body.captain_player_id) if body.captain_player_id else None}
+    ).eq("member_id", member_id).eq("competition_id", competition_id).eq("week", week).execute()
+
+    return CaptainResponse(
+        success=True,
+        captain_player_id=body.captain_player_id,
+        message="Capitán asignado" if body.captain_player_id else "Capitán removido",
+    )
