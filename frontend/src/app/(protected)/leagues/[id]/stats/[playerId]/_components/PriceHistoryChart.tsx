@@ -89,7 +89,7 @@ export function PriceHistoryChart({ entries }: Props) {
       <ResponsiveContainer width="100%" height={160}>
         <LineChart data={entries} margin={{ top: 8, right: 20, bottom: 40, left: 20 }}>
           <XAxis
-            dataKey="week"
+            dataKey="date"
             type="category"
             tick={<RivalTick />}
             interval={0}
