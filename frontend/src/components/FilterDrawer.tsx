@@ -9,7 +9,7 @@ export interface FilterDrawerFilters {
   role: string;
   team: string;
   priceMin: number;
-  priceMax: number;
+  priceMax: number | undefined;
 }
 
 interface FilterDrawerProps {
@@ -41,7 +41,7 @@ export default function FilterDrawer({
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { if (isOpen) setDraft({ ...committed }); }, [isOpen]);
 
-  const priceValid = draft.priceMin <= draft.priceMax;
+  const priceValid = draft.priceMax === undefined || draft.priceMin <= draft.priceMax;
 
   function handleClose() {
     setIsClosing(true);
@@ -149,7 +149,7 @@ export default function FilterDrawer({
               <input
                 type="number"
                 min={0}
-                max={20}
+                max={50}
                 step={0.5}
                 value={draft.priceMin}
                 onChange={(e) => setDraft(d => ({ ...d, priceMin: parseFloat(e.target.value) || 0 }))}
@@ -163,10 +163,10 @@ export default function FilterDrawer({
               <input
                 type="number"
                 min={0}
-                max={20}
+                max={50}
                 step={0.5}
-                value={draft.priceMax}
-                onChange={(e) => setDraft(d => ({ ...d, priceMax: parseFloat(e.target.value) || 0 }))}
+                value={draft.priceMax ?? ""}
+                onChange={(e) => setDraft(d => ({ ...d, priceMax: e.target.value === "" ? undefined : parseFloat(e.target.value) || 0 }))}
                 className="outline-none w-full"
                 style={{ background: "#0A0A0A", color: "#CCCCCC", border: `1px solid ${!priceValid ? "#f87171" : "#2A2A2A"}`, borderRadius: 6, padding: "6px 10px", fontSize: 13, fontFamily: "'Space Grotesk',sans-serif" }}
               />
@@ -180,7 +180,7 @@ export default function FilterDrawer({
         {/* Footer */}
         <div style={{ marginTop: "auto", padding: "16px", borderTop: "1px solid #2A2A2A", display: "flex", gap: 8 }}>
           <button
-            onClick={() => setDraft({ splitId: splits[0]?.id ?? null, role: "all", team: "all", priceMin: 0, priceMax: 20 })}
+            onClick={() => setDraft({ splitId: splits[0]?.id ?? null, role: "all", team: "all", priceMin: 0, priceMax: undefined })}
             onMouseEnter={(e) => (e.currentTarget.style.color = "#FFF")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "#888")}
             className="active:scale-95 transition-all duration-150"

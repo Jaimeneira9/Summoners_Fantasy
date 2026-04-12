@@ -1246,7 +1246,7 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
     role: "all",
     team: "all",
     priceMin: 0,
-    priceMax: 20,
+    priceMax: undefined,
   });
   const [drawerOpen, setDrawerOpen]     = useState(false);
   const [sortField, setSortField]       = useState<SortField>("total_points");
@@ -1286,7 +1286,7 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
     splits.length > 0 && filters.splitId !== (splits[0]?.id ?? null),
     filters.role !== "all",
     filters.team !== "all",
-    filters.priceMin !== 0 || filters.priceMax !== 20,
+    filters.priceMin !== 0 || filters.priceMax !== undefined,
   ].filter(Boolean).length;
 
   const kda = (p: ScoutPlayer) => p.total_deaths > 0
@@ -1316,7 +1316,7 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
   const filtered = players
     .filter((p) => filters.role === "all" || p.role === filters.role)
     .filter((p) => filters.team === "all" || p.team === filters.team)
-    .filter((p) => p.current_price >= filters.priceMin && p.current_price <= filters.priceMax)
+    .filter((p) => p.current_price >= filters.priceMin && (filters.priceMax === undefined || p.current_price <= filters.priceMax))
     .sort((a, b) => {
       const diff = getSortValue(a) - getSortValue(b);
       return sortDir === "desc" ? -diff : diff;

@@ -202,3 +202,81 @@ async def trigger_split_reset(
     from admin.split_reset import run_split_reset_if_due
     run_split_reset_if_due(supabase, force=True)
     return {"message": "Split reset completado"}
+
+
+@app.post("/admin/backfill-week-scoring", tags=["admin"])
+def admin_backfill_week_scoring(
+    week: int,
+    x_debug_secret: str = Header(default=""),
+) -> dict:
+    """
+    Backfills lineup snapshots and manager scoring for a given week.
+    Reuses _take_lineup_snapshot_if_needed + _update_manager_total_points.
+    Guard: refuses with 409 if any league_member already has total_points > 0.
+    Auth: open in development, requires X-Debug-Secret header in production.
+    """
+    env = os.environ.get("ENVIRONMENT", "development")
+    if env == "production":
+        if not DEBUG_SECRET or x_debug_secret != DEBUG_SECRET:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+    from pipeline.series_ingest import (
+        _take_lineup_snapshot_if_needed,
+        _update_manager_total_points,
+    )
+
+    supabase = _get_supabase()
+
+    # 1. Fetch active competition
+    comp_resp = (
+        supabase.table("competitions")
+        .select("id, name")
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if not comp_resp.data:
+        raise HTTPException(status_code=404, detail="No active competition found")
+    competition_id: str = str(comp_resp.data[0]["id"])
+
+    # 2. Double-count guard
+    guard_resp = (
+        supabase.table("league_members")
+        .select("id", count="exact")
+        .gt("total_points", 0)
+        .limit(1)
+        .execute()
+    )
+    if guard_resp.data:
+        raise HTTPException(
+            status_code=409,
+            detail="Some league members already have total_points > 0. Backfill refused to prevent double-counting.",
+        )
+
+    # 3. Fetch series_ids for this week
+    series_resp = (
+        supabase.table("series")
+        .select("id")
+        .eq("week", week)
+        .eq("competition_id", competition_id)
+        .execute()
+    )
+    series_ids = [str(row["id"]) for row in (series_resp.data or [])]
+    if not series_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No series found for week={week} in competition {competition_id}",
+        )
+
+    # 4. Take lineup snapshots (idempotent)
+    _take_lineup_snapshot_if_needed(supabase, week, competition_id)
+
+    # 5. Score managers
+    _update_manager_total_points(supabase, series_ids, week=week, competition_id=competition_id)
+
+    return {
+        "message": f"Backfill complete for week={week}",
+        "competition_id": competition_id,
+        "week": week,
+        "series_count": len(series_ids),
+    }
