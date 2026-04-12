@@ -768,12 +768,12 @@ def _take_lineup_snapshot_if_needed(
             supabase.table("rosters")
             .select("id")
             .eq("member_id", member_id)
-            .single()
+            .limit(1)
             .execute()
         )
         if not roster_resp.data:
             continue
-        roster_id = roster_resp.data["id"]
+        roster_id = roster_resp.data[0]["id"]
 
         # Get current starter slots
         rp_resp = (

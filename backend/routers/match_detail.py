@@ -300,7 +300,7 @@ def _build_played(
     series_stats: list[PlayerSeriesStatRow] = []
     for pid, data in agg.items():
         games_played = len(data["kills"])
-        series_points = sum(data["game_points"])
+        series_points = _safe_avg(data["game_points"]) if data["game_points"] else 0.0
         avg_gold = _safe_avg(data["gold_diff_15"]) if data["gold_diff_15"] else None
         avg_xp = _safe_avg(data["xp_diff_15"]) if data["xp_diff_15"] else None
         series_stats.append(
