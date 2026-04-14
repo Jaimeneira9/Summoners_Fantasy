@@ -220,10 +220,7 @@ def admin_backfill_week_scoring(
         if not DEBUG_SECRET or x_debug_secret != DEBUG_SECRET:
             raise HTTPException(status_code=403, detail="Forbidden")
 
-    from pipeline.series_ingest import (
-        _take_lineup_snapshot_if_needed,
-        _update_manager_total_points,
-    )
+    from pipeline.series_ingest import _update_manager_total_points
 
     supabase = _get_supabase()
 
@@ -253,30 +250,54 @@ def admin_backfill_week_scoring(
             detail="Some league members already have total_points > 0. Backfill refused to prevent double-counting.",
         )
 
-    # 3. Fetch series_ids for this week
-    series_resp = (
-        supabase.table("series")
-        .select("id")
-        .eq("week", week)
-        .eq("competition_id", competition_id)
-        .execute()
-    )
-    series_ids = [str(row["id"]) for row in (series_resp.data or [])]
-    if not series_ids:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No series found for week={week} in competition {competition_id}",
-        )
-
-    # 4. Take lineup snapshots (idempotent)
-    _take_lineup_snapshot_if_needed(supabase, week, competition_id)
-
-    # 5. Score managers
-    _update_manager_total_points(supabase, series_ids, week=week, competition_id=competition_id)
+    # 3. Score managers (absolute, idempotent)
+    # Nota: snapshots son creados por el pipeline live, no por el backfill
+    _update_manager_total_points(supabase, competition_id, week)
 
     return {
         "message": f"Backfill complete for week={week}",
         "competition_id": competition_id,
         "week": week,
-        "series_count": len(series_ids),
     }
+
+
+@app.post("/admin/pause-scheduler", tags=["admin"])
+async def admin_pause_scheduler(
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Pausa el job series_ingest del APScheduler."""
+    try:
+        _scheduler.pause_job("series_ingest")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to pause scheduler: {exc}")
+    return {"status": "paused"}
+
+
+@app.post("/admin/resume-scheduler", tags=["admin"])
+async def admin_resume_scheduler(
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Reanuda el job series_ingest del APScheduler."""
+    try:
+        _scheduler.resume_job("series_ingest")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to resume scheduler: {exc}")
+    return {"status": "resumed"}
+
+
+@app.post("/admin/recalculate-scoring", tags=["admin"])
+async def admin_recalculate_scoring(
+    competition_id: str,
+    week: int,
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Recalcula total_points de forma absoluta e idempotente para la competition y week dadas."""
+    from pipeline.series_ingest import _update_manager_total_points
+    try:
+        _update_manager_total_points(supabase, competition_id, week)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Recalculation failed: {exc}")
+    return {"status": "ok", "competition_id": competition_id, "week": week}
