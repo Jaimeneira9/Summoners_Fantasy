@@ -7,6 +7,7 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 gsap.registerPlugin(useGSAP);
 import { api, type Roster, type RosterPlayer, type Slot, type Split } from "@/lib/api";
+import { JornadaSelector } from "@/components/JornadaSelector";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
@@ -68,6 +69,11 @@ export default function LineupPage() {
   const [isMobile, setIsMobile] = useState(false);
   const startersRef = useRef<HTMLDivElement>(null);
 
+  // Historical week state
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
+  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
+  const [weekLoading, setWeekLoading] = useState(false);
+
   // Captain state
   const [captainPlayerId, setCaptainPlayerId] = useState<string | null>(null);
   const [currentWeek, setCurrentWeek] = useState<number | null>(null);
@@ -92,12 +98,16 @@ export default function LineupPage() {
     Promise.all([
       api.roster.get(leagueId),
       api.splits.active().catch(() => null),
+      api.scoring.leaderboard(leagueId).catch(() => null),
     ])
-      .then(([rosterData, splitData]) => {
+      .then(([rosterData, splitData, leaderboard]) => {
         setRoster(rosterData);
         setSplit(splitData);
         setCaptainPlayerId(rosterData.captain_player_id ?? null);
         setCurrentWeek(rosterData.current_week ?? null);
+        if (leaderboard?.available_weeks) {
+          setAvailableWeeks(leaderboard.available_weeks);
+        }
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -105,6 +115,28 @@ export default function LineupPage() {
 
 
   useEffect(() => { load(); }, [load]);
+
+  // Re-fetch roster when selectedWeek changes (skip initial load — load() handles it)
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    setWeekLoading(true);
+    api.roster.get(leagueId, selectedWeek)
+      .then((rosterData) => {
+        setRoster(rosterData);
+        if (selectedWeek === null) {
+          setCaptainPlayerId(rosterData.captain_player_id ?? null);
+        } else {
+          setCaptainPlayerId(rosterData.captain_player_id ?? null);
+        }
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setWeekLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId, selectedWeek]);
 
   useGSAP(() => {
     gsap.from(".lineup-card", {
@@ -121,6 +153,7 @@ export default function LineupPage() {
 
   // Captain helpers
   const handleSetCaptain = (rp: RosterPlayer) => {
+    if (selectedWeek !== null) return;
     if (captainPlayerId === rp.player.id) {
       // Already captain — open remove modal
       setCaptainModal({ open: true, target: rp, mode: "remove" });
@@ -177,8 +210,33 @@ export default function LineupPage() {
           <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm">{error}</div>
         )}
 
-        {loading ? (
+        {/* Selector de jornadas */}
+        {availableWeeks.length > 0 && (
+          <div className="mb-4">
+            <JornadaSelector
+              weeks={availableWeeks}
+              selected={selectedWeek}
+              onChange={setSelectedWeek}
+            />
+          </div>
+        )}
+
+        {/* Banner read-only en modo histórico */}
+        {selectedWeek !== null && (
+          <div className="mb-4 px-4 py-2 rounded-xl text-xs font-semibold text-center"
+            style={{ background: "#1A1A1A", color: "#FCD400", border: "1px solid #2A2A2A" }}>
+            Viendo Jornada {selectedWeek} — solo lectura
+          </div>
+        )}
+
+        {weekLoading ? (
           <LineupSkeleton />
+        ) : loading ? (
+          <LineupSkeleton />
+        ) : roster?.snapshot_missing ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>Sin lineup registrado para esta jornada</p>
+          </div>
         ) : !roster || roster.players.length === 0 ? (
           <EmptyRoster leagueId={leagueId} />
         ) : (
@@ -228,6 +286,7 @@ export default function LineupPage() {
                         isCaptain={rp !== null && rp.player.id === captainPlayerId}
                         onSetCaptain={rp ? () => handleSetCaptain(rp) : undefined}
                         currentWeek={currentWeek}
+                        readOnly={selectedWeek !== null}
                       />
                     </div>
                   );
@@ -286,6 +345,7 @@ function PlayerCard({
   isCaptain,
   onSetCaptain,
   currentWeek,
+  readOnly,
 }: {
   expectedRole: string;
   rp: RosterPlayer | null;
@@ -297,6 +357,7 @@ function PlayerCard({
   isCaptain?: boolean;
   onSetCaptain?: () => void;
   currentWeek?: number | null;
+  readOnly?: boolean;
 }) {
   const roleColor = ROLE_COLORS[expectedRole] ?? ROLE_COLORS.coach;
 
@@ -359,6 +420,7 @@ function PlayerCard({
       isCaptain={isCaptain ?? false}
       onSetCaptain={onSetCaptain}
       currentWeek={currentWeek}
+      readOnly={readOnly}
     />
   );
 }
@@ -375,6 +437,7 @@ function PlayerCardFilled({
   isCaptain,
   onSetCaptain,
   currentWeek,
+  readOnly,
 }: {
   rp: RosterPlayer;
   p: RosterPlayer["player"];
@@ -388,6 +451,7 @@ function PlayerCardFilled({
   isCaptain?: boolean;
   onSetCaptain?: () => void;
   currentWeek?: number | null;
+  readOnly?: boolean;
 }) {
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupLoading, setPopupLoading] = useState(false);
@@ -578,7 +642,7 @@ function PlayerCardFilled({
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={(e) => { e.stopPropagation(); setPopupOpen(true); }}
+                  onClick={(e) => { e.stopPropagation(); if (!readOnly) setPopupOpen(true); }}
                   className="flex-1"
                 >
                   🔒 {clauseDays}d

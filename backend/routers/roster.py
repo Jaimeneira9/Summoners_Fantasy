@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from typing import Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from supabase import Client
 
@@ -56,6 +56,8 @@ class RosterOut(BaseModel):
     players: list[RosterPlayerOut]
     captain_player_id: Optional[UUID] = None
     current_week: Optional[int] = None
+    snapshot_missing: bool = False
+    week: Optional[int] = None
 
 
 class CaptainRequest(BaseModel):
@@ -97,6 +99,7 @@ def _get_member(supabase: Client, league_id: str, user_id: str) -> dict:
 @router.get("/{league_id}", response_model=RosterOut)
 async def get_roster(
     league_id: UUID,
+    week: Optional[int] = Query(default=None, ge=1),
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> RosterOut:
@@ -129,6 +132,106 @@ async def get_roster(
                 current_week = week_resp.data[0]["week"]
     except Exception:
         pass  # non-critical — roster still loads without competition/week
+
+    # ── Historical snapshot branch (when week is provided) ──
+    if week is not None:
+        if competition_id is None:
+            return RosterOut(
+                league_id=league_id,
+                member_id=member["id"],
+                remaining_budget=float(member["remaining_budget"]),
+                total_points=float(member["total_points"]),
+                players=[],
+                snapshot_missing=True,
+                week=week,
+            )
+
+        snap_resp = (
+            supabase.table("lineup_snapshots")
+            .select("slot, player_id, captain_player_id")
+            .eq("member_id", member["id"])
+            .eq("competition_id", competition_id)
+            .eq("week", week)
+            .order("created_at", desc=True)
+            .limit(5)
+            .execute()
+        )
+
+        if not snap_resp.data:
+            return RosterOut(
+                league_id=league_id,
+                member_id=member["id"],
+                remaining_budget=float(member["remaining_budget"]),
+                total_points=float(member["total_points"]),
+                players=[],
+                snapshot_missing=True,
+                week=week,
+            )
+
+        snap_captain_player_id: Optional[str] = snap_resp.data[0].get("captain_player_id")
+        snap_player_ids = [r["player_id"] for r in snap_resp.data if r.get("player_id")]
+        snap_slot_map = {r["slot"]: r["player_id"] for r in snap_resp.data}
+
+        # Fetch player data
+        snap_players_map: dict[str, dict] = {}
+        if snap_player_ids:
+            p_resp = (
+                supabase.table("players")
+                .select("id, name, team, role, image_url, current_price, last_price_change_pct")
+                .in_("id", snap_player_ids)
+                .execute()
+            )
+            snap_players_map = {p["id"]: p for p in (p_resp.data or [])}
+
+        # Fetch jornada_points for the requested week (finished series only)
+        snap_jornada_points: dict[str, float] = {}
+        week_series_resp = (
+            supabase.table("series")
+            .select("id")
+            .eq("competition_id", competition_id)
+            .eq("week", week)
+            .eq("status", "finished")
+            .execute()
+        )
+        snap_series_ids = [s["id"] for s in (week_series_resp.data or [])]
+        if snap_series_ids and snap_player_ids:
+            jp_resp = (
+                supabase.table("player_series_stats")
+                .select("player_id, series_points")
+                .in_("series_id", snap_series_ids)
+                .in_("player_id", snap_player_ids)
+                .execute()
+            )
+            for jp_row in (jp_resp.data or []):
+                pid = str(jp_row["player_id"])
+                snap_jornada_points[pid] = snap_jornada_points.get(pid, 0.0) + float(jp_row.get("series_points") or 0.0)
+
+        snap_players_out: list[RosterPlayerOut] = []
+        for slot, player_id in snap_slot_map.items():
+            if player_id and player_id in snap_players_map:
+                p_data = snap_players_map[player_id]
+                pid = str(player_id)
+                snap_players_out.append(RosterPlayerOut(
+                    id=player_id,
+                    slot=slot,
+                    price_paid=0.0,
+                    for_sale=False,
+                    is_protected=False,
+                    split_points=0.0,
+                    jornada_points=snap_jornada_points.get(pid, 0.0),
+                    player=PlayerBrief(**p_data),
+                ))
+
+        return RosterOut(
+            league_id=league_id,
+            member_id=member["id"],
+            remaining_budget=float(member["remaining_budget"]),
+            total_points=float(member["total_points"]),
+            players=snap_players_out,
+            captain_player_id=snap_captain_player_id,
+            current_week=current_week,
+            week=week,
+        )
 
     # ── Step 4: Roster + players ──
     roster_resp = (
