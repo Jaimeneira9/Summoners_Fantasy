@@ -416,23 +416,21 @@ async def set_captain(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay competición activa")
     competition_id = comp_resp.data[0]["id"]
 
-    # 2. Verificar que la jornada no haya iniciado
+    # 2. Bloquear solo si hay series en progreso (no si ya terminaron)
     series_resp = (
         supabase.table("series")
-        .select("date")
+        .select("id")
         .eq("competition_id", competition_id)
         .eq("week", week)
-        .order("date", desc=False)
+        .eq("status", "in_progress")
         .limit(1)
         .execute()
     )
     if series_resp.data:
-        series_date = date.fromisoformat(series_resp.data[0]["date"])
-        if series_date <= datetime.now(timezone.utc).date():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="La jornada ya comenzó, no podés cambiar el capitán",
-            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="La jornada ya comenzó, no podés cambiar el capitán",
+        )
 
     # 3. Si se asigna capitán (no null): validar que es starter
     if body.captain_player_id is not None:
