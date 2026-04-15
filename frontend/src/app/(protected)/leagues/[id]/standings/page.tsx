@@ -178,6 +178,12 @@ function TeamModal({ leagueId, memberId, memberName, selectedWeek, onClose }: {
                 />
               ))}
             </div>
+          ) : !data || (data.players.length === 0 && data.snapshot_available === false) ? (
+            <div style={{ padding: "40px 20px", textAlign: "center", fontSize: 14, color: "#555" }}>
+              {data?.week != null
+                ? "Sin lineup registrado para esta jornada."
+                : "Sin jugadores en el equipo."}
+            </div>
           ) : !data || data.players.length === 0 ? (
             <div style={{ padding: "40px 20px", textAlign: "center", fontSize: 14, color: "#555" }}>
               Sin jugadores en el equipo.
@@ -284,7 +290,7 @@ function TeamModal({ leagueId, memberId, memberName, selectedWeek, onClose }: {
                         minWidth: 48,
                         textAlign: "right",
                       }}>
-                        {Math.round(rp.split_points ?? 0)}
+                        {Math.round(rp.jornada_points ?? rp.split_points ?? 0)}
                       </p>
                     </div>
                   );

@@ -271,7 +271,10 @@ export type CaptainResponse = {
 
 export type MemberRoster = {
   member: { id: string; total_points: number };
-  players: { slot: string; price_paid: number | null; split_points: number; is_captain?: boolean; players: { id: string; name: string; team: string; role: string; image_url: string | null } }[];
+  players: { slot: string; price_paid: number | null; split_points: number; jornada_points?: number | null; is_captain?: boolean; players: { id: string; name: string; team: string; role: string; image_url: string | null } }[];
+  captain_player_id?: string | null;
+  snapshot_available?: boolean;
+  week?: number | null;
 };
 
 export type MemberStats = {

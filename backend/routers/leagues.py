@@ -361,45 +361,56 @@ async def get_member_roster(
     )
     active_comp_id: str | None = active_comp.data[0]["id"] if active_comp.data else None
 
-    # Si se pidió semana y hay competition activa, intentar servir desde snapshot
+    # Si se pidió semana y hay competition activa, servir desde snapshot (sin fallback al roster actual)
     roster_players: list[dict] = []
     used_snapshot = False
+    snap_captain_player_id: str | None = None
 
     if week is not None and active_comp_id:
         snap_resp = (
             supabase.table("lineup_snapshots")
-            .select("slot, player_id, captain_player_id")
+            .select("slot, player_id, captain_player_id, created_at")
             .eq("member_id", str(member_id))
             .eq("competition_id", active_comp_id)
             .eq("week", week)
+            .order("created_at", desc=True)
             .execute()
         )
-        if snap_resp.data:
-            # Read captain_player_id from first row (all rows share the same value)
-            snap_captain_player_id: str | None = snap_resp.data[0].get("captain_player_id")
+        if not snap_resp.data:
+            # No snapshot para esta semana: devolver respuesta explícita sin fallback
+            return {
+                "member": member,
+                "players": [],
+                "captain_player_id": None,
+                "snapshot_available": False,
+                "week": week,
+            }
 
-            # Fetch player details for snapshotted player_ids
-            snapped_player_ids = [r["player_id"] for r in snap_resp.data if r.get("player_id")]
-            snap_slot_map = {r["slot"]: r["player_id"] for r in snap_resp.data}
-            players_map: dict[str, dict] = {}
-            if snapped_player_ids:
-                p_resp = (
-                    supabase.table("players")
-                    .select("id, name, team, role, image_url, current_price")
-                    .in_("id", snapped_player_ids)
-                    .execute()
-                )
-                players_map = {p["id"]: p for p in (p_resp.data or [])}
+        # Tomar el más reciente (ORDER BY created_at DESC) — primer registro
+        snap_captain_player_id = snap_resp.data[0].get("captain_player_id")
 
-            for slot, player_id in snap_slot_map.items():
-                if player_id and player_id in players_map:
-                    roster_players.append({
-                        "slot": slot,
-                        "price_paid": None,
-                        "players": players_map[player_id],
-                        "is_captain": player_id == snap_captain_player_id if snap_captain_player_id else False,
-                    })
-            used_snapshot = True
+        # Fetch player details for snapshotted player_ids
+        snapped_player_ids = [r["player_id"] for r in snap_resp.data if r.get("player_id")]
+        snap_slot_map = {r["slot"]: r["player_id"] for r in snap_resp.data}
+        players_map: dict[str, dict] = {}
+        if snapped_player_ids:
+            p_resp = (
+                supabase.table("players")
+                .select("id, name, team, role, image_url, current_price")
+                .in_("id", snapped_player_ids)
+                .execute()
+            )
+            players_map = {p["id"]: p for p in (p_resp.data or [])}
+
+        for slot, player_id in snap_slot_map.items():
+            if player_id and player_id in players_map:
+                roster_players.append({
+                    "slot": slot,
+                    "price_paid": None,
+                    "players": players_map[player_id],
+                    "is_captain": player_id == snap_captain_player_id if snap_captain_player_id else False,
+                })
+        used_snapshot = True
 
     # For the fallback (current roster), we need captain_player_id from captain_selections
     fallback_captain_player_id: str | None = None
@@ -411,7 +422,7 @@ async def get_member_roster(
             .execute()
         )
         if not roster_resp.data:
-            return {"member": member, "players": []}
+            return {"member": member, "players": [], "snapshot_available": False, "week": week}
 
         roster_id = roster_resp.data[0]["id"]
         players_resp = (
@@ -446,18 +457,18 @@ async def get_member_roster(
                 if cap_resp.data and cap_resp.data[0].get("captain_player_id"):
                     fallback_captain_player_id = cap_resp.data[0]["captain_player_id"]
 
-    # Enrich with split points from player_series_stats
+    # Enrich with split/jornada points from player_series_stats
     player_ids = [rp["players"]["id"] for rp in roster_players if rp.get("players")]
     points_map: dict[str, float] = {}
     if player_ids and active_comp_id:
-        # Scope series by week if provided, else full split
+        # Scope series by week (finished only) if provided, else full split
         series_filter = (
             supabase.table("series")
             .select("id")
             .eq("competition_id", active_comp_id)
         )
         if week is not None:
-            series_filter = series_filter.eq("week", week)
+            series_filter = series_filter.eq("week", week).eq("status", "finished")
         series_resp2 = series_filter.execute()
         active_series_ids = [s["id"] for s in (series_resp2.data or [])]
 
@@ -473,19 +484,26 @@ async def get_member_roster(
                 pid = row["player_id"]
                 points_map[pid] = points_map.get(pid, 0.0) + float(row["series_points"] or 0)
 
-    # Attach split_points and is_captain to each player entry
+    # Attach split_points/jornada_points and is_captain to each player entry
     enriched = []
     for rp in roster_players:
         entry = dict(rp)
         if entry.get("players"):
             pid = entry["players"]["id"]
-            entry["split_points"] = round(points_map.get(pid, 0.0), 2)
+            pts = round(points_map.get(pid, 0.0), 2)
+            entry["split_points"] = pts
+            entry["jornada_points"] = pts if week is not None else None
             # is_captain only added when not already set (snapshot path sets it above)
             if "is_captain" not in entry:
                 entry["is_captain"] = (pid == fallback_captain_player_id) if fallback_captain_player_id else False
         enriched.append(entry)
 
-    return {"member": member, "players": enriched}
+    response: dict = {"member": member, "players": enriched}
+    if week is not None:
+        response["captain_player_id"] = snap_captain_player_id
+        response["snapshot_available"] = used_snapshot
+        response["week"] = week
+    return response
 
 
 # ---------------------------------------------------------------------------
