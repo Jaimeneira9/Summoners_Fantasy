@@ -41,16 +41,22 @@ const TYPE_CONFIG: Record<string, { icon: string; colorClass: string; label: (e:
 
 export default function ActivityPage() {
   const { id: leagueId } = useParams<{ id: string }>();
-  const [events, setEvents]   = useState<ActivityEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState<string | null>(null);
+  const [events, setEvents]       = useState<ActivityEvent[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState<string | null>(null);
+  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
     api.activity.feed(leagueId)
       .then(setEvents)
       .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setInitializing(false);
+      });
   }, [leagueId]);
+
+  if (initializing) return null;
 
   return (
     <div className="min-h-[100dvh]" style={{ background: "var(--bg-base)", color: "var(--text-primary)" }}>

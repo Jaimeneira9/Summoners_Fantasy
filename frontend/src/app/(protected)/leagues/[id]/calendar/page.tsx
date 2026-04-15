@@ -280,6 +280,7 @@ export default function CalendarPage() {
   const [data, setData] = useState<CalendarResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -292,12 +293,17 @@ export default function CalendarPage() {
         if (!cancelled) setError(e.message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setInitializing(false);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [leagueId]);
+
+  if (initializing) return null;
 
   const weeks = data ? groupByWeek(data.series) : [];
 

@@ -254,6 +254,26 @@ function TeamModal({ leagueId, memberId, memberName, selectedWeek, onClose }: {
                         {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
                       </span>
 
+                      {/* Badge capitán */}
+                      {rp.is_captain === true && (
+                        <span style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: "50%",
+                          background: "#FCD400",
+                          border: "1.5px solid rgba(0,0,0,0.5)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 8,
+                          fontWeight: 700,
+                          color: "#000",
+                          flexShrink: 0,
+                        }}>
+                          C
+                        </span>
+                      )}
+
                       {/* Puntos */}
                       <p style={{
                         fontFamily: "'Barlow Condensed', sans-serif",

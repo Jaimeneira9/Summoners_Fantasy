@@ -255,6 +255,8 @@ export type Roster = {
   players: RosterPlayer[];
   captain_player_id: string | null;
   current_week: number | null;
+  snapshot_missing?: boolean;
+  week?: number | null;
 };
 
 export type CaptainResponse = {
@@ -269,7 +271,7 @@ export type CaptainResponse = {
 
 export type MemberRoster = {
   member: { id: string; total_points: number };
-  players: { slot: string; price_paid: number; split_points: number; players: { id: string; name: string; team: string; role: string; image_url: string | null } }[];
+  players: { slot: string; price_paid: number | null; split_points: number; is_captain?: boolean; players: { id: string; name: string; team: string; role: string; image_url: string | null } }[];
 };
 
 export type MemberStats = {
@@ -404,7 +406,8 @@ export const api = {
       req<MemberRoster>(`/leagues/${leagueId}/members/${memberId}/roster${week != null ? `?week=${week}` : ""}`),
   },
   roster: {
-    get: (leagueId: string) => req<Roster>(`/roster/${leagueId}`),
+    get: (leagueId: string, week?: number | null) =>
+      req<Roster>(`/roster/${leagueId}${week != null ? `?week=${week}` : ""}`),
     move: (leagueId: string, rosterPlayerId: string, newSlot: Slot) =>
       req(`/roster/${leagueId}/move`, {
         method: "PATCH",

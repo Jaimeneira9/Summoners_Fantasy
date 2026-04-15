@@ -53,6 +53,7 @@ export default function PlayerStatsPage() {
   const fromScout = searchParams.get("from") === "scout";
 
   const [loading, setLoading] = useState(true);
+  const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [historyData, setHistoryData] = useState<PlayerHistoryResponse | null>(null);
   const [, setSplitHistory] = useState<PlayerSplitHistory[]>([]);
@@ -101,7 +102,12 @@ export default function PlayerStatsPage() {
         }
       })
       .catch((e: Error) => { if (!cancelled) setError(e.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+          setInitializing(false);
+        }
+      });
 
     return () => { cancelled = true; };
   }, [playerId]);
@@ -228,6 +234,8 @@ export default function PlayerStatsPage() {
   // ---------------------------------------------------------------------------
   // Loading / error states
   // ---------------------------------------------------------------------------
+
+  if (initializing) return null;
 
   if (loading) return <LoadingSkeleton />;
 

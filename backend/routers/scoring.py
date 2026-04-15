@@ -135,19 +135,18 @@ async def get_leaderboard(
         (active_comp_resp.data or [{}])[0].get("id") if active_comp_resp.data else None
     )
 
-    # Obtener semanas disponibles (series finished de la competición activa)
+    # Obtener semanas disponibles (solo semanas con lineup_snapshots)
     available_weeks: list[int] = []
     current_week: int | None = None
     if active_competition_id:
-        weeks_resp = (
-            supabase.table("series")
+        snapped_resp = (
+            supabase.table("lineup_snapshots")
             .select("week")
             .eq("competition_id", active_competition_id)
-            .eq("status", "finished")
             .execute()
         )
         week_set: set[int] = set()
-        for row in (weeks_resp.data or []):
+        for row in (snapped_resp.data or []):
             w = row.get("week")
             if w is not None:
                 week_set.add(int(w))

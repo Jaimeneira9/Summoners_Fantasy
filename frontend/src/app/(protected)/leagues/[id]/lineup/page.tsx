@@ -7,6 +7,7 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 gsap.registerPlugin(useGSAP);
 import { api, type Roster, type RosterPlayer, type Slot, type Split } from "@/lib/api";
+import { JornadaSelector } from "@/components/JornadaSelector";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
@@ -23,6 +24,20 @@ const STARTER_SLOTS: { slot: Slot; role: string }[] = [
   { slot: "starter_4", role: "adc"     },
   { slot: "starter_5", role: "support" },
 ];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+function calcJornadaPoints(players: RosterPlayer[], captainId: string | null): number {
+  const STARTER_SLOT_SET = new Set(["starter_1", "starter_2", "starter_3", "starter_4", "starter_5"]);
+  return players
+    .filter((rp) => STARTER_SLOT_SET.has(rp.slot))
+    .reduce((sum, rp) => {
+      const pts = rp.jornada_points ?? 0;
+      const multiplier = rp.player.id === captainId ? 2 : 1;
+      return sum + pts * multiplier;
+    }, 0);
+}
 
 // ---------------------------------------------------------------------------
 // Split reset warning banner
@@ -54,6 +69,167 @@ function SplitResetWarning({ split, leagueId }: { split: Split | null; leagueId:
   );
 }
 
+// ---------------------------------------------------------------------------
+// PriceTrend indicator
+// ---------------------------------------------------------------------------
+function PriceTrend({ pct }: { pct?: number | null }) {
+  if (!pct || pct === 0) return null;
+  const isUp = pct > 0;
+  const color = isUp ? "#22c55e" : "#ef4444";
+  const sign = isUp ? "+" : "";
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "2px",
+        fontSize: "10px",
+        fontFamily: "'Space Grotesk', sans-serif",
+        color,
+        lineHeight: 1,
+        flexShrink: 0,
+      }}
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+        {isUp ? (
+          <path d="M5 8V2M5 2L2 5M5 2L8 5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        ) : (
+          <path d="M5 2V8M5 8L2 5M5 8L8 5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        )}
+      </svg>
+      {sign}{pct.toFixed(1)}%
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Roster Stats Bar
+// ---------------------------------------------------------------------------
+function RosterStatsBar({
+  remainingBudget,
+  totalPoints,
+  jornadaPoints,
+  rankPosition,
+  rankTotal,
+  hasCaptain,
+}: {
+  remainingBudget: number;
+  totalPoints: number;
+  jornadaPoints: number;
+  rankPosition: number | null;
+  rankTotal: number;
+  hasCaptain?: boolean;
+}) {
+  const cells = [
+    {
+      label: "Presupuesto",
+      value: remainingBudget.toFixed(1),
+      unit: "M",
+      valueColor: "#ffffff",
+    },
+    {
+      label: "Puntos totales",
+      value: String(Math.round(totalPoints)),
+      unit: "pts",
+      valueColor: "#fcd400",
+    },
+    {
+      label: "Posición liga",
+      value: rankPosition !== null ? `#${rankPosition}` : "—",
+      unit: rankPosition !== null ? `de ${rankTotal}` : "",
+      valueColor: "#ffffff",
+    },
+    {
+      label: "Jornada",
+      value: String(Math.round(jornadaPoints)),
+      unit: "pts",
+      valueColor: "#ffffff",
+    },
+  ];
+
+  return (
+    <div
+      className="w-full mb-6"
+      style={{
+        background: "#161616",
+        border: "1px solid #252525",
+        borderRadius: "12px",
+        overflow: "hidden",
+      }}
+    >
+      <div style={{ display: "flex" }}>
+        {cells.map((cell, i) => (
+          <div
+            key={cell.label}
+            style={{
+              flex: 1,
+              padding: "12px 0",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "4px",
+              borderLeft: i > 0 ? "1px solid #252525" : "none",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontSize: "11px",
+                fontWeight: 500,
+                color: "#6b7280",
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                lineHeight: 1,
+              }}
+            >
+              {cell.label}
+            </span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "3px" }}>
+              <span
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: "24px",
+                  fontWeight: 700,
+                  color: cell.valueColor,
+                  lineHeight: 1,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                {cell.value}
+              </span>
+              {cell.unit && (
+                <span
+                  style={{
+                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontSize: "13px",
+                    color: "#6b7280",
+                    lineHeight: 1,
+                  }}
+                >
+                  {cell.unit}
+                </span>
+              )}
+            </div>
+            {cell.label === "Jornada" && hasCaptain && jornadaPoints > 0 && (
+              <span
+                style={{
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  color: "#fcd400",
+                  lineHeight: 1,
+                  letterSpacing: "0.02em",
+                }}
+              >
+                cap. ×2
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Page
@@ -68,6 +244,11 @@ export default function LineupPage() {
   const [isMobile, setIsMobile] = useState(false);
   const startersRef = useRef<HTMLDivElement>(null);
 
+  // Historical week state
+  const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
+  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
+  const [weekLoading, setWeekLoading] = useState(false);
+
   // Captain state
   const [captainPlayerId, setCaptainPlayerId] = useState<string | null>(null);
   const [currentWeek, setCurrentWeek] = useState<number | null>(null);
@@ -78,6 +259,12 @@ export default function LineupPage() {
   } | null>(null);
   const [captainLoading, setCaptainLoading] = useState(false);
   const [captainError, setCaptainError] = useState<string | null>(null);
+
+  // Rank state
+  const [myRank, setMyRank] = useState<{ position: number | null; total: number }>({
+    position: null,
+    total: 0,
+  });
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 640);
@@ -92,12 +279,26 @@ export default function LineupPage() {
     Promise.all([
       api.roster.get(leagueId),
       api.splits.active().catch(() => null),
+      api.scoring.leaderboard(leagueId).catch(() => null),
     ])
-      .then(([rosterData, splitData]) => {
+      .then(([rosterData, splitData, leaderboard]) => {
         setRoster(rosterData);
         setSplit(splitData);
         setCaptainPlayerId(rosterData.captain_player_id ?? null);
         setCurrentWeek(rosterData.current_week ?? null);
+        if (leaderboard?.available_weeks) {
+          setAvailableWeeks(leaderboard.available_weeks);
+        }
+        // Rank extraction — REQ-1.2, 1.3, 1.4
+        if (leaderboard?.entries) {
+          const myEntry = leaderboard.entries.find(
+            (e: { member_id: string; rank: number }) => e.member_id === rosterData.member_id
+          );
+          setMyRank({
+            position: myEntry?.rank ?? null,
+            total: leaderboard.entries.length,
+          });
+        }
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -105,6 +306,28 @@ export default function LineupPage() {
 
 
   useEffect(() => { load(); }, [load]);
+
+  // Re-fetch roster when selectedWeek changes (skip initial load — load() handles it)
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    setWeekLoading(true);
+    api.roster.get(leagueId, selectedWeek)
+      .then((rosterData) => {
+        setRoster(rosterData);
+        if (selectedWeek === null) {
+          setCaptainPlayerId(rosterData.captain_player_id ?? null);
+        } else {
+          setCaptainPlayerId(rosterData.captain_player_id ?? null);
+        }
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setWeekLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId, selectedWeek]);
 
   useGSAP(() => {
     gsap.from(".lineup-card", {
@@ -121,6 +344,7 @@ export default function LineupPage() {
 
   // Captain helpers
   const handleSetCaptain = (rp: RosterPlayer) => {
+    if (selectedWeek !== null) return;
     if (captainPlayerId === rp.player.id) {
       // Already captain — open remove modal
       setCaptainModal({ open: true, target: rp, mode: "remove" });
@@ -177,12 +401,47 @@ export default function LineupPage() {
           <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-500 text-sm">{error}</div>
         )}
 
-        {loading ? (
+        {/* Selector de jornadas */}
+        {availableWeeks.length > 0 && (
+          <div className="mb-4">
+            <JornadaSelector
+              weeks={availableWeeks}
+              selected={selectedWeek}
+              onChange={setSelectedWeek}
+            />
+          </div>
+        )}
+
+        {/* Banner read-only en modo histórico */}
+        {selectedWeek !== null && (
+          <div className="mb-4 px-4 py-2 rounded-xl text-xs font-semibold text-center"
+            style={{ background: "#1A1A1A", color: "#FCD400", border: "1px solid #2A2A2A" }}>
+            Viendo Jornada {selectedWeek} — solo lectura
+          </div>
+        )}
+
+        {weekLoading ? (
           <LineupSkeleton />
+        ) : loading ? (
+          <LineupSkeleton />
+        ) : roster?.snapshot_missing ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-3">
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>Sin lineup registrado para esta jornada</p>
+          </div>
         ) : !roster || roster.players.length === 0 ? (
           <EmptyRoster leagueId={leagueId} />
         ) : (
           <>
+
+            {/* Stats bar */}
+            <RosterStatsBar
+              remainingBudget={roster.remaining_budget}
+              totalPoints={roster.total_points}
+              jornadaPoints={calcJornadaPoints(roster.players, captainPlayerId)}
+              rankPosition={myRank.position}
+              rankTotal={myRank.total}
+              hasCaptain={captainPlayerId !== null}
+            />
 
             {/* Starters */}
             <section>
@@ -228,6 +487,7 @@ export default function LineupPage() {
                         isCaptain={rp !== null && rp.player.id === captainPlayerId}
                         onSetCaptain={rp ? () => handleSetCaptain(rp) : undefined}
                         currentWeek={currentWeek}
+                        readOnly={selectedWeek !== null}
                       />
                     </div>
                   );
@@ -286,6 +546,7 @@ function PlayerCard({
   isCaptain,
   onSetCaptain,
   currentWeek,
+  readOnly,
 }: {
   expectedRole: string;
   rp: RosterPlayer | null;
@@ -297,6 +558,7 @@ function PlayerCard({
   isCaptain?: boolean;
   onSetCaptain?: () => void;
   currentWeek?: number | null;
+  readOnly?: boolean;
 }) {
   const roleColor = ROLE_COLORS[expectedRole] ?? ROLE_COLORS.coach;
 
@@ -359,6 +621,7 @@ function PlayerCard({
       isCaptain={isCaptain ?? false}
       onSetCaptain={onSetCaptain}
       currentWeek={currentWeek}
+      readOnly={readOnly}
     />
   );
 }
@@ -375,6 +638,7 @@ function PlayerCardFilled({
   isCaptain,
   onSetCaptain,
   currentWeek,
+  readOnly,
 }: {
   rp: RosterPlayer;
   p: RosterPlayer["player"];
@@ -388,6 +652,7 @@ function PlayerCardFilled({
   isCaptain?: boolean;
   onSetCaptain?: () => void;
   currentWeek?: number | null;
+  readOnly?: boolean;
 }) {
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupLoading, setPopupLoading] = useState(false);
@@ -556,9 +821,12 @@ function PlayerCardFilled({
               <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "16px", fontWeight: 700, color: "#FCD400", letterSpacing: "-0.02em", lineHeight: 1 }}>
                 {displayPointsStr}
               </span>
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", color: "#888888" }}>{pointsSuffix}</span>
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "11px", color: "#777777", marginLeft: "auto" }}>
-                {p.current_price.toFixed(1)}M
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "10px", color: "#888888", marginLeft: "2px" }}>{pointsSuffix}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: "3px", marginLeft: "auto" }}>
+                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "11px", color: "#777777" }}>
+                  {p.current_price.toFixed(1)}M
+                </span>
+                <PriceTrend pct={p.last_price_change_pct} />
               </span>
             </div>
 
@@ -578,7 +846,7 @@ function PlayerCardFilled({
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={(e) => { e.stopPropagation(); setPopupOpen(true); }}
+                  onClick={(e) => { e.stopPropagation(); if (!readOnly) setPopupOpen(true); }}
                   className="flex-1"
                 >
                   🔒 {clauseDays}d
@@ -814,20 +1082,22 @@ function PlayerCardFilled({
               fontFamily: "'Space Grotesk', sans-serif",
               fontSize: "12px",
               color: "#888888",
-              marginLeft: "4px",
+              marginLeft: "8px",
             }}
           >
             {pointsSuffix}
           </span>
-          <span
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              fontSize: "12px",
-              color: "#777777",
-              marginLeft: "auto",
-            }}
-          >
-            {p.current_price.toFixed(1)}M
+          <span style={{ display: "flex", alignItems: "center", gap: "3px", marginLeft: "auto" }}>
+            <span
+              style={{
+                fontFamily: "'Space Grotesk', sans-serif",
+                fontSize: "12px",
+                color: "#777777",
+              }}
+            >
+              {p.current_price.toFixed(1)}M
+            </span>
+            <PriceTrend pct={p.last_price_change_pct} />
           </span>
         </div>
 

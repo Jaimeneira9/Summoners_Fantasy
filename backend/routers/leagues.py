@@ -368,13 +368,16 @@ async def get_member_roster(
     if week is not None and active_comp_id:
         snap_resp = (
             supabase.table("lineup_snapshots")
-            .select("slot, player_id")
+            .select("slot, player_id, captain_player_id")
             .eq("member_id", str(member_id))
             .eq("competition_id", active_comp_id)
             .eq("week", week)
             .execute()
         )
         if snap_resp.data:
+            # Read captain_player_id from first row (all rows share the same value)
+            snap_captain_player_id: str | None = snap_resp.data[0].get("captain_player_id")
+
             # Fetch player details for snapshotted player_ids
             snapped_player_ids = [r["player_id"] for r in snap_resp.data if r.get("player_id")]
             snap_slot_map = {r["slot"]: r["player_id"] for r in snap_resp.data}
@@ -394,9 +397,12 @@ async def get_member_roster(
                         "slot": slot,
                         "price_paid": None,
                         "players": players_map[player_id],
+                        "is_captain": player_id == snap_captain_player_id if snap_captain_player_id else False,
                     })
             used_snapshot = True
 
+    # For the fallback (current roster), we need captain_player_id from captain_selections
+    fallback_captain_player_id: str | None = None
     if not used_snapshot:
         roster_resp = (
             supabase.table("rosters")
@@ -415,6 +421,30 @@ async def get_member_roster(
             .execute()
         )
         roster_players = players_resp.data or []
+
+        # Fetch current week's captain selection for fallback path
+        if active_comp_id:
+            current_week_resp = (
+                supabase.table("series")
+                .select("week")
+                .eq("competition_id", active_comp_id)
+                .eq("status", "finished")
+                .order("week", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if current_week_resp.data:
+                current_week_val = current_week_resp.data[0]["week"]
+                cap_resp = (
+                    supabase.table("captain_selections")
+                    .select("captain_player_id")
+                    .eq("member_id", str(member_id))
+                    .eq("week", current_week_val)
+                    .limit(1)
+                    .execute()
+                )
+                if cap_resp.data and cap_resp.data[0].get("captain_player_id"):
+                    fallback_captain_player_id = cap_resp.data[0]["captain_player_id"]
 
     # Enrich with split points from player_series_stats
     player_ids = [rp["players"]["id"] for rp in roster_players if rp.get("players")]
@@ -443,13 +473,16 @@ async def get_member_roster(
                 pid = row["player_id"]
                 points_map[pid] = points_map.get(pid, 0.0) + float(row["series_points"] or 0)
 
-    # Attach split_points to each player entry
+    # Attach split_points and is_captain to each player entry
     enriched = []
     for rp in roster_players:
         entry = dict(rp)
         if entry.get("players"):
             pid = entry["players"]["id"]
             entry["split_points"] = round(points_map.get(pid, 0.0), 2)
+            # is_captain only added when not already set (snapshot path sets it above)
+            if "is_captain" not in entry:
+                entry["is_captain"] = (pid == fallback_captain_player_id) if fallback_captain_player_id else False
         enriched.append(entry)
 
     return {"member": member, "players": enriched}
