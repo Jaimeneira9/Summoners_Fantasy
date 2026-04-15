@@ -649,12 +649,19 @@ export default function StandingsPage() {
       .then(([lg, board]: [League | null, LeaderboardResponse]) => {
         if (lg?.member) setMyMemberId(lg.member.id);
         setLeague(lg);
-        setEntries(board.entries);
         setAvailableWeeks(board.available_weeks);
         setCurrentWeek(board.current_week);
-        // Inicializar en la semana actual; marcar para que el useEffect de selectedWeek no re-fetchee
-        skipNextWeekEffect.current = true;
-        setSelectedWeek(board.current_week);
+        // Si hay semana actual, fetchear con ?week para hidratar week_points desde el inicio.
+        // Sin esto, los entries vienen con week_points = null y la columna J3 aparece en blanco.
+        const weekFetch = board.current_week != null
+          ? api.scoring.leaderboard(leagueId, board.current_week)
+          : Promise.resolve(board);
+        return weekFetch.then((weekBoard) => {
+          setEntries(weekBoard.entries);
+          // Skipear el useEffect para que no re-fetchee: ya tenemos los datos correctos
+          skipNextWeekEffect.current = true;
+          setSelectedWeek(board.current_week);
+        });
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => {
