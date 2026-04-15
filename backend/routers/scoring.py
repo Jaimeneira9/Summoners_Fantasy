@@ -171,7 +171,7 @@ async def get_leaderboard(
             # Intentar reconstruir member_starter_player_ids desde lineup_snapshots
             snap_resp = (
                 supabase.table("lineup_snapshots")
-                .select("member_id, slot, player_id")
+                .select("member_id, slot, player_id, captain_player_id")
                 .eq("competition_id", active_competition_id)
                 .eq("week", week)
                 .in_("member_id", member_ids)
@@ -181,9 +181,14 @@ async def get_leaderboard(
                 # Rebuild from snapshot
                 from collections import defaultdict as _defaultdict
                 snapped: dict[str, list[str]] = _defaultdict(list)
+                captain_by_member: dict[str, str | None] = {}
                 for row in snap_resp.data:
+                    mid_snap = row["member_id"]
                     if row["player_id"] and not (row.get("slot") or "").startswith("bench"):
-                        snapped[row["member_id"]].append(row["player_id"])
+                        snapped[mid_snap].append(row["player_id"])
+                    # captain_player_id is the same on every row for a member — take first non-None
+                    if mid_snap not in captain_by_member and row.get("captain_player_id") is not None:
+                        captain_by_member[mid_snap] = row["captain_player_id"]
                 # Replace member_starter_player_ids with snapshot data for this week
                 week_starter_player_ids: dict[str, list[str]] = {
                     mid: snapped.get(mid, []) for mid in member_ids
@@ -191,6 +196,24 @@ async def get_leaderboard(
             else:
                 # No snapshot: manager had no starters this week → 0 points
                 week_starter_player_ids = {mid: [] for mid in member_ids}
+                captain_by_member = {}
+
+            # Fallback: fetch captain_selections for members without a captain in the snapshot
+            members_without_captain = [mid for mid in member_ids if mid not in captain_by_member]
+            if members_without_captain:
+                try:
+                    cap_resp = (
+                        supabase.table("captain_selections")
+                        .select("member_id, captain_player_id")
+                        .eq("competition_id", active_competition_id)
+                        .eq("week", week)
+                        .in_("member_id", members_without_captain)
+                        .execute()
+                    )
+                    for cap_row in (cap_resp.data or []):
+                        captain_by_member[cap_row["member_id"]] = cap_row.get("captain_player_id")
+                except Exception as exc:
+                    logger.warning("Failed to fetch captain_selections for week=%d: %s", week, exc)
 
             # Fetch player_series_stats para todos los starters de esta semana
             all_starter_ids = list({pid for pids in week_starter_player_ids.values() for pid in pids})
@@ -202,7 +225,7 @@ async def get_leaderboard(
                     .in_("series_id", series_ids_for_week)
                     .execute()
                 )
-                # Acumular puntos por jugador
+                # Acumular puntos por jugador (raw, sin multiplicador de capitán)
                 player_week_points: dict[str, float] = {}
                 for row in (pss_resp.data or []):
                     pid = row["player_id"]
@@ -214,7 +237,14 @@ async def get_leaderboard(
                     if len(starters) < 5:
                         week_points_map[mid] = 0.0
                     else:
-                        total = sum(player_week_points.get(pid, 0.0) for pid in starters)
+                        captain_pid = captain_by_member.get(mid)
+                        total = sum(
+                            player_week_points.get(pid, 0.0) * (
+                                2 if captain_pid is not None and str(pid) == str(captain_pid)
+                                else 1
+                            )
+                            for pid in starters
+                        )
                         week_points_map[mid] = total
         else:
             # Semana pedida sin series → 0 para todos
