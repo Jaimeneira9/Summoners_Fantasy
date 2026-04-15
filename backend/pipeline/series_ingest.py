@@ -827,47 +827,23 @@ def _take_lineup_snapshot_if_needed(
 def _update_manager_total_points(
     supabase: Client,
     competition_id: str,
-    week: int,
+    week: int | None = None,  # ignorado: la función itera todas las semanas con snapshot
 ) -> None:
     """
     Calcula y escribe total_points para cada manager de la competition de forma
     absoluta e idempotente.
 
-    Algoritmo:
-    - Lee el snapshot de la `week` indicada (5 slots starter_1..5).
-    - Managers con < 5 player_id NOT NULL → total_points = 0.
-    - Solo suma series de semanas que tienen lineup_snapshots en la competition
-      (semanas sin snapshot no contribuyen puntos, aunque las series existan).
-    - El captain aporta sus series_points * 2.
-    - UPDATE league_members SET total_points = total (asignación absoluta, idempotente).
+    Algoritmo correcto (por semana):
+    - Itera TODAS las semanas que tienen lineup_snapshots en la competition.
+    - Por cada semana usa el snapshot de ESA semana (starters + captain).
+    - Si el snapshot de esa semana tiene < 5 starters → 0 puntos para esa semana.
+    - Suma series_points de las series finalizadas de ESA semana usando los
+      starters de ESA semana; el captain aporta x2.
+    - Acumula el total across todas las semanas y hace un UPDATE absoluto e idempotente.
     """
     starter_slots = ["starter_1", "starter_2", "starter_3", "starter_4", "starter_5"]
 
-    # 1. Fetch snapshots de esta week en bulk
-    try:
-        snap_resp = (
-            supabase.table("lineup_snapshots")
-            .select("member_id, slot, player_id, captain_player_id")
-            .eq("competition_id", competition_id)
-            .eq("week", week)
-            .execute()
-        )
-    except Exception as exc:
-        logger.error("Failed to fetch lineup_snapshots for week=%d: %s", week, exc)
-        return
-
-    snapshot_by_member: dict[str, dict[str, str | None]] = {}
-    snapshot_captain_by_member: dict[str, str | None] = {}
-    for row in (snap_resp.data or []):
-        mid = row["member_id"]
-        if mid not in snapshot_by_member:
-            snapshot_by_member[mid] = {}
-        snapshot_by_member[mid][row["slot"]] = row["player_id"]
-        if row.get("captain_player_id") is not None and mid not in snapshot_captain_by_member:
-            snapshot_captain_by_member[mid] = row["captain_player_id"]
-
-    # 3. Fetch solo las semanas que tienen snapshots válidos en esta competition
-    # (evita creditar puntos de semanas donde nadie tenía lineup confirmado)
+    # 1. Fetch todas las semanas con snapshots en esta competition
     try:
         snapped_weeks_resp = (
             supabase.table("lineup_snapshots")
@@ -879,36 +855,64 @@ def _update_manager_total_points(
         logger.error("Failed to fetch snapped weeks for competition %s: %s", competition_id, exc)
         return
 
-    snapped_weeks = list({row["week"] for row in (snapped_weeks_resp.data or [])})
+    snapped_weeks = sorted({row["week"] for row in (snapped_weeks_resp.data or [])})
     if not snapped_weeks:
         logger.info("[SCORING] No snapshots found for competition %s — nothing to score", competition_id)
         return
 
-    # 4. Fetch IDs de series finished solo para semanas con snapshot
+    # 2. Fetch todos los snapshots de la competition de una sola vez (bulk)
     try:
-        series_resp = (
-            supabase.table("series")
-            .select("id")
+        all_snaps_resp = (
+            supabase.table("lineup_snapshots")
+            .select("week, member_id, slot, player_id, captain_player_id")
             .eq("competition_id", competition_id)
-            .eq("status", "finished")
-            .in_("week", snapped_weeks)
             .execute()
         )
     except Exception as exc:
-        logger.error("Failed to fetch finished series for competition %s: %s", competition_id, exc)
+        logger.error("Failed to fetch all lineup_snapshots for competition %s: %s", competition_id, exc)
         return
 
-    finished_series_ids = [str(row["id"]) for row in (series_resp.data or [])]
+    # Índice: snaps_by_week_member[week][member_id] = {slot: player_id}
+    snaps_by_week_member: dict[int, dict[str, dict[str, str | None]]] = {}
+    # Índice: captain_by_week_member[week][member_id] = captain_player_id | None
+    captain_by_week_member: dict[int, dict[str, str | None]] = {}
+    for row in (all_snaps_resp.data or []):
+        w = row["week"]
+        mid = row["member_id"]
+        snaps_by_week_member.setdefault(w, {}).setdefault(mid, {})[row["slot"]] = row["player_id"]
+        if row.get("captain_player_id") is not None:
+            captain_by_week_member.setdefault(w, {}).setdefault(mid, row["captain_player_id"])
 
-    # Los member_ids a puntuar son los que tienen snapshot para esta week
-    member_ids_with_snapshot = list(snapshot_by_member.keys())
-    if not member_ids_with_snapshot:
-        logger.info("[SCORING] No members with snapshot for week=%d — nothing to score", week)
-        return
-
-    for member_id in member_ids_with_snapshot:
+    # 3. Fetch series finalizadas por semana (una query por semana para aislar correctamente)
+    series_ids_by_week: dict[int, list[str]] = {}
+    for w in snapped_weeks:
         try:
-            snap_slots = snapshot_by_member[member_id]
+            series_resp = (
+                supabase.table("series")
+                .select("id")
+                .eq("competition_id", competition_id)
+                .eq("status", "finished")
+                .eq("week", w)
+                .execute()
+            )
+            series_ids_by_week[w] = [str(r["id"]) for r in (series_resp.data or [])]
+        except Exception as exc:
+            logger.error("Failed to fetch finished series for competition %s week=%d: %s", competition_id, w, exc)
+            series_ids_by_week[w] = []
+
+    # 4. Acumular puntos por member across todas las semanas
+    # total_by_member[member_id] = float acumulado
+    total_by_member: dict[str, float] = {}
+    # Registrar si algún member tuvo al menos una semana con snapshot (para saber quiénes actualizar)
+    all_scored_members: set[str] = set()
+
+    for w in snapped_weeks:
+        week_snaps = snaps_by_week_member.get(w, {})
+        week_series_ids = series_ids_by_week.get(w, [])
+        week_captains = captain_by_week_member.get(w, {})
+
+        for member_id, snap_slots in week_snaps.items():
+            all_scored_members.add(member_id)
 
             starter_player_ids = [
                 snap_slots[slot]
@@ -918,16 +922,16 @@ def _update_manager_total_points(
 
             if len(starter_player_ids) < 5:
                 logger.info(
-                    "[SCORING SKIP] member %s has %d/5 starters — setting total_points=0",
+                    "[SCORING SKIP] member %s week=%d has %d/5 starters — 0 pts for this week",
                     member_id,
+                    w,
                     len(starter_player_ids),
                 )
-                supabase.table("league_members").update(
-                    {"total_points": 0}
-                ).eq("id", member_id).execute()
+                # Esta semana aporta 0; no sumamos nada (el acumulador empieza en 0)
+                total_by_member.setdefault(member_id, 0.0)
                 continue
 
-            captain_player_id = snapshot_captain_by_member.get(member_id)
+            captain_player_id = week_captains.get(member_id)
 
             # Fallback: buscar captain en captain_selections si no está en snapshot
             if captain_player_id is None:
@@ -937,7 +941,7 @@ def _update_manager_total_points(
                         .select("captain_player_id")
                         .eq("member_id", member_id)
                         .eq("competition_id", competition_id)
-                        .eq("week", week)
+                        .eq("week", w)
                         .limit(1)
                         .execute()
                     )
@@ -945,26 +949,36 @@ def _update_manager_total_points(
                         captain_player_id = cap_resp.data[0].get("captain_player_id")
                 except Exception as exc:
                     logger.warning(
-                        "Failed to fetch captain_selections fallback for member %s: %s",
+                        "Failed to fetch captain_selections fallback for member %s week=%d: %s",
                         member_id,
+                        w,
                         exc,
                     )
 
-            if not finished_series_ids:
-                supabase.table("league_members").update(
-                    {"total_points": 0}
-                ).eq("id", member_id).execute()
+            if not week_series_ids:
+                # No hay series finalizadas esta semana → 0 pts
+                total_by_member.setdefault(member_id, 0.0)
                 continue
 
-            pss_resp = (
-                supabase.table("player_series_stats")
-                .select("player_id, series_points")
-                .in_("player_id", starter_player_ids)
-                .in_("series_id", finished_series_ids)
-                .execute()
-            )
+            try:
+                pss_resp = (
+                    supabase.table("player_series_stats")
+                    .select("player_id, series_points")
+                    .in_("player_id", starter_player_ids)
+                    .in_("series_id", week_series_ids)
+                    .execute()
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to fetch player_series_stats for member %s week=%d: %s",
+                    member_id,
+                    w,
+                    exc,
+                )
+                total_by_member.setdefault(member_id, 0.0)
+                continue
 
-            total = sum(
+            week_pts = sum(
                 float(r.get("series_points") or 0) * (
                     2 if captain_player_id is not None
                     and str(r.get("player_id")) == str(captain_player_id)
@@ -973,17 +987,30 @@ def _update_manager_total_points(
                 for r in (pss_resp.data or [])
             )
 
-            supabase.table("league_members").update(
-                {"total_points": round(total, 2)}
-            ).eq("id", member_id).execute()
+            total_by_member[member_id] = total_by_member.get(member_id, 0.0) + week_pts
 
-            logger.info(
-                "[SCORING] member %s: total_points=%.2f%s",
+            logger.debug(
+                "[SCORING] member %s week=%d: +%.2f pts%s",
                 member_id,
-                total,
+                w,
+                week_pts,
                 f" [captain x2: player_id={captain_player_id}]" if captain_player_id else "",
             )
 
+    # 5. Escribir total_points absoluto e idempotente para cada member
+    for member_id in all_scored_members:
+        total = round(total_by_member.get(member_id, 0.0), 2)
+        try:
+            supabase.table("league_members").update(
+                {"total_points": total}
+            ).eq("id", member_id).execute()
+
+            logger.info(
+                "[SCORING] member %s: total_points=%.2f (across %d weeks)",
+                member_id,
+                total,
+                len(snapped_weeks),
+            )
         except Exception as exc:
             logger.error(
                 "Failed to update total_points for member %s: %s",

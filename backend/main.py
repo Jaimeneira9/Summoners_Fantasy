@@ -250,14 +250,13 @@ def admin_backfill_week_scoring(
             detail="Some league members already have total_points > 0. Backfill refused to prevent double-counting.",
         )
 
-    # 3. Score managers (absolute, idempotent)
+    # 3. Score managers (absolute, idempotent — itera todas las semanas con snapshot)
     # Nota: snapshots son creados por el pipeline live, no por el backfill
-    _update_manager_total_points(supabase, competition_id, week)
+    _update_manager_total_points(supabase, competition_id)
 
     return {
-        "message": f"Backfill complete for week={week}",
+        "message": "Backfill complete (all snapped weeks)",
         "competition_id": competition_id,
-        "week": week,
     }
 
 
@@ -289,15 +288,19 @@ async def admin_resume_scheduler(
 
 @app.post("/admin/recalculate-scoring", tags=["admin"])
 async def admin_recalculate_scoring(
-    competition_id: str,
-    week: int,
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Recalcula total_points de forma absoluta e idempotente para la competition y week dadas."""
+    """Recalcula total_points de forma absoluta e idempotente para todas las competitions."""
     from pipeline.series_ingest import _update_manager_total_points
     try:
-        _update_manager_total_points(supabase, competition_id, week)
+        competitions_res = supabase.table("competitions").select("id").execute()
+        competitions = competitions_res.data or []
+        processed = []
+        for comp in competitions:
+            comp_id = comp["id"]
+            _update_manager_total_points(supabase, comp_id)
+            processed.append(comp_id)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Recalculation failed: {exc}")
-    return {"status": "ok", "competition_id": competition_id, "week": week}
+    return {"status": "ok", "competitions_processed": processed}
