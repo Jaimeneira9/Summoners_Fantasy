@@ -69,7 +69,7 @@ def _chain(*return_values: object) -> MagicMock:
         return results[idx] if idx < len(results) else results[-1]
 
     chain.execute.side_effect = execute_side_effect
-    for method in ("select", "eq", "in_", "insert", "single", "order", "limit"):
+    for method in ("select", "eq", "neq", "in_", "insert", "update", "delete", "single", "order", "limit", "ilike", "like"):
         getattr(chain, method).return_value = chain
 
     return chain
