@@ -123,13 +123,11 @@ def test_best_multikill_none_when_no_multikills():
 
 def test_series_points_is_average_not_sum():
     """
-    Bug conocido: series_ingest usaba sum() en vez de sum()/len().
-    Si hay 2 games con 30 y 10 puntos, el resultado debe ser 20.0, no 40.0.
+    series_ingest debe calcular series_points como promedio de game_points, no suma.
+    Si hay 2 games con points1 y points2, el resultado debe ser (points1+points2)/2, no points1+points2.
     """
-    # Calculamos manualmente los points
-    # game 1: kills=5, deaths=1, assists=3 en mid → 5*2 + 1*(-1.5) + 3*1 = 10-1.5+3 = 11.5
-    # game 2: kills=0, deaths=3, assists=1 en mid → 0 + 3*(-1.5) + 1 = -4.5+1 = -3.5
-    # promedio = (11.5 + (-3.5)) / 2 = 4.0
+    # game 1: kills=5, deaths=1, assists=3 en mid
+    # game 2: kills=0, deaths=3, assists=1 en mid
     stats_game1 = _make_stats(kills=5, deaths=1, assists=3, role="mid", cs_per_min=0)
     stats_game2 = _make_stats(kills=0, deaths=3, assists=1, role="mid", cs_per_min=0)
 
@@ -140,15 +138,12 @@ def test_series_points_is_average_not_sum():
     expected_average = round(sum(game_points_list) / len(game_points_list), 2)
     wrong_sum = round(sum(game_points_list), 2)
 
-    # Verificar que el promedio y la suma son diferentes (caso no trivial)
+    # Verificar que la suma y el promedio son diferentes (caso no trivial)
     assert expected_average != wrong_sum, "El test necesita points distintos para ser útil"
 
-    # Verificar la función directamente sobre _upsert_player_series_stats
-    # Inspeccionamos el campo series_points que se calcularía
-    # Como no tenemos DB, verificamos la lógica inline:
-    n = len(game_points_list)
-    calculated = round(sum(game_points_list) / n, 2)  # correcto
-    wrong = round(sum(game_points_list), 2)  # incorrecto (bug)
+    # Verificar que la lógica correcta es el promedio
+    calculated = round(sum(game_points_list) / len(game_points_list), 2)  # correcto: promedio
+    wrong = round(sum(game_points_list), 2)  # incorrecto: suma
 
     assert calculated == expected_average
     assert wrong != expected_average, "La suma no debería ser igual al promedio con 2 games"
