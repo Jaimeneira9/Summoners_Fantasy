@@ -83,27 +83,35 @@ def _resolve_team_by_alias(supabase: Client, team_name: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_player_id(supabase: Client, player_name: str) -> str | None:
+def _resolve_player_id(
+    supabase: Client, player_name: str, league: str = "LEC"
+) -> str | None:
     """
-    Resuelve el UUID del jugador por nombre (case-insensitive).
+    Resuelve el UUID del jugador por nombre y liga (case-insensitive).
+
+    El parámetro `league` filtra por players.league para evitar colisiones
+    entre jugadores de distintas ligas con el mismo nombre (ej. 'Scout' en LCK y LPL).
+    Default 'LEC' para backward compatibility.
     """
     try:
-        # Intento exacto primero
+        # Intento exacto primero (nombre + liga)
         result = (
             supabase.table("players")
             .select("id")
             .eq("name", player_name)
+            .eq("league", league)
             .limit(1)
             .execute()
         )
         if result.data:
             return str(result.data[0]["id"])
 
-        # Fallback ilike para case-insensitive
+        # Fallback ilike para case-insensitive (mantiene filtro de liga)
         result = (
             supabase.table("players")
             .select("id")
             .ilike("name", player_name)
+            .eq("league", league)
             .limit(1)
             .execute()
         )
@@ -111,9 +119,12 @@ def _resolve_player_id(supabase: Client, player_name: str) -> str | None:
             return str(result.data[0]["id"])
 
     except Exception as exc:
-        logger.error("DB error resolving player '%s': %s", player_name, exc)
+        logger.error(
+            "DB error resolving player '%s' (league=%s): %s",
+            player_name, league, exc
+        )
 
-    logger.warning("Player not found in DB: '%s'", player_name)
+    logger.warning("Player not found in DB: '%s' (league=%s)", player_name, league)
     return None
 
 
@@ -474,6 +485,7 @@ async def _process_game(
     existing_game_ids: set[str],
     # acumulador de player_ids con stats NUEVAS (para price update)
     new_price_player_ids: set[str],
+    league_tag: str = "LEC",  # NUEVO
 ) -> tuple[str | None, str | None]:
     """
     Procesa un game individual: fetch stats + meta, upsert games y player_game_stats.
@@ -561,7 +573,7 @@ async def _process_game(
 
     # Upsert player_game_stats
     for stats in fullstats:
-        player_id = _resolve_player_id(supabase, stats.player_name)
+        player_id = _resolve_player_id(supabase, stats.player_name, league=league_tag)
         if not player_id:
             logger.warning(
                 "[UNRESOLVED PLAYER] '%s' not found in players table — stats discarded",
@@ -601,6 +613,7 @@ async def _process_series(
     team_away_id: str,
     existing_game_ids: set[str],
     new_price_player_ids: set[str],
+    league_tag: str = "LEC",  # NUEVO
 ) -> tuple[set[str], str | None]:
     """
     Procesa todos los games de una serie:
@@ -655,6 +668,7 @@ async def _process_series(
             unresolved_players=unresolved_players,
             existing_game_ids=existing_game_ids,
             new_price_player_ids=new_price_player_ids,
+            league_tag=league_tag,  # NUEVO
         )
         if winner_team_id == team_home_id:
             home_wins += 1
@@ -1038,7 +1052,7 @@ async def run_series_ingest(supabase: Client) -> None:
     try:
         comp_resp = (
             supabase.table("competitions")
-            .select("id, name, gol_gg_slug")
+            .select("id, name, gol_gg_slug, current_week")
             .eq("is_active", True)
             .limit(1)
             .execute()
@@ -1055,6 +1069,11 @@ async def run_series_ingest(supabase: Client) -> None:
     competition_id: str = str(competition["id"])
     competition_name: str = competition.get("name", "<unnamed>")
     gol_gg_slug: str | None = competition.get("gol_gg_slug")
+    # TA-2: Leer current_week de la DB para filtrar entries y snapshots
+    current_week_db: int = competition.get("current_week") or 1
+    # T-8a: Extraer league tag desde el nombre de la competition (ej. "LEC 2026 Spring" → "LEC")
+    # Fallback a "LEC" si el nombre no empieza con letras o está vacío
+    league_tag: str = competition_name.split()[0].upper() if competition_name and competition_name != "<unnamed>" else "LEC"
 
     if not gol_gg_slug:
         logger.error(
@@ -1083,6 +1102,19 @@ async def run_series_ingest(supabase: Client) -> None:
         return
 
     logger.info("Fetched %d game entries from matchlist", len(all_entries))
+
+    # TA-3: Filtrar entries por current_week_db para procesar solo la jornada actual
+    all_entries = [e for e in all_entries if e.week == current_week_db]
+    if not all_entries:
+        logger.info(
+            "No entries for current_week=%d in slug '%s' — nothing to process",
+            current_week_db,
+            gol_gg_slug,
+        )
+        return
+    logger.info(
+        "Filtered to %d game entries for week=%d", len(all_entries), current_week_db
+    )
 
     # 3. Agrupar games en series: key = (team_home, team_away, date)
     series_map: dict[tuple[str, str, date], list[GameEntry]] = defaultdict(list)
@@ -1150,6 +1182,7 @@ async def run_series_ingest(supabase: Client) -> None:
                 team_away_id=team_away_id,
                 existing_game_ids=existing_game_ids if existing_game_ids is not None else set(),
                 new_price_player_ids=new_price_player_ids,
+                league_tag=league_tag,  # NUEVO
             )
             processed_player_ids.update(series_player_ids)
             if series_id:
@@ -1196,12 +1229,35 @@ async def run_series_ingest(supabase: Client) -> None:
     else:
         logger.info("No new game stats inserted — price update skipped")
 
+    # TA-4: Auto-avanzar current_week si todas las series de esta semana están finished
+    try:
+        all_series_resp = (
+            supabase.table("series")
+            .select("status")
+            .eq("competition_id", competition_id)
+            .eq("week", current_week_db)
+            .execute()
+        )
+        all_series_statuses = [row["status"] for row in (all_series_resp.data or [])]
+        if all_series_statuses and all(s == "finished" for s in all_series_statuses):
+            next_week = current_week_db + 1
+            supabase.table("competitions").update({"current_week": next_week}).eq("id", competition_id).execute()
+            logger.info(
+                "Avanzando competition %s a week=%d (todas las series de week=%d finished)",
+                competition_id,
+                next_week,
+                current_week_db,
+            )
+    except Exception as exc:
+        logger.warning("Auto-advance current_week failed (non-blocking): %s", exc)
+
     # 6a. Snapshot de alineaciones para esta semana (idempotente, corre una vez por semana)
     snap_week: int | None = None
     if processed_series_ids and processed_weeks:
         snap_week = max(set(processed_weeks), key=processed_weeks.count)
         try:
-            _take_lineup_snapshot_if_needed(supabase, snap_week, competition_id, current_week=snap_week)
+            # TA-5: Pasar current_week_db (no snap_week) para no neutralizar el guard de idempotencia
+            _take_lineup_snapshot_if_needed(supabase, snap_week, competition_id, current_week=current_week_db)
         except Exception as exc:
             logger.error(
                 "Lineup snapshot failed (non-blocking): %s", exc, exc_info=True

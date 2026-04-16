@@ -38,7 +38,8 @@ class LeagueOut(BaseModel):
     name: str
     invite_code: str
     owner_id: UUID
-    competition: str
+    competition_id: UUID
+    competition_name: str  # derivado del join con competitions
     budget: float
     max_members: int
     is_active: bool
@@ -74,12 +75,14 @@ async def list_leagues(
 
     response = (
         supabase.table("fantasy_leagues")
-        .select("id, name, invite_code, owner_id, competition, budget, max_members, is_active")
+        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, competitions(name)")
         .in_("id", league_ids)
         .execute()
     )
     results = []
     for league in response.data:
+        competition_row = league.pop("competitions", None) or {}
+        league["competition_name"] = competition_row.get("name", "")
         m = member_by_league.get(league["id"])
         results.append({
             **league,
@@ -100,16 +103,35 @@ async def create_league(
     user: dict = Depends(get_current_user),
 ) -> LeagueOut:
     """Crea una liga y añade al creador como primer miembro. Inicializa el mercado."""
+    # Resolver competition activa LEC antes del insert
+    # (temporal hasta Fase 3 cuando el usuario elija la competition)
+    active_comp_resp = (
+        supabase.table("competitions")
+        .select("id, name")
+        .eq("is_active", True)
+        .ilike("name", "%LEC%")
+        .limit(1)
+        .execute()
+    )
+    if not active_comp_resp.data:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No active LEC competition found",
+        )
+    active_comp = active_comp_resp.data[0]
+
     league_resp = (
         supabase.table("fantasy_leagues")
         .insert({
             "name": body.name,
             "owner_id": user["id"],
             "max_members": body.max_members,
+            "competition_id": active_comp["id"],
         })
         .execute()
     )
     league = league_resp.data[0]
+    league["competition_name"] = active_comp["name"]
 
     supabase.table("league_members").insert({
         "league_id": league["id"],
@@ -197,7 +219,7 @@ async def get_league(
 
     response = (
         supabase.table("fantasy_leagues")
-        .select("id, name, invite_code, owner_id, competition, budget, max_members, is_active")
+        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, competitions(name)")
         .eq("id", str(league_id))
         .single()
         .execute()
@@ -205,9 +227,13 @@ async def get_league(
     if not response.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga no encontrada")
 
+    data = dict(response.data)
+    competition_row = data.pop("competitions", None) or {}
+    data["competition_name"] = competition_row.get("name", "")
+
     m = member_resp.data[0]
     return {
-        **response.data,
+        **data,
         "member": {
             "id": m["id"],
             "remaining_budget": m["remaining_budget"],

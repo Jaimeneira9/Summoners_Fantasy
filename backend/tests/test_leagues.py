@@ -15,13 +15,15 @@ from main import app
 USER_ID = str(uuid4())
 LEAGUE_ID = str(uuid4())
 MEMBER_ID = str(uuid4())
+COMPETITION_ID = str(uuid4())
 
 LEAGUE = {
     "id": LEAGUE_ID,
     "name": "Mi Liga",
     "invite_code": "abc12345",
     "owner_id": USER_ID,
-    "competition": "LEC",
+    "competition_id": COMPETITION_ID,
+    "competitions": {"name": "LEC Spring 2026"},
     "budget": 100.0,
     "max_members": 10,
     "is_active": True,
@@ -67,7 +69,7 @@ def _chain(*return_values: object) -> MagicMock:
         return results[idx] if idx < len(results) else results[-1]
 
     chain.execute.side_effect = execute_side_effect
-    for method in ("select", "eq", "in_", "insert", "single", "order", "limit"):
+    for method in ("select", "eq", "neq", "in_", "insert", "update", "delete", "single", "order", "limit", "ilike", "like"):
         getattr(chain, method).return_value = chain
 
     return chain
@@ -138,9 +140,14 @@ def test_list_leagues_no_memberships_returns_empty() -> None:
 # ---------------------------------------------------------------------------
 
 def test_create_league_returns_201() -> None:
+    comp_chain = _chain([{"id": COMPETITION_ID, "name": "LEC Spring 2026"}])  # competitions lookup
     lm_chain = _chain(None)   # insert member
     fl_chain = _chain([LEAGUE])  # insert league
-    sb = _sb_multi(("fantasy_leagues", fl_chain), ("league_members", lm_chain))
+    sb = _sb_multi(
+        ("competitions", comp_chain),
+        ("fantasy_leagues", fl_chain),
+        ("league_members", lm_chain),
+    )
 
     r = _client(sb).post("/leagues/", json={"name": "Nueva Liga"})
     assert r.status_code == 201
