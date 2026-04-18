@@ -255,6 +255,7 @@ export type Roster = {
   players: RosterPlayer[];
   captain_player_id: string | null;
   current_week: number | null;
+  captain_week: number | null;
   snapshot_missing?: boolean;
   week?: number | null;
 };

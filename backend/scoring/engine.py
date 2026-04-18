@@ -89,7 +89,13 @@ ROLE_WEIGHTS: dict[Role, dict[str, float]] = {
 MULTIKILL_BONUS = {"double_kill": 2.0, "triple_kill": 5.0, "quadra_kill": 8.0, "penta_kill": 15.0}
 
 
-def calculate_match_points(stats: dict, role: Role, game_duration_min: float) -> float:
+def calculate_match_points(
+    stats: dict,
+    role: Role,
+    game_duration_min: float,
+    weights: dict | None = None,
+    multikill_bonuses: dict | None = None,
+) -> float:
     """Calcula los fantasy points de un jugador para un partido concreto.
 
     Las stats en STATS_TO_NORMALIZE (kills, assists, deaths, vision_score) se
@@ -98,13 +104,18 @@ def calculate_match_points(stats: dict, role: Role, game_duration_min: float) ->
 
     Si game_duration_min es None, 0 o negativo se omite la normalización para
     evitar división por cero (fallback a stats brutas).
+
+    Args:
+        weights: Pesos por stat. Si None, se usa ROLE_WEIGHTS[role].
+        multikill_bonuses: Bonuses por multikill. Si None, se usa MULTIKILL_BONUS.
     """
-    weights = ROLE_WEIGHTS[role]
+    effective_weights = weights if weights is not None else ROLE_WEIGHTS[role]
+    effective_bonuses = multikill_bonuses if multikill_bonuses is not None else MULTIKILL_BONUS
 
     can_normalize = game_duration_min is not None and game_duration_min > 0
 
     points = 0.0
-    for stat, weight in weights.items():
+    for stat, weight in effective_weights.items():
         raw = stats.get(stat) or 0
         if can_normalize and stat in STATS_TO_NORMALIZE:
             value = raw / game_duration_min
@@ -113,7 +124,7 @@ def calculate_match_points(stats: dict, role: Role, game_duration_min: float) ->
         points += value * weight
 
     # Bonus multikills
-    for kill_type, bonus in MULTIKILL_BONUS.items():
+    for kill_type, bonus in effective_bonuses.items():
         if stats.get(kill_type, False):
             points += bonus
 

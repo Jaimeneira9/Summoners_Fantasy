@@ -56,6 +56,7 @@ class RosterOut(BaseModel):
     players: list[RosterPlayerOut]
     captain_player_id: Optional[UUID] = None
     current_week: Optional[int] = None
+    captain_week: Optional[int] = None
     snapshot_missing: bool = False
     week: Optional[int] = None
 
@@ -337,6 +338,7 @@ async def get_roster(
         players=players_out,
         captain_player_id=captain_player_id,
         current_week=current_week,
+        captain_week=(current_week or 0) + 1 if current_week is not None else None,
     )
 
 

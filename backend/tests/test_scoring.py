@@ -289,3 +289,113 @@ def test_support_objective_steals():
         + (50.0 / 33.4) * weights["vision_score"]
     )
     assert pts == round(expected, 2)
+
+
+# ---------------------------------------------------------------------------
+# Tests de custom weights y multikill_bonuses (Fase 2)
+# ---------------------------------------------------------------------------
+
+
+def test_weights_none_uses_role_weights_baseline():
+    """
+    weights=None debe producir resultado idéntico a pasar ROLE_WEIGHTS[role] explícitamente.
+    Regresión: el default debe ser exactamente ROLE_WEIGHTS[role], sin diferencia.
+    """
+    stats = {"kills": 5, "deaths": 2, "assists": 3, "cs_per_min": 8.5, "dpm": 600.0}
+    duration = 30.0
+
+    pts_none = calculate_match_points(stats, "mid", duration, weights=None)
+    pts_explicit = calculate_match_points(stats, "mid", duration, weights=ROLE_WEIGHTS["mid"])
+
+    assert pts_none == pts_explicit, (
+        f"weights=None ({pts_none}) debe ser idéntico a ROLE_WEIGHTS['mid'] ({pts_explicit})"
+    )
+
+    # Valor conocido de regresión: calculado con los pesos actuales de mid
+    expected = (
+        (5 / 30.0) * 84.0
+        + (2 / 30.0) * (-50.0)
+        + (3 / 30.0) * 67.0
+        + 8.5 * 0.5
+        + 600.0 * 0.0069
+    )
+    assert pts_none == round(expected, 2), (
+        f"Valor de regresión esperado: {round(expected, 2)}, obtenido: {pts_none}"
+    )
+
+
+def test_custom_weights_inflated_cs_per_min_gives_more_points():
+    """
+    weights con cs_per_min inflado produce MÁS puntos que baseline
+    para un stat line con cs alto.
+    """
+    stats = {"kills": 3, "deaths": 1, "assists": 2, "cs_per_min": 10.0}
+    duration = 30.0
+
+    # Baseline: pesos default de mid
+    pts_baseline = calculate_match_points(stats, "mid", duration, weights=None)
+
+    # Custom weights LCK-style con cs_per_min x3
+    lck_weights = dict(ROLE_WEIGHTS["mid"])
+    lck_weights["cs_per_min"] = lck_weights["cs_per_min"] * 3  # 0.5 → 1.5
+
+    pts_custom = calculate_match_points(stats, "mid", duration, weights=lck_weights)
+
+    assert pts_custom > pts_baseline, (
+        f"Con cs_per_min inflado (x3) y cs={stats['cs_per_min']}, "
+        f"pts_custom ({pts_custom}) debe ser mayor que baseline ({pts_baseline})"
+    )
+
+    # La diferencia exacta debe ser cs_per_min × (lck_peso - default_peso)
+    diff = stats["cs_per_min"] * (lck_weights["cs_per_min"] - ROLE_WEIGHTS["mid"]["cs_per_min"])
+    assert abs((pts_custom - pts_baseline) - diff) < 0.01, (
+        f"Diferencia esperada: {diff:.2f}, obtenida: {pts_custom - pts_baseline:.2f}"
+    )
+
+
+def test_multikill_bonuses_none_uses_default_bonus():
+    """
+    multikill_bonuses=None debe usar MULTIKILL_BONUS por defecto.
+    Un penta_kill debe sumar exactamente MULTIKILL_BONUS['penta_kill'] puntos.
+    """
+    stats_base = {"kills": 5, "deaths": 0}
+    stats_penta = {"kills": 5, "deaths": 0, "penta_kill": True}
+    duration = 25.0
+
+    pts_base = calculate_match_points(stats_base, "mid", duration, multikill_bonuses=None)
+    pts_penta = calculate_match_points(stats_penta, "mid", duration, multikill_bonuses=None)
+
+    bonus_diff = pts_penta - pts_base
+    assert abs(bonus_diff - MULTIKILL_BONUS["penta_kill"]) < 0.01, (
+        f"multikill_bonuses=None debe usar MULTIKILL_BONUS['penta_kill']={MULTIKILL_BONUS['penta_kill']}, "
+        f"diff obtenida={bonus_diff}"
+    )
+
+
+def test_custom_multikill_bonuses_override_applies():
+    """
+    multikill_bonuses custom modifica el resultado respecto al default.
+    Con un bonus mayor, el puntaje debe ser mayor; con uno menor, menor.
+    """
+    stats = {"kills": 3, "deaths": 1, "penta_kill": True}
+    duration = 25.0
+
+    pts_default = calculate_match_points(stats, "mid", duration, multikill_bonuses=None)
+
+    # Override con bonus de penta más alto
+    custom_bonuses_high = {"double_kill": 1.0, "triple_kill": 3.0, "quadra_kill": 6.0, "penta_kill": 30.0}
+    pts_high = calculate_match_points(stats, "mid", duration, multikill_bonuses=custom_bonuses_high)
+
+    # Override con bonus de penta más bajo
+    custom_bonuses_low = {"double_kill": 1.0, "triple_kill": 2.0, "quadra_kill": 4.0, "penta_kill": 5.0}
+    pts_low = calculate_match_points(stats, "mid", duration, multikill_bonuses=custom_bonuses_low)
+
+    assert pts_high > pts_default, (
+        f"Bonus penta custom alto (30.0) debe dar más puntos que default ({MULTIKILL_BONUS['penta_kill']}). "
+        f"custom={pts_high}, default={pts_default}"
+    )
+    assert pts_low < pts_default, (
+        f"Bonus penta custom bajo (5.0) debe dar menos puntos que default ({MULTIKILL_BONUS['penta_kill']}). "
+        f"custom={pts_low}, default={pts_default}"
+    )
+    assert pts_high != pts_low, "Bonuses distintos deben producir resultados distintos"

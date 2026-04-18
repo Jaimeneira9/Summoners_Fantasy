@@ -540,3 +540,143 @@ def test_no_player_game_stats_uses_default_duration():
                     f"Con duración default 33.4 min, kills pts = {breakdown['kills']} "
                     "supera el límite esperado de 50 pts."
                 )
+
+
+# ---------------------------------------------------------------------------
+# Tests del leaderboard — regla de 5 titulares mínimos para puntuar
+# ---------------------------------------------------------------------------
+
+# UUIDs fijos para los tests del leaderboard
+LEAGUE_ID = str(uuid4())
+MEMBER_ID_4 = str(uuid4())   # manager con 4 starters
+MEMBER_ID_5 = str(uuid4())   # manager con 5 starters
+ROSTER_ID_4 = str(uuid4())
+ROSTER_ID_5 = str(uuid4())
+SERIES_ID_WEEK = str(uuid4())
+COMP_ID = str(uuid4())
+
+MEMBERS_DATA = [
+    {"id": MEMBER_ID_4, "user_id": str(uuid4()), "total_points": 50.0, "remaining_budget": 100.0},
+    {"id": MEMBER_ID_5, "user_id": str(uuid4()), "total_points": 45.0, "remaining_budget": 80.0},
+]
+
+# Snapshot de la semana 1: member_4 tiene 4 starters (slot5=NULL), member_5 tiene 5
+SNAPSHOT_WEEK1 = [
+    {"member_id": MEMBER_ID_4, "slot": "starter_1", "player_id": "lp1", "captain_player_id": None},
+    {"member_id": MEMBER_ID_4, "slot": "starter_2", "player_id": "lp2", "captain_player_id": None},
+    {"member_id": MEMBER_ID_4, "slot": "starter_3", "player_id": "lp3", "captain_player_id": None},
+    {"member_id": MEMBER_ID_4, "slot": "starter_4", "player_id": "lp4", "captain_player_id": None},
+    {"member_id": MEMBER_ID_4, "slot": "starter_5", "player_id": None,  "captain_player_id": None},
+    {"member_id": MEMBER_ID_5, "slot": "starter_1", "player_id": "lp1", "captain_player_id": None},
+    {"member_id": MEMBER_ID_5, "slot": "starter_2", "player_id": "lp2", "captain_player_id": None},
+    {"member_id": MEMBER_ID_5, "slot": "starter_3", "player_id": "lp3", "captain_player_id": None},
+    {"member_id": MEMBER_ID_5, "slot": "starter_4", "player_id": "lp4", "captain_player_id": None},
+    {"member_id": MEMBER_ID_5, "slot": "starter_5", "player_id": "lp5", "captain_player_id": None},
+]
+
+PSS_WEEK1 = [
+    {"player_id": "lp1", "series_id": SERIES_ID_WEEK, "series_points": 10.0},
+    {"player_id": "lp2", "series_id": SERIES_ID_WEEK, "series_points": 8.0},
+    {"player_id": "lp3", "series_id": SERIES_ID_WEEK, "series_points": 12.0},
+    {"player_id": "lp4", "series_id": SERIES_ID_WEEK, "series_points": 9.0},
+    {"player_id": "lp5", "series_id": SERIES_ID_WEEK, "series_points": 6.0},
+]
+
+
+def _leaderboard_supabase(
+    *,
+    members=MEMBERS_DATA,
+    rosters=None,
+    roster_players=None,
+    competition=None,
+    snapshot=SNAPSHOT_WEEK1,
+    series_for_week=None,
+    pss=PSS_WEEK1,
+    captain_selections=None,
+):
+    """Construye un mock de supabase para el endpoint GET /leaderboard/{league_id}?week=1."""
+    rosters = rosters or [
+        {"id": ROSTER_ID_4, "member_id": MEMBER_ID_4},
+        {"id": ROSTER_ID_5, "member_id": MEMBER_ID_5},
+    ]
+    roster_players = roster_players or []
+    competition = competition or [{"id": COMP_ID}]
+    series_for_week = series_for_week or [{"id": SERIES_ID_WEEK}]
+    captain_selections = captain_selections or []
+
+    # lineup_snapshots — semanas disponibles + snapshot data
+    snapped_weeks = [{"week": 1}]
+
+    sb = _sb_multi(
+        ("league_members", _chain(members)),
+        ("profiles", _chain([])),
+        ("rosters", _chain(rosters)),
+        ("roster_players", _chain(roster_players)),
+        ("competitions", _chain(competition)),
+        ("lineup_snapshots", _chain(snapped_weeks, snapshot)),
+        ("series", _chain(series_for_week)),
+        ("captain_selections", _chain(captain_selections)),
+        ("player_series_stats", _chain(pss)),
+    )
+    return sb
+
+
+def _leaderboard_client(sb) -> TestClient:
+    app.dependency_overrides[get_supabase] = lambda: sb
+    app.dependency_overrides[get_current_user] = _mock_user
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_leaderboard_four_starters_week_points_is_zero():
+    """
+    El manager con 4 starters en su snapshot de la semana debe obtener
+    week_points=0.0 aunque sus jugadores tengan series_points.
+    """
+    sb = _leaderboard_supabase()
+    r = _leaderboard_client(sb).get(f"/scoring/leaderboard/{LEAGUE_ID}?week=1")
+    assert r.status_code == 200, r.text
+
+    data = r.json()
+    entries = {e["member_id"]: e for e in data["entries"]}
+
+    assert MEMBER_ID_4 in entries, "member con 4 starters debe aparecer en el leaderboard"
+    assert entries[MEMBER_ID_4]["week_points"] == 0.0, (
+        f"Con 4/5 starters, week_points debe ser 0.0 — got {entries[MEMBER_ID_4]['week_points']}"
+    )
+
+
+def test_leaderboard_five_starters_week_points_is_nonzero():
+    """
+    El manager con 5 starters completos debe obtener week_points > 0.
+    """
+    sb = _leaderboard_supabase()
+    r = _leaderboard_client(sb).get(f"/scoring/leaderboard/{LEAGUE_ID}?week=1")
+    assert r.status_code == 200, r.text
+
+    data = r.json()
+    entries = {e["member_id"]: e for e in data["entries"]}
+
+    assert MEMBER_ID_5 in entries, "member con 5 starters debe aparecer en el leaderboard"
+    assert entries[MEMBER_ID_5]["week_points"] is not None
+    assert entries[MEMBER_ID_5]["week_points"] > 0.0, (
+        f"Con 5/5 starters, week_points debe ser > 0 — got {entries[MEMBER_ID_5]['week_points']}"
+    )
+
+
+def test_leaderboard_five_starters_total_equals_sum_of_series_points():
+    """
+    El manager con 5 starters completos debe obtener week_points igual a
+    la suma de los series_points de sus 5 jugadores (sin capitán).
+    """
+    expected = sum(r["series_points"] for r in PSS_WEEK1)  # 10+8+12+9+6 = 45.0
+
+    sb = _leaderboard_supabase()
+    r = _leaderboard_client(sb).get(f"/scoring/leaderboard/{LEAGUE_ID}?week=1")
+    assert r.status_code == 200, r.text
+
+    data = r.json()
+    entries = {e["member_id"]: e for e in data["entries"]}
+
+    assert entries[MEMBER_ID_5]["week_points"] == pytest.approx(expected, abs=0.01), (
+        f"week_points esperado={expected}, got={entries[MEMBER_ID_5]['week_points']}"
+    )

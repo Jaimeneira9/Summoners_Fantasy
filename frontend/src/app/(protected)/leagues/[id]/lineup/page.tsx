@@ -252,6 +252,7 @@ export default function LineupPage() {
   // Captain state
   const [captainPlayerId, setCaptainPlayerId] = useState<string | null>(null);
   const [currentWeek, setCurrentWeek] = useState<number | null>(null);
+  const [captainWeek, setCaptainWeek] = useState<number | null>(null);
   const [captainModal, setCaptainModal] = useState<{
     open: boolean;
     target: RosterPlayer | null;
@@ -286,6 +287,7 @@ export default function LineupPage() {
         setSplit(splitData);
         setCaptainPlayerId(rosterData.captain_player_id ?? null);
         setCurrentWeek(rosterData.current_week ?? null);
+        setCaptainWeek(rosterData.captain_week ?? null);
         if (leaderboard?.available_weeks) {
           setAvailableWeeks(leaderboard.available_weeks);
         }
@@ -358,7 +360,7 @@ export default function LineupPage() {
   };
 
   const handleCaptainConfirm = async () => {
-    if (!currentWeek) return;
+    if (!captainWeek) return;
     const isRemove = captainModal?.mode === "remove";
     const newCaptainId = isRemove ? null : (captainModal?.target?.player.id ?? null);
     const prevCaptainId = captainPlayerId;
@@ -370,7 +372,7 @@ export default function LineupPage() {
     setCaptainPlayerId(newCaptainId);
     setCaptainModal(null);
     try {
-      await api.roster.setCaptain(leagueId, currentWeek, newCaptainId);
+      await api.roster.setCaptain(leagueId, captainWeek, newCaptainId);
     } catch (e) {
       // Revert on error
       setCaptainPlayerId(prevCaptainId);

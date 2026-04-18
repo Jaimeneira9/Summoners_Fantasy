@@ -10,6 +10,7 @@ from pipeline.gol_gg import GameMeta, PlayerRawStats
 from pipeline.series_ingest import (
     _best_multikill,
     _game_belongs_to_series,
+    _update_manager_total_points,
     _upsert_player_series_stats,
 )
 from scoring.engine import calculate_match_points
@@ -345,3 +346,241 @@ def test_game_belongs_to_series_partial_meta_one_team_match():
     result = _game_belongs_to_series(supabase, meta, navi_id, mkoi_id)
 
     assert result is True
+
+
+# ---------------------------------------------------------------------------
+# Tests de _update_manager_total_points — regla de 5 titulares
+# ---------------------------------------------------------------------------
+
+
+def _make_scoring_supabase(
+    *,
+    snapped_weeks: list[int],
+    # snap_rows: list of dicts con week, member_id, slot, player_id, captain_player_id
+    snap_rows: list[dict],
+    # series_by_week: {week: [series_id, ...]}
+    series_by_week: dict[int, list[str]],
+    # pss_rows: filas devueltas por player_series_stats
+    pss_rows: list[dict],
+    updated_totals: dict,  # out-param: {member_id: total} se rellena en el mock
+) -> MagicMock:
+    """
+    Construye un mock de supabase para probar _update_manager_total_points.
+    """
+    def _make_execute_result(data):
+        r = MagicMock()
+        r.data = data
+        return r
+
+    # Contador de llamadas a table("lineup_snapshots") para distinguir la 1a y 2a query
+    snapshots_call_count = {"n": 0}
+
+    def _table_side_effect(table_name: str):
+        mock = MagicMock()
+
+        if table_name == "lineup_snapshots":
+            week_rows = [{"week": w} for w in snapped_weeks]
+            # El código llama a supabase.table("lineup_snapshots") DOS veces.
+            # Usamos un contador global para la tabla para saber en qué llamada estamos.
+            snapshots_call_count["n"] += 1
+            call_n = snapshots_call_count["n"]
+            data_to_return = week_rows if call_n == 1 else snap_rows
+            chain = MagicMock()
+            chain.select.return_value = chain
+            chain.eq.return_value = chain
+            chain.execute.return_value = _make_execute_result(data_to_return)
+            return chain
+
+        if table_name == "series":
+            week_tracker = {"current": None}
+            chain = MagicMock()
+
+            def eq_side(field, value):
+                if field == "week":
+                    week_tracker["current"] = value
+                return chain
+
+            chain.select.return_value = chain
+            chain.eq.side_effect = eq_side
+            chain.execute.side_effect = lambda: _make_execute_result(
+                [{"id": sid} for sid in series_by_week.get(week_tracker["current"], [])]
+            )
+            return chain
+
+        if table_name == "player_series_stats":
+            chain = MagicMock()
+            chain.select.return_value = chain
+            chain.in_.return_value = chain
+            chain.execute.return_value = _make_execute_result(pss_rows)
+            return chain
+
+        if table_name == "captain_selections":
+            chain = MagicMock()
+            chain.select.return_value = chain
+            chain.eq.return_value = chain
+            chain.limit.return_value = chain
+            chain.execute.return_value = _make_execute_result([])
+            return chain
+
+        if table_name == "league_members":
+            chain = MagicMock()
+
+            def update_side(payload):
+                inner = MagicMock()
+
+                def eq_side(field, value):
+                    if field == "id":
+                        updated_totals[value] = payload.get("total_points")
+                    result = MagicMock()
+                    result.execute.return_value = _make_execute_result([])
+                    return result
+
+                inner.eq.side_effect = eq_side
+                return inner
+
+            chain.update.side_effect = update_side
+            return chain
+
+        fallback = MagicMock()
+        fallback.select.return_value = fallback
+        fallback.eq.return_value = fallback
+        fallback.execute.return_value = _make_execute_result([])
+        return fallback
+
+    sb = MagicMock()
+    sb.table.side_effect = _table_side_effect
+    return sb
+
+
+def test_update_manager_total_points_four_starters_gives_zero():
+    """
+    Un manager con solo 4 starters (un slot NULL) en su snapshot
+    debe recibir 0 puntos para esa semana — aunque sus jugadores tengan series_points.
+    """
+    competition_id = "comp-1"
+    member_id = "member-1"
+    series_id = "series-1"
+
+    # 4 starters rellenos + 1 slot NULL
+    snap_rows = [
+        {"week": 1, "member_id": member_id, "slot": "starter_1", "player_id": "p1", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_2", "player_id": "p2", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_3", "player_id": "p3", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_4", "player_id": "p4", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_5", "player_id": None,  "captain_player_id": None},
+    ]
+
+    # Los 4 jugadores tendrían puntos si se contaran
+    pss_rows = [
+        {"player_id": "p1", "series_points": 10.0},
+        {"player_id": "p2", "series_points": 8.0},
+        {"player_id": "p3", "series_points": 12.0},
+        {"player_id": "p4", "series_points": 9.0},
+    ]
+
+    updated_totals: dict = {}
+    sb = _make_scoring_supabase(
+        snapped_weeks=[1],
+        snap_rows=snap_rows,
+        series_by_week={1: [series_id]},
+        pss_rows=pss_rows,
+        updated_totals=updated_totals,
+    )
+
+    _update_manager_total_points(sb, competition_id, week=1)
+
+    assert member_id in updated_totals, "El member debería haber recibido un UPDATE de total_points"
+    assert updated_totals[member_id] == 0.0, (
+        f"Con 4/5 starters, total_points debe ser 0.0 — got {updated_totals[member_id]}"
+    )
+
+
+def test_update_manager_total_points_five_starters_scores_normally():
+    """
+    Un manager con 5 starters completos debe acumular los series_points normalmente.
+    """
+    competition_id = "comp-1"
+    member_id = "member-1"
+    series_id = "series-1"
+
+    snap_rows = [
+        {"week": 1, "member_id": member_id, "slot": "starter_1", "player_id": "p1", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_2", "player_id": "p2", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_3", "player_id": "p3", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_4", "player_id": "p4", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_5", "player_id": "p5", "captain_player_id": None},
+    ]
+
+    pss_rows = [
+        {"player_id": "p1", "series_points": 10.0},
+        {"player_id": "p2", "series_points": 8.0},
+        {"player_id": "p3", "series_points": 12.0},
+        {"player_id": "p4", "series_points": 9.0},
+        {"player_id": "p5", "series_points": 6.0},
+    ]
+
+    updated_totals: dict = {}
+    sb = _make_scoring_supabase(
+        snapped_weeks=[1],
+        snap_rows=snap_rows,
+        series_by_week={1: [series_id]},
+        pss_rows=pss_rows,
+        updated_totals=updated_totals,
+    )
+
+    _update_manager_total_points(sb, competition_id, week=1)
+
+    assert member_id in updated_totals
+    assert updated_totals[member_id] == pytest.approx(45.0, abs=0.01), (
+        f"Con 5/5 starters y 45 pts totales, got {updated_totals[member_id]}"
+    )
+
+
+def test_update_manager_total_points_partial_week_zero_full_week_scores():
+    """
+    Multi-semana: semana 1 tiene 4 starters (→ 0 pts), semana 2 tiene 5 (→ suma normal).
+    El total debe ser solo los puntos de la semana 2.
+    """
+    competition_id = "comp-1"
+    member_id = "member-1"
+
+    snap_rows = [
+        # Semana 1: 4 starters (un slot NULL)
+        {"week": 1, "member_id": member_id, "slot": "starter_1", "player_id": "p1", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_2", "player_id": "p2", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_3", "player_id": "p3", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_4", "player_id": "p4", "captain_player_id": None},
+        {"week": 1, "member_id": member_id, "slot": "starter_5", "player_id": None,  "captain_player_id": None},
+        # Semana 2: 5 starters completos
+        {"week": 2, "member_id": member_id, "slot": "starter_1", "player_id": "p1", "captain_player_id": None},
+        {"week": 2, "member_id": member_id, "slot": "starter_2", "player_id": "p2", "captain_player_id": None},
+        {"week": 2, "member_id": member_id, "slot": "starter_3", "player_id": "p3", "captain_player_id": None},
+        {"week": 2, "member_id": member_id, "slot": "starter_4", "player_id": "p4", "captain_player_id": None},
+        {"week": 2, "member_id": member_id, "slot": "starter_5", "player_id": "p5", "captain_player_id": None},
+    ]
+
+    pss_rows = [
+        {"player_id": "p1", "series_points": 10.0},
+        {"player_id": "p2", "series_points": 8.0},
+        {"player_id": "p3", "series_points": 12.0},
+        {"player_id": "p4", "series_points": 9.0},
+        {"player_id": "p5", "series_points": 6.0},
+    ]
+
+    updated_totals: dict = {}
+    sb = _make_scoring_supabase(
+        snapped_weeks=[1, 2],
+        snap_rows=snap_rows,
+        series_by_week={1: ["s1"], 2: ["s2"]},
+        pss_rows=pss_rows,
+        updated_totals=updated_totals,
+    )
+
+    _update_manager_total_points(sb, competition_id, week=1)
+
+    assert member_id in updated_totals
+    # Semana 1 aporta 0 (4 starters), semana 2 aporta 45.0
+    assert updated_totals[member_id] == pytest.approx(45.0, abs=0.01), (
+        f"Semana 1 con 4 starters debe ser 0, semana 2 con 5 starters debe ser 45.0. "
+        f"Got {updated_totals[member_id]}"
+    )
