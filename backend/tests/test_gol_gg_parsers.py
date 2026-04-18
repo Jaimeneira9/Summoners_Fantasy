@@ -22,6 +22,7 @@ from pipeline.gol_gg import (
     _parse_game_meta,
     _parse_matchlist,
     _parse_optional_int,
+    _parse_team_list,
 )
 
 # ---------------------------------------------------------------------------
@@ -276,3 +277,70 @@ def test_parse_fullstats_special_chars_in_name():
     # No debe levantar excepción
     raw = _parse_fullstats_table(markdown)
     assert isinstance(raw, list)
+
+
+# ---------------------------------------------------------------------------
+# Tests de _parse_team_list
+# ---------------------------------------------------------------------------
+
+TEAM_LIST_MARKDOWN = """
+| Team | W | L | W% | GW | GL | GW% |
+|------|---|---|----|----|----|-----|
+| [G2 Esports](./team-stats/1234/page-team-stats/season-ALL/split-ALL/tournament-LEC-2026/) | 8 | 2 | 80% | 16 | 5 | 76% |
+| [Fnatic](./team-stats/5678/page-team-stats/season-ALL/split-ALL/tournament-LEC-2026/) | 7 | 3 | 70% | 14 | 7 | 67% |
+| [Team Vitality](./team-stats/9012/page-team-stats/season-ALL/split-ALL/tournament-LEC-2026/) | 6 | 4 | 60% | 12 | 9 | 57% |
+"""
+
+
+def test_parse_team_list_happy_path():
+    """Retorna lista de tuples (name, id) correctos."""
+    result = _parse_team_list(TEAM_LIST_MARKDOWN)
+    assert len(result) == 3
+    assert ("G2 Esports", "1234") in result
+    assert ("Fnatic", "5678") in result
+    assert ("Team Vitality", "9012") in result
+
+
+def test_parse_team_list_returns_tuples():
+    """Cada elemento es una tuple de dos strings."""
+    result = _parse_team_list(TEAM_LIST_MARKDOWN)
+    for item in result:
+        assert isinstance(item, tuple)
+        assert len(item) == 2
+        name, team_id = item
+        assert isinstance(name, str)
+        assert isinstance(team_id, str)
+
+
+def test_parse_team_list_no_empty_strings():
+    """No retorna tuples con strings vacíos."""
+    result = _parse_team_list(TEAM_LIST_MARKDOWN)
+    for name, team_id in result:
+        assert name != ""
+        assert team_id != ""
+
+
+def test_parse_team_list_ids_are_numeric():
+    """Los IDs retornados son strings de dígitos."""
+    result = _parse_team_list(TEAM_LIST_MARKDOWN)
+    for _, team_id in result:
+        assert team_id.isdigit(), f"team_id no es numérico: {team_id!r}"
+
+
+def test_parse_team_list_empty_markdown():
+    """Markdown vacío retorna lista vacía sin levantar excepción."""
+    result = _parse_team_list("")
+    assert result == []
+
+
+def test_parse_team_list_no_teams_in_markdown():
+    """Markdown sin links de teams retorna lista vacía."""
+    markdown = "| Team | W | L |\n|------|---|---|\n| No links here | 1 | 0 |\n"
+    result = _parse_team_list(markdown)
+    assert result == []
+
+
+def test_parse_team_list_garbage_input():
+    """Input con basura no explota."""
+    result = _parse_team_list("asdf\n\n!!!\n@#$%")
+    assert result == []

@@ -309,7 +309,7 @@ def _parse_matchlist(markdown: str) -> list[GameEntry]:
     para matchear la fila.
 
     Series que se SALTEAN (no se ingresan):
-      - Sin score numérico (\-): upcoming, no jugada todavía.
+      - Sin score numérico (\\-): upcoming, no jugada todavía.
       - Score parcial con max < 2 (ej. "1 - 0"): BO3 en progreso.
 
     Series que se INGRESAN: score donde algún equipo llega a 2+ wins
@@ -373,20 +373,19 @@ def _parse_matchlist(markdown: str) -> list[GameEntry]:
         # Extraer score para detectar cuántos games tiene la serie.
         #
         # Formato nuevo (Spring 2026):
-        #   "\-"     → serie sin jugar (upcoming)    → skip
-        #   "1 - 0"  → serie en progreso (BO3 inc.)  → skip
-        #   "2 - 0"  → serie completa                → ingestar
-        #   "2 - 1"  → serie completa                → ingestar
+        #   "\\-"    → serie sin jugar (upcoming)    → skip
+        #   "1 - 0"  → BO1 completo                  → ingestar
+        #   "2 - 0"  → BO3 completo                  → ingestar
+        #   "2 - 1"  → BO3 completo                  → ingestar
+        #   "3 - 0"  → BO5 completo                  → ingestar
+        #   "3 - 1"  → BO5 completo                  → ingestar
+        #   "3 - 2"  → BO5 completo                  → ingestar
         #
-        # Una serie está completa cuando alguno de los dos equipos llega a 2
-        # victorias (BO3) o a 1 victoria (BO1 con score "1 - 0" que YA terminó).
-        # Para distinguir BO1 completo de BO3 en progreso usamos la regla:
-        # max(score_a, score_b) >= 2  → siempre completo
-        # max(score_a, score_b) == 1  → completo solo si min == 0 Y es BO1,
-        #   pero gol.gg no expone el formato de serie; por seguridad SKIP
-        #   cualquier score "1 - 0" porque podría ser un BO3 a mitad.
+        # Solo skipeamos series donde nadie ganó ningún game todavía (0-0
+        # o score ausente "\\-"). Cualquier score con max >= 1 ya tiene al
+        # menos un game completado y debe ingestarse.
         #
-        # Por lo tanto: skip si no hay score match, o si max < 2.
+        # Por lo tanto: skip si no hay score match, o si max < 1.
         score_match = _SCORE_RE.search(line)
         if not score_match:
             # Sin score numérico → upcoming (\-) → skip
@@ -396,10 +395,10 @@ def _parse_matchlist(markdown: str) -> list[GameEntry]:
         score_a = int(score_match.group(1))
         score_b = int(score_match.group(2))
 
-        if max(score_a, score_b) < 2:
-            # Score parcial (ej. 1-0 en BO3 en progreso) → skip
+        if max(score_a, score_b) < 1:
+            # Score 0-0 → serie sin jugar → skip
             logger.debug(
-                "Skipping in-progress series %s (score %d-%d)",
+                "Skipping unplayed series %s (score %d-%d)",
                 game_id,
                 score_a,
                 score_b,
@@ -656,8 +655,53 @@ def _parse_game_meta(markdown: str) -> GameMeta:
 
 
 # ---------------------------------------------------------------------------
+# Team list parser
+# ---------------------------------------------------------------------------
+
+
+def _parse_team_list(markdown: str) -> list[tuple[str, str]]:
+    """
+    Parsea el markdown del endpoint de teams de gol.gg.
+
+    Endpoint: teams/list/season-ALL/split-ALL/tournament-{slug}/
+
+    El markdown contiene una tabla con links del tipo:
+      [Team Name](./team-stats/1234/page-team-stats/season-ALL/split-ALL/tournament-XXX/)
+
+    Returns:
+        Lista de (team_name, team_numeric_id) donde team_numeric_id es el ID
+        numérico de gol.gg (ej: "1234"). Lista vacía si no hay teams.
+        Nunca levanta excepción por ausencia de datos.
+    """
+    # Captura (name, numeric_id) de links con formato:
+    # [Team Name](./team-stats/123/page-team-stats/...)
+    matches = re.findall(r"\[([^\]]+)\]\(\.\/team-stats\/(\d+)\/", markdown)
+    return [(name.strip(), team_id) for name, team_id in matches if name.strip() and team_id]
+
+
+# ---------------------------------------------------------------------------
 # Funciones públicas
 # ---------------------------------------------------------------------------
+
+
+async def fetch_team_list(tournament_slug: str) -> list[tuple[str, str]]:
+    """
+    Obtiene la lista de equipos de un torneo desde gol.gg.
+
+    Args:
+        tournament_slug: slug del torneo tal como aparece en gol.gg
+                         (ej. "LEC 2026 Spring", se urlencodea internamente).
+
+    Returns:
+        Lista de (team_name, team_numeric_id). Lista vacía si no hay equipos.
+    """
+    import urllib.parse
+
+    slug_encoded = urllib.parse.quote(tournament_slug, safe="")
+    url = f"https://gol.gg/teams/list/season-ALL/split-ALL/tournament-{slug_encoded}/"
+    logger.info("Fetching team list for tournament slug %s", tournament_slug)
+    markdown = await _fetch_markdown(url)
+    return _parse_team_list(markdown)
 
 
 async def fetch_matchlist(gol_gg_slug: str) -> list[GameEntry]:
