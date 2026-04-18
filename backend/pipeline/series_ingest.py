@@ -30,6 +30,7 @@ from pipeline.gol_gg import (
     fetch_game_meta,
     fetch_matchlist,
 )
+from scoring.config_loader import get_multikill_bonuses, get_scoring_weights
 from scoring.engine import calculate_match_points
 
 logger = logging.getLogger(__name__)
@@ -486,6 +487,7 @@ async def _process_game(
     # acumulador de player_ids con stats NUEVAS (para price update)
     new_price_player_ids: set[str],
     league_tag: str = "LEC",  # NUEVO
+    competition_id: str | None = None,
 ) -> tuple[str | None, str | None]:
     """
     Procesa un game individual: fetch stats + meta, upsert games y player_game_stats.
@@ -582,10 +584,15 @@ async def _process_game(
             unresolved_players.append(stats.player_name)
             continue
 
+        scoring_weights = get_scoring_weights(supabase, competition_id, stats.role) if competition_id else None
+        mk_bonuses = get_multikill_bonuses(supabase, competition_id) if competition_id else None
+
         game_points = calculate_match_points(
             stats=stats.model_dump(),
             role=stats.role,  # type: ignore[arg-type]
             game_duration_min=meta.duration_min,
+            weights=scoring_weights,
+            multikill_bonuses=mk_bonuses,
         )
 
         _upsert_player_game_stats(supabase, player_id, game_db_id, stats, game_points)
@@ -614,6 +621,7 @@ async def _process_series(
     existing_game_ids: set[str],
     new_price_player_ids: set[str],
     league_tag: str = "LEC",  # NUEVO
+    scoring_competition_id: str | None = None,
 ) -> tuple[set[str], str | None]:
     """
     Procesa todos los games de una serie:
@@ -669,6 +677,7 @@ async def _process_series(
             existing_game_ids=existing_game_ids,
             new_price_player_ids=new_price_player_ids,
             league_tag=league_tag,  # NUEVO
+            competition_id=scoring_competition_id,
         )
         if winner_team_id == team_home_id:
             home_wins += 1
@@ -1183,6 +1192,7 @@ async def run_series_ingest(supabase: Client) -> None:
                 existing_game_ids=existing_game_ids if existing_game_ids is not None else set(),
                 new_price_player_ids=new_price_player_ids,
                 league_tag=league_tag,  # NUEVO
+                scoring_competition_id=competition_id,
             )
             processed_player_ids.update(series_player_ids)
             if series_id:
