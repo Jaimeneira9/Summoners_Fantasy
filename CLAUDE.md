@@ -1,5 +1,35 @@
 # Summoner's Fantasy — Instrucciones del proyecto
 
+## Session Context
+
+- At the start of every session, check engram memory (`mcp__plugin_engram_engram__mem_search`) for prior context before asking user for paths, credentials, or project details
+- After context compaction, re-run the engram save protocol automatically
+
+---
+
+## Database Access
+
+- Use Supabase MCP (`mcp__supabase__execute_sql`) for all DB queries, NOT SSH to VPS
+- Never run migrations or DB changes without explicit user confirmation
+
+---
+
+## Debugging Protocol
+
+- Verify assumptions with data BEFORE proposing fixes (user has explicitly called out hallucinations and dispersion)
+- When a bug is reported, reproduce/probe first, then diagnose, then propose — do not apply fixes preemptively
+- LEC Spring is BO3 (not BO1); confirm format with user when relevant
+
+---
+
+## Local Services
+
+- Frontend (Next.js) runs on port 3000; Backend (FastAPI) runs on port 8000
+- Port 3000 may be reserved on Windows — check before starting
+- Always verify services are actually responding, not just that the command returned
+
+---
+
 ## Delegación obligatoria (NO negociable)
 
 **NUNCA hagas trabajo inline en el contexto principal.** Esto incluye:
