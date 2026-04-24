@@ -1,8 +1,8 @@
-from typing import Literal
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
@@ -16,11 +16,27 @@ router = APIRouter()
 
 GameMode = Literal["draft_market", "budget_pick"]
 
+# Sentinel used when budget_pick has no member cap (DB column is NOT NULL)
+_NO_LIMIT_SENTINEL = 9999
+
 
 class LeagueCreate(BaseModel):
     name: str = Field(min_length=3, max_length=60)
-    max_members: int = Field(default=8, ge=2, le=9)
+    max_members: Optional[int] = None
     game_mode: GameMode = "draft_market"
+
+    @model_validator(mode="after")
+    def validate_max_members(self) -> "LeagueCreate":
+        if self.game_mode == "draft_market":
+            val = self.max_members if self.max_members is not None else 8
+            if not (2 <= val <= 8):
+                raise ValueError("draft_market requires max_members between 2 and 8")
+            self.max_members = val
+        else:  # budget_pick
+            if self.max_members is not None and self.max_members < 2:
+                raise ValueError("max_members must be >= 2 when provided")
+            # None stays as None — will be mapped to sentinel on insert
+        return self
 
 
 class MemberOut(BaseModel):
@@ -126,12 +142,15 @@ async def create_league(
         )
     active_comp = active_comp_resp.data[0]
 
+    db_max_members = (
+        body.max_members if body.max_members is not None else _NO_LIMIT_SENTINEL
+    )
     league_resp = (
         supabase.table("fantasy_leagues")
         .insert({
             "name": body.name,
             "owner_id": user["id"],
-            "max_members": body.max_members,
+            "max_members": db_max_members,
             "competition_id": active_comp["id"],
             "game_mode": body.game_mode,
         })
@@ -194,7 +213,8 @@ async def join_by_invite_code(
         .eq("league_id", league["id"])
         .execute()
     )
-    if len(count_resp.data) >= league["max_members"]:
+    cap = league["max_members"]
+    if cap != _NO_LIMIT_SENTINEL and len(count_resp.data) >= cap:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La liga está llena")
 
     member_resp = (
@@ -310,7 +330,8 @@ async def join_league(
         .eq("league_id", str(league_id))
         .execute()
     )
-    if len(count_resp.data) >= league["max_members"]:
+    cap = league["max_members"]
+    if cap != _NO_LIMIT_SENTINEL and len(count_resp.data) >= cap:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La liga está llena")
 
     member_resp = (

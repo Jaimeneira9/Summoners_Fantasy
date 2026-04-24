@@ -23,7 +23,19 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `HTTP ${res.status}`);
+    const detail = body.detail;
+    let message: string;
+    if (!detail) {
+      message = `HTTP ${res.status}`;
+    } else if (typeof detail === "string") {
+      message = detail;
+    } else if (Array.isArray(detail)) {
+      // Pydantic validation errors: [{loc, msg, type}, ...]
+      message = detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ");
+    } else {
+      message = JSON.stringify(detail);
+    }
+    throw new Error(message);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -417,7 +429,7 @@ export const api = {
   leagues: {
     list: () => req<League[]>("/leagues/"),
     get: (id: string) => req<League>(`/leagues/${id}`),
-    create: (name: string, maxMembers: number, gameMode: "draft_market" | "budget_pick" = "draft_market") =>
+    create: (name: string, maxMembers: number | null, gameMode: "draft_market" | "budget_pick" = "draft_market") =>
       req<League>("/leagues/", {
         method: "POST",
         body: JSON.stringify({ name, max_members: maxMembers, game_mode: gameMode }),
