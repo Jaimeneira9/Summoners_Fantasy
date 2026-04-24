@@ -175,6 +175,10 @@ async def get_listings(
     """Listado de jugadores disponibles en el mercado de una liga."""
     _get_member(supabase, str(league_id), user["id"])
 
+    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
+    if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
+        return []
+
     now = datetime.now(timezone.utc).isoformat()
 
     # Lazy refresh: si hay listings activos ya vencidos, resolver pujas y refrescar
@@ -282,6 +286,13 @@ async def buy_player(
 ) -> TransactionOut:
     """Compra un jugador del mercado. El slot se asigna automáticamente según el rol."""
     member = _get_member(supabase, str(league_id), user["id"])
+
+    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
+    if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta liga no tiene mercado (modo budget_pick)",
+        )
 
     # Get listing
     listing_resp = (
@@ -402,6 +413,14 @@ async def set_sell_intent(
 ) -> SellIntentOut:
     """Señala la intención de vender un jugador (for_sale=True)."""
     member = _get_member(supabase, str(league_id), user["id"])
+
+    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
+    if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta liga no tiene mercado (modo budget_pick)",
+        )
+
     roster = _get_roster(supabase, member["id"])
 
     rp_resp = (
@@ -435,6 +454,14 @@ async def cancel_sell_intent(
 ) -> SellIntentOut:
     """Cancela la intención de venta (for_sale=False)."""
     member = _get_member(supabase, str(league_id), user["id"])
+
+    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
+    if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta liga no tiene mercado (modo budget_pick)",
+        )
+
     roster = _get_roster(supabase, member["id"])
 
     rp_resp = (
@@ -536,6 +563,13 @@ async def create_peer_offer(
     """Crea una oferta de compra directa entre managers (peer offer)."""
     buyer_member = _get_member(supabase, str(league_id), user["id"])
 
+    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
+    if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta liga no tiene mercado (modo budget_pick)",
+        )
+
     # Guard: amount debe ser > 0
     if body.amount <= 0:
         raise HTTPException(
@@ -632,6 +666,13 @@ async def accept_sell_offer(
 ) -> TransactionOut:
     """Acepta la oferta del sistema: elimina del roster, añade al pool de candidatos."""
     member = _get_member(supabase, str(league_id), user["id"])
+
+    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
+    if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta liga no tiene mercado (modo budget_pick)",
+        )
 
     offer_resp = (
         supabase.table("sell_offers")
@@ -765,6 +806,13 @@ async def activate_clause(
 ) -> dict:
     """Activa la cláusula de rescisión: paga el importe y ficha al jugador."""
     buyer_member = _get_member(supabase, league_id, user["id"])
+
+    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", league_id).single().execute()
+    if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta liga no tiene mercado (modo budget_pick)",
+        )
 
     # Fetch roster_player con join a rosters → league_members para verificar que
     # el jugador pertenece a la liga del parámetro de ruta (previene cross-league exploit)
@@ -931,6 +979,14 @@ async def upgrade_clause(
 ) -> dict:
     """Sube el importe de la cláusula pagando una cantidad: nueva_cláusula = vieja + amount * 0.5."""
     member = _get_member(supabase, league_id, user["id"])
+
+    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", league_id).single().execute()
+    if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Esta liga no tiene mercado (modo budget_pick)",
+        )
+
     roster = _get_roster(supabase, member["id"])
 
     # Verificar que el roster_player pertenece al usuario en esta liga

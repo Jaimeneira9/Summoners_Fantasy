@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 const ROLE_IMAGE: Record<string, string> = {
   top:     "/roles/top.png",
   jungle:  "/roles/jungla.png",
@@ -9,7 +11,7 @@ const ROLE_IMAGE: Record<string, string> = {
 export function RoleIcon({ role, className = "w-5 h-5" }: { role: string; className?: string }) {
   const src = ROLE_IMAGE[role];
   if (!src) return null;
-  return <img src={src} alt={role} className={className} />;
+  return <Image src={src} alt={role} width={20} height={20} className={className} />;
 }
 
 export const ROLE_COLORS: Record<string, { bg: string; text: string; border: string }> = {

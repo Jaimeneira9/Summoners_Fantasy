@@ -8,6 +8,7 @@ import { createPortal } from "react-dom";
 interface BottomNavProps {
   leagueId: string;
   hasIncompleteRoster?: boolean;
+  gameMode?: string | null;
 }
 
 const MAS_ITEMS = (leagueId: string) => [
@@ -15,7 +16,7 @@ const MAS_ITEMS = (leagueId: string) => [
   { icon: "bolt", label: "Actividad", href: `/leagues/${leagueId}/activity` },
 ];
 
-export default function BottomNav({ leagueId, hasIncompleteRoster }: BottomNavProps) {
+export default function BottomNav({ leagueId, hasIncompleteRoster, gameMode }: BottomNavProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [masOpen, setMasOpen] = useState(false);
@@ -42,12 +43,23 @@ export default function BottomNav({ leagueId, hasIncompleteRoster }: BottomNavPr
       href: `/leagues/${leagueId}/lineup`,
       isActive: pathname.includes("/lineup"),
     },
-    {
-      label: "Mercado",
-      icon: "storefront",
-      href: `/leagues/${leagueId}/market`,
-      isActive: pathname.includes("/market"),
-    },
+    ...(gameMode !== "budget_pick"
+      ? [
+          {
+            label: "Mercado",
+            icon: "storefront",
+            href: `/leagues/${leagueId}/market`,
+            isActive: pathname.includes("/market"),
+          },
+        ]
+      : [
+          {
+            label: "Explorar",
+            icon: "search",
+            href: `/leagues/${leagueId}/market?tab=scout`,
+            isActive: pathname.includes("/market"),
+          },
+        ]),
     {
       label: "Equipos",
       icon: "shield",

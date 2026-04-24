@@ -13,6 +13,7 @@ import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
 import { ActionPopup } from "@/components/ActionPopup";
 import { Button } from "@/components/ui/Button";
+import { PickPanel } from "@/components/PickPanel";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -24,6 +25,17 @@ const STARTER_SLOTS: { slot: Slot; role: string }[] = [
   { slot: "starter_4", role: "adc"     },
   { slot: "starter_5", role: "support" },
 ];
+
+const SLOT_ROLES: Record<string, string> = {
+  starter_1: "top",
+  starter_2: "jungle",
+  starter_3: "mid",
+  starter_4: "adc",
+  starter_5: "support",
+  coach: "coach",
+  bench_1: "bench",
+  bench_2: "bench",
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -242,6 +254,12 @@ export default function LineupPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [gameMode, setGameMode] = useState<string | null>(null);
+  const [pickSlot, setPickSlot] = useState<{
+    slot: string;
+    role: string;
+    currentPlayer: { id: string; name: string; price_paid: number } | null;
+  } | null>(null);
   const startersRef = useRef<HTMLDivElement>(null);
 
   // Historical week state
@@ -274,20 +292,24 @@ export default function LineupPage() {
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  // PERF FIX: parallel fetch — roster + split + leaderboard in one Promise.all
+  // PERF FIX: parallel fetch — roster + split + leaderboard + league in one Promise.all
   const load = useCallback(() => {
     setLoading(true);
     Promise.all([
       api.roster.get(leagueId),
       api.splits.active().catch(() => null),
       api.scoring.leaderboard(leagueId).catch(() => null),
+      api.leagues.get(leagueId).catch(() => null),
     ])
-      .then(([rosterData, splitData, leaderboard]) => {
+      .then(([rosterData, splitData, leaderboard, leagueData]) => {
         setRoster(rosterData);
         setSplit(splitData);
         setCaptainPlayerId(rosterData.captain_player_id ?? null);
         setCurrentWeek(rosterData.current_week ?? null);
         setCaptainWeek(rosterData.captain_week ?? null);
+        if (leagueData) {
+          setGameMode(leagueData.game_mode);
+        }
         if (leaderboard?.available_weeks) {
           setAvailableWeeks(leaderboard.available_weeks);
         }
@@ -387,6 +409,26 @@ export default function LineupPage() {
     ? roster?.players.find((p) => p.player.id === captainPlayerId) ?? null
     : null;
 
+  // budget_pick: open PickPanel when a slot is clicked
+  const handleSlotClick = (slot: string, rp: RosterPlayer | null) => {
+    if (gameMode !== "budget_pick") return;
+    if (selectedWeek !== null) return; // read-only in historical view
+    const role = SLOT_ROLES[slot] ?? "bench";
+    setPickSlot({
+      slot,
+      role,
+      currentPlayer: rp
+        ? { id: rp.player.id, name: rp.player.name, price_paid: rp.price_paid }
+        : null,
+    });
+  };
+
+  // After a successful pick: reload roster to reflect new player + updated budget
+  const handlePickResult = () => {
+    setPickSlot(null);
+    load();
+  };
+
   const captainModalTitle = () => {
     if (!captainModal) return "";
     if (captainModal.mode === "remove") return `¿Remover capitán a ${captainModal.target?.player.name}?`;
@@ -422,16 +464,16 @@ export default function LineupPage() {
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>No hay datos para la jornada seleccionada</p>
           </div>
-        ) : !roster || roster.players.length === 0 ? (
+        ) : (!roster || roster.players.length === 0) && gameMode !== "budget_pick" ? (
           <EmptyRoster leagueId={leagueId} />
         ) : (
           <>
 
             {/* Stats bar */}
             <RosterStatsBar
-              remainingBudget={roster.remaining_budget}
-              totalPoints={roster.total_points}
-              jornadaPoints={calcJornadaPoints(roster.players, captainPlayerId)}
+              remainingBudget={roster?.remaining_budget ?? 0}
+              totalPoints={roster?.total_points ?? 0}
+              jornadaPoints={calcJornadaPoints(roster?.players ?? [], captainPlayerId)}
               rankPosition={myRank.position}
               rankTotal={myRank.total}
               hasCaptain={captainPlayerId !== null}
@@ -482,6 +524,7 @@ export default function LineupPage() {
                         onSetCaptain={rp ? () => handleSetCaptain(rp) : undefined}
                         currentWeek={currentWeek}
                         readOnly={selectedWeek !== null}
+                        onSlotClick={gameMode === "budget_pick" ? () => handleSlotClick(slot, rp) : undefined}
                       />
                     </div>
                   );
@@ -492,6 +535,19 @@ export default function LineupPage() {
           </>
         )}
       </main>
+
+      {/* budget_pick: pick panel */}
+      {pickSlot && roster && (
+        <PickPanel
+          leagueId={leagueId}
+          slot={pickSlot.slot}
+          role={pickSlot.role}
+          currentPlayer={pickSlot.currentPlayer}
+          remainingBudget={roster.remaining_budget}
+          onPick={handlePickResult}
+          onClose={() => setPickSlot(null)}
+        />
+      )}
 
       {/* Captain confirmation modal */}
       {captainModal?.target && (
@@ -541,6 +597,7 @@ function PlayerCard({
   onSetCaptain,
   currentWeek,
   readOnly,
+  onSlotClick,
 }: {
   expectedRole: string;
   rp: RosterPlayer | null;
@@ -553,6 +610,7 @@ function PlayerCard({
   onSetCaptain?: () => void;
   currentWeek?: number | null;
   readOnly?: boolean;
+  onSlotClick?: () => void;
 }) {
   const roleColor = ROLE_COLORS[expectedRole] ?? ROLE_COLORS.coach;
 
@@ -566,7 +624,9 @@ function PlayerCard({
             width: "100%",
             height: "64px",
             background: "var(--bg-panel)",
+            cursor: onSlotClick ? "pointer" : undefined,
           }}
+          onClick={onSlotClick}
         >
           <div className="p-2 rounded-lg bg-white/5">
             <RoleIcon role={expectedRole} className="w-5 h-5" />
@@ -574,7 +634,11 @@ function PlayerCard({
           <span className={`text-xs font-bold ${roleColor.text}`}>
             {ROLE_LABEL[expectedRole] ?? "BENCH"}
           </span>
-          <span style={{ color: "#ef4444", fontSize: 18, fontWeight: 700, lineHeight: 1, marginLeft: "auto" }}>!</span>
+          {onSlotClick ? (
+            <span style={{ color: "#3b82f6", fontSize: 14, fontWeight: 700, lineHeight: 1, marginLeft: "auto" }}>+</span>
+          ) : (
+            <span style={{ color: "#ef4444", fontSize: 18, fontWeight: 700, lineHeight: 1, marginLeft: "auto" }}>!</span>
+          )}
         </div>
       );
     }
@@ -585,7 +649,9 @@ function PlayerCard({
           width: "100%",
           minHeight: "340px",
           background: "var(--bg-panel)",
+          cursor: onSlotClick ? "pointer" : undefined,
         }}
+        onClick={onSlotClick}
       >
         <div className="p-2 rounded-lg bg-white/5">
           <RoleIcon role={expectedRole} className="w-6 h-6" />
@@ -593,7 +659,11 @@ function PlayerCard({
         <span className={`text-xs font-bold ${roleColor.text}`}>
           {ROLE_LABEL[expectedRole] ?? "BENCH"}
         </span>
-        <span style={{ color: "#ef4444", fontSize: 18, fontWeight: 700, lineHeight: 1 }}>!</span>
+        {onSlotClick ? (
+          <span style={{ color: "#3b82f6", fontSize: 18, fontWeight: 700, lineHeight: 1 }}>+</span>
+        ) : (
+          <span style={{ color: "#ef4444", fontSize: 18, fontWeight: 700, lineHeight: 1 }}>!</span>
+        )}
       </div>
     );
   }
@@ -616,6 +686,7 @@ function PlayerCard({
       onSetCaptain={onSetCaptain}
       currentWeek={currentWeek}
       readOnly={readOnly}
+      onSlotClick={onSlotClick}
     />
   );
 }
@@ -633,6 +704,7 @@ function PlayerCardFilled({
   onSetCaptain,
   currentWeek,
   readOnly,
+  onSlotClick,
 }: {
   rp: RosterPlayer;
   p: RosterPlayer["player"];
@@ -647,6 +719,7 @@ function PlayerCardFilled({
   onSetCaptain?: () => void;
   currentWeek?: number | null;
   readOnly?: boolean;
+  onSlotClick?: () => void;
 }) {
   const [popupOpen, setPopupOpen] = useState(false);
   const [popupLoading, setPopupLoading] = useState(false);
@@ -698,7 +771,9 @@ function PlayerCardFilled({
             border: "1px solid #222222",
             background: "#111111",
             overflow: "hidden",
+            cursor: onSlotClick ? "pointer" : undefined,
           }}
+          onClick={onSlotClick}
         >
           {/* LEFT: image 64×80 */}
           <div style={{ width: 64, height: 80, position: "relative", background: roleHex, flexShrink: 0 }}>
@@ -887,7 +962,9 @@ function PlayerCardFilled({
         border: "1px solid #222222",
         background: "#111111",
         overflow: "hidden",
+        cursor: onSlotClick ? "pointer" : undefined,
       }}
+      onClick={onSlotClick}
     >
       {/* PHOTO ZONE — 180px tall */}
       <div
@@ -970,7 +1047,7 @@ function PlayerCardFilled({
         >
           {/* Captain button */}
           <div
-            onClick={onSetCaptain}
+            onClick={(e) => { e.stopPropagation(); onSetCaptain?.(); }}
             style={{
               width: 18,
               height: 18,
@@ -1002,7 +1079,7 @@ function PlayerCardFilled({
           )}
 
           {clauseDays !== null && (
-            <div onClick={() => setPopupOpen(true)} style={{ display: "flex", alignItems: "center", gap: 3, cursor: "pointer" }}>
+            <div onClick={(e) => { e.stopPropagation(); setPopupOpen(true); }} style={{ display: "flex", alignItems: "center", gap: 3, cursor: "pointer" }}>
               <svg width="7" height="8" viewBox="0 0 9 10" fill="none">
                 <rect x="0.7" y="4.5" width="7.6" height="5" rx="1.2" stroke="#2dd4bf" strokeWidth="1.2" />
                 <path d="M2.3 4.5V3C2.3 1.95 3.2 1.1 4.5 1.1C5.8 1.1 6.7 1.95 6.7 3V4.5" stroke="#2dd4bf" strokeWidth="1.2" />

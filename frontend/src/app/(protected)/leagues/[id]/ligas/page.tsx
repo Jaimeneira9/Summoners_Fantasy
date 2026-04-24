@@ -3,11 +3,15 @@
 import { useEffect, useState } from "react";
 import { api, type League } from "@/lib/api";
 import { LeagueRow } from "@/components/LeagueRow";
-import { LeagueActions } from "@/components/LeagueActions";
+import { LeagueModal } from "@/components/LeagueModal";
+
+type ModalMode = "create" | "join";
 
 export default function LigasPage() {
   const [leagues, setLeagues] = useState<League[]>([]);
   const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>("create");
 
   const load = () => {
     setLoading(true);
@@ -22,6 +26,11 @@ export default function LigasPage() {
     load();
   }, []);
 
+  const openModal = (mode: ModalMode = "create") => {
+    setModalMode(mode);
+    setModalOpen(true);
+  };
+
   return (
     <div
       className="min-h-[100dvh]"
@@ -30,23 +39,30 @@ export default function LigasPage() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 pt-8 pb-24 sm:py-8">
         {/* Page header */}
         <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
-          <h1
-            className="text-base font-black uppercase tracking-wider"
-            style={{
-              fontFamily: "'Space Grotesk', sans-serif",
-              color: "var(--text-primary)",
-            }}
+          <div>
+            <h1 className="text-2xl font-bold text-white">Mis ligas</h1>
+            {!loading && (
+              <p className="text-sm text-gray-400 mt-0.5">
+                {leagues.length === 0
+                  ? "No estás en ninguna liga todavía"
+                  : `${leagues.length} liga${leagues.length !== 1 ? "s" : ""} activa${leagues.length !== 1 ? "s" : ""}`}
+              </p>
+            )}
+          </div>
+          {/* Nueva liga button */}
+          <button
+            onClick={() => openModal("create")}
+            className="px-4 py-2 text-sm font-bold rounded-lg bg-yellow-400 text-black hover:bg-yellow-300 transition-colors active:scale-95"
           >
-            Mis ligas
-          </h1>
-          <LeagueActions />
+            Nueva liga
+          </button>
         </div>
 
         {/* Content */}
         {loading ? (
           <LigasSkeleton />
         ) : leagues.length === 0 ? (
-          <EmptyState />
+          <EmptyState onOpen={() => openModal("create")} />
         ) : (
           <div className="space-y-3">
             {leagues.map((league) => (
@@ -55,6 +71,12 @@ export default function LigasPage() {
           </div>
         )}
       </main>
+
+      <LeagueModal
+        isOpen={modalOpen}
+        onClose={() => { setModalOpen(false); load(); }}
+        initialMode={modalMode}
+      />
     </div>
   );
 }
@@ -73,75 +95,28 @@ function LigasSkeleton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onOpen }: { onOpen?: () => void }) {
   return (
-    <div
-      className="rounded-2xl p-12 text-center"
-      style={{
-        background: "var(--bg-surface)",
-        border: "1px dashed var(--border-medium)",
-      }}
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full rounded-xl border border-dashed border-white/20 hover:border-white/40 transition-colors duration-200 p-12 flex flex-col items-center gap-3 cursor-pointer group"
+      style={{ background: "#0f0f1a" }}
     >
-      <div
-        className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-5"
-        style={{
-          background: "var(--color-primary-bg)",
-          border: "1px solid rgba(252,212,0,0.2)",
-        }}
-      >
+      <div className="w-12 h-12 rounded-full border-2 border-dashed border-white/20 group-hover:border-white/40 transition-colors flex items-center justify-center">
         <svg
-          className="w-7 h-7 opacity-70"
-          style={{ color: "var(--color-primary)" }}
+          className="w-6 h-6 text-gray-500 group-hover:text-gray-300 transition-colors"
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.5"
+          strokeWidth={2}
           viewBox="0 0 24 24"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z"
-          />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
         </svg>
       </div>
-
-      <p className="font-bold text-base mb-1" style={{ color: "var(--text-primary)" }}>
-        No estás en ninguna liga todavía
-      </p>
-      <p className="text-sm mb-8" style={{ color: "var(--text-secondary)" }}>
-        Crea la tuya o únete con un código de invitación.
-      </p>
-
-      <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-sm mx-auto">
-        <div
-          className="flex-1 rounded-xl p-5 text-left cursor-default"
-          style={{
-            background: "var(--color-primary-bg)",
-            border: "1px solid rgba(252,212,0,0.2)",
-          }}
-        >
-          <p className="font-black mb-1" style={{ color: "var(--color-primary)" }}>
-            Crear liga
-          </p>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Sé el comisionado, invita a tus amigos.
-          </p>
-        </div>
-        <div
-          className="flex-1 rounded-xl p-5 text-left cursor-default"
-          style={{
-            background: "var(--bg-panel)",
-            border: "1px solid var(--border-medium)",
-          }}
-        >
-          <p className="font-black mb-1" style={{ color: "var(--text-secondary)" }}>
-            Unirse
-          </p>
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Introduce el código de invitación.
-          </p>
-        </div>
-      </div>
-    </div>
+      <span className="text-sm text-gray-400 group-hover:text-gray-200 transition-colors font-medium">
+        Crear o unirse a una liga
+      </span>
+    </button>
   );
 }

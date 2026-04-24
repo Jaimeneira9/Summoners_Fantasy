@@ -20,6 +20,7 @@ export default function LeagueLayout({
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [hasIncompleteRoster, setHasIncompleteRoster] = useState(false);
+  const [gameMode, setGameMode] = useState<string | null>(null);
 
   useEffect(() => {
     api.roster.get(params.id).then((roster) => {
@@ -27,6 +28,11 @@ export default function LeagueLayout({
       setHasIncompleteRoster(filledCount < 5);
     }).catch(() => {
       // silently ignore — no indicator shown if fetch fails
+    });
+    api.leagues.get(params.id).then((league) => {
+      setGameMode(league.game_mode);
+    }).catch(() => {
+      // silently ignore — market tab will remain visible as fallback
     });
   }, [params.id]);
 
@@ -44,14 +50,14 @@ export default function LeagueLayout({
 
   return (
     <div className="flex h-[100dvh] bg-background overflow-hidden">
-      <Sidebar leagueId={params.id} hasIncompleteRoster={hasIncompleteRoster} />
+      <Sidebar leagueId={params.id} hasIncompleteRoster={hasIncompleteRoster} gameMode={gameMode} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <main className="flex-1 overflow-y-auto pb-20 lg:pb-0">
           <div ref={contentRef}>
             {children}
           </div>
         </main>
-        <BottomNav leagueId={params.id} hasIncompleteRoster={hasIncompleteRoster} />
+        <BottomNav leagueId={params.id} hasIncompleteRoster={hasIncompleteRoster} gameMode={gameMode} />
       </div>
     </div>
   );

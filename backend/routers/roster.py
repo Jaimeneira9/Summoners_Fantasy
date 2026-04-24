@@ -76,6 +76,32 @@ class MoveRequest(BaseModel):
     new_slot: Slot
 
 
+class PickRequest(BaseModel):
+    player_id: UUID
+    slot: Slot
+
+
+class AvailablePlayerOut(BaseModel):
+    id: UUID
+    name: str
+    team: str
+    role: str
+    image_url: str | None
+    current_price: float
+    last_price_change_pct: float = 0.0
+    split_points: float = 0.0
+    in_my_roster: bool = False
+
+
+class PickResponse(BaseModel):
+    ok: bool
+    slot: Slot
+    player_id: UUID
+    price_paid: float
+    remaining_budget: float
+    released_player_id: UUID | None = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -607,3 +633,277 @@ async def set_captain(
         captain_player_id=body.captain_player_id,
         message="Capitán asignado" if body.captain_player_id else "Capitán removido",
     )
+
+
+# ---------------------------------------------------------------------------
+# Budget Pick
+# ---------------------------------------------------------------------------
+
+SLOT_ROLES: dict[str, str] = {
+    "starter_1": "top",
+    "starter_2": "jungle",
+    "starter_3": "mid",
+    "starter_4": "adc",
+    "starter_5": "support",
+    "coach": "coach",
+}
+
+
+@router.post("/{league_id}/pick", response_model=PickResponse)
+async def pick_player(
+    league_id: UUID,
+    body: PickRequest,
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> PickResponse:
+    """Ficha o reemplaza un jugador en una liga budget_pick."""
+
+    # 1. Verificar game_mode
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("id, game_mode, competition_id")
+        .eq("id", str(league_id))
+        .single()
+        .execute()
+    )
+    if not league_resp.data or league_resp.data["game_mode"] != "budget_pick":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Este endpoint solo aplica en ligas budget_pick",
+        )
+    competition_id = league_resp.data["competition_id"]
+
+    # 2. Verificar membresía
+    member = _get_member(supabase, str(league_id), user["id"])
+
+    # 3. Bloqueo de jornada
+    series_resp = (
+        supabase.table("series")
+        .select("id")
+        .eq("competition_id", competition_id)
+        .eq("status", "in_progress")
+        .limit(1)
+        .execute()
+    )
+    if series_resp.data:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No podés cambiar jugadores mientras hay una jornada en curso",
+        )
+
+    # 4. Validar jugador destino
+    player_resp = (
+        supabase.table("players")
+        .select("id, role, current_price, name, team")
+        .eq("id", str(body.player_id))
+        .eq("is_active", True)
+        .execute()
+    )
+    if not player_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jugador no encontrado o inactivo")
+    player = player_resp.data[0]
+    new_price = float(player["current_price"])
+
+    # 5. Validar coherencia slot ↔ rol
+    expected_role = SLOT_ROLES.get(str(body.slot))
+    if expected_role and player["role"] != expected_role:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"El slot {body.slot} es para rol '{expected_role}', no '{player['role']}'",
+        )
+
+    # 6. Obtener/crear roster
+    roster_resp = (
+        supabase.table("rosters")
+        .select("id")
+        .eq("member_id", member["id"])
+        .execute()
+    )
+    if roster_resp.data:
+        roster_id = roster_resp.data[0]["id"]
+    else:
+        new_roster = supabase.table("rosters").insert({"member_id": member["id"]}).execute()
+        roster_id = new_roster.data[0]["id"]
+
+    # 7. Verificar que el jugador no esté ya en otro slot del mismo roster
+    dup_resp = (
+        supabase.table("roster_players")
+        .select("id")
+        .eq("roster_id", roster_id)
+        .eq("player_id", str(body.player_id))
+        .execute()
+    )
+    if dup_resp.data:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya tenés este jugador en tu equipo")
+
+    # 8. Leer ocupante actual del slot
+    occupant_resp = (
+        supabase.table("roster_players")
+        .select("id, player_id, price_paid")
+        .eq("roster_id", roster_id)
+        .eq("slot", str(body.slot))
+        .execute()
+    )
+    occupant = occupant_resp.data[0] if occupant_resp.data else None
+    release_amount = float(occupant["price_paid"]) if occupant else 0.0
+    released_player_id = occupant["player_id"] if occupant else None
+
+    # 9. Swap atómico de presupuesto via RPC
+    rpc_result = supabase.rpc("swap_budget", {
+        "p_member_id": member["id"],
+        "p_release": release_amount,
+        "p_cost": new_price,
+    }).execute()
+    if not rpc_result.data:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Presupuesto insuficiente")
+
+    # 10. Limpiar capitán si el jugador saliente era capitán de captain_week
+    if released_player_id:
+        week_resp = (
+            supabase.table("series")
+            .select("week")
+            .eq("competition_id", competition_id)
+            .eq("status", "finished")
+            .order("week", desc=True)
+            .limit(1)
+            .execute()
+        )
+        current_week = week_resp.data[0]["week"] if week_resp.data else None
+        captain_week = current_week + 1 if current_week is not None else None
+        if captain_week is not None:
+            cap_resp = (
+                supabase.table("captain_selections")
+                .select("captain_player_id")
+                .eq("member_id", member["id"])
+                .eq("week", captain_week)
+                .limit(1)
+                .execute()
+            )
+            if cap_resp.data and str(cap_resp.data[0]["captain_player_id"]) == str(released_player_id):
+                supabase.table("captain_selections").update(
+                    {"captain_player_id": None}
+                ).eq("member_id", member["id"]).eq("week", captain_week).execute()
+
+    # 11. Eliminar ocupante del slot (si existía)
+    if occupant:
+        supabase.table("roster_players").delete().eq("id", occupant["id"]).execute()
+
+    # 12. Insertar nuevo roster_player
+    supabase.table("roster_players").insert({
+        "roster_id": roster_id,
+        "player_id": str(body.player_id),
+        "slot": str(body.slot),
+        "price_paid": new_price,
+    }).execute()
+
+    # 13. Retornar respuesta
+    new_budget = float(member["remaining_budget"]) + release_amount - new_price
+    return PickResponse(
+        ok=True,
+        slot=body.slot,
+        player_id=body.player_id,
+        price_paid=new_price,
+        remaining_budget=new_budget,
+        released_player_id=released_player_id,
+    )
+
+
+@router.get("/{league_id}/available-players", response_model=list[AvailablePlayerOut])
+async def get_available_players(
+    league_id: UUID,
+    role: Optional[str] = Query(default=None),
+    supabase: Client = Depends(get_supabase),
+    user: dict = Depends(get_current_user),
+) -> list[AvailablePlayerOut]:
+    """Devuelve los jugadores disponibles para fichar en una liga budget_pick."""
+
+    # 1. Verificar game_mode y obtener competition_id
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("game_mode, competition_id")
+        .eq("id", str(league_id))
+        .single()
+        .execute()
+    )
+    if not league_resp.data or league_resp.data["game_mode"] != "budget_pick":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Este endpoint solo aplica en ligas budget_pick")
+    competition_id = league_resp.data["competition_id"]
+
+    # 2. Verificar membresía
+    member = _get_member(supabase, str(league_id), user["id"])
+
+    # 3. Obtener el nombre de la competición para filtrar jugadores por league
+    # players.league es un campo de texto (ej: "LEC") que corresponde al prefijo del nombre de la competición
+    comp_resp = (
+        supabase.table("competitions")
+        .select("name")
+        .eq("id", str(competition_id))
+        .single()
+        .execute()
+    )
+    league_abbr = comp_resp.data["name"].split()[0] if comp_resp.data else None
+
+    # 4. Query de jugadores activos filtrados por league
+    players_query = (
+        supabase.table("players")
+        .select("id, name, team, role, image_url, current_price, last_price_change_pct")
+        .eq("is_active", True)
+    )
+    if league_abbr:
+        players_query = players_query.eq("league", league_abbr)
+    if role:
+        players_query = players_query.eq("role", role)
+    players_resp = players_query.execute()
+    players = players_resp.data or []
+
+    # 4b. Calcular split_points por jugador (misma lógica que get_roster)
+    player_ids = [str(p["id"]) for p in players]
+    split_points_by_player: dict[str, float] = {}
+    if player_ids:
+        pss_resp = (
+            supabase.table("player_series_stats")
+            .select("player_id, series_points, series(competition_id, competitions(is_active))")
+            .in_("player_id", player_ids)
+            .execute()
+        )
+        for pss_row in (pss_resp.data or []):
+            series = pss_row.get("series") or {}
+            competition = series.get("competitions") or {}
+            if competition.get("is_active"):
+                pid = str(pss_row["player_id"])
+                split_points_by_player[pid] = split_points_by_player.get(pid, 0.0) + float(pss_row.get("series_points") or 0.0)
+
+    # 5. Obtener player_ids del roster del usuario
+    roster_resp = (
+        supabase.table("rosters")
+        .select("id")
+        .eq("member_id", member["id"])
+        .execute()
+    )
+    my_player_ids: set[str] = set()
+    if roster_resp.data:
+        rp_resp = (
+            supabase.table("roster_players")
+            .select("player_id")
+            .eq("roster_id", roster_resp.data[0]["id"])
+            .execute()
+        )
+        my_player_ids = {str(r["player_id"]) for r in (rp_resp.data or [])}
+
+    # 6. Construir resultado y ordenar por split_points desc
+    result = [
+        AvailablePlayerOut(
+            id=p["id"],
+            name=p["name"],
+            team=p["team"],
+            role=p["role"],
+            image_url=p.get("image_url"),
+            current_price=float(p["current_price"]),
+            last_price_change_pct=float(p.get("last_price_change_pct") or 0.0),
+            split_points=split_points_by_player.get(str(p["id"]), 0.0),
+            in_my_roster=str(p["id"]) in my_player_ids,
+        )
+        for p in players
+    ]
+    result.sort(key=lambda x: x.split_points, reverse=True)
+    return result

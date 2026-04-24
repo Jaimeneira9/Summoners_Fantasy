@@ -113,6 +113,33 @@ export default function MarketPage() {
     refreshRetained();
   }, [leagueId, refreshRetained]);
 
+  if (league?.game_mode === "budget_pick") {
+    return (
+      <div className="min-h-[100dvh] flex items-center justify-center" style={{ background: "#0A0A0A", color: "#F0E8D0" }}>
+        <div className="text-center py-20 px-6">
+          <div
+            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
+          >
+            <span className="material-symbols-outlined text-3xl" style={{ color: "#333333" }}>storefront</span>
+          </div>
+          <p
+            className="font-semibold mb-2"
+            style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "16px" }}
+          >
+            Este modo de juego no tiene mercado.
+          </p>
+          <p
+            className="text-sm"
+            style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
+          >
+            En Budget Pick los jugadores son elegidos al inicio de la temporada y no se pueden fichar.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-[100dvh] overflow-x-hidden" style={{ background: "#0A0A0A", color: "#F0E8D0" }}>
       {/* Page header */}

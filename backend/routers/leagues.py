@@ -1,7 +1,8 @@
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
@@ -13,9 +14,29 @@ router = APIRouter()
 # Schemas
 # ---------------------------------------------------------------------------
 
+GameMode = Literal["draft_market", "budget_pick"]
+
+# Sentinel used when budget_pick has no member cap (DB column is NOT NULL)
+_NO_LIMIT_SENTINEL = 9999
+
+
 class LeagueCreate(BaseModel):
     name: str = Field(min_length=3, max_length=60)
-    max_members: int = Field(default=8, ge=2, le=9)
+    max_members: Optional[int] = None
+    game_mode: GameMode = "draft_market"
+
+    @model_validator(mode="after")
+    def validate_max_members(self) -> "LeagueCreate":
+        if self.game_mode == "draft_market":
+            val = self.max_members if self.max_members is not None else 8
+            if not (2 <= val <= 8):
+                raise ValueError("draft_market requires max_members between 2 and 8")
+            self.max_members = val
+        else:  # budget_pick
+            if self.max_members is not None and self.max_members < 2:
+                raise ValueError("max_members must be >= 2 when provided")
+            # None stays as None — will be mapped to sentinel on insert
+        return self
 
 
 class MemberOut(BaseModel):
@@ -40,10 +61,12 @@ class LeagueOut(BaseModel):
     owner_id: UUID
     competition_id: UUID
     competition_name: str  # derivado del join con competitions
+    logo_url: str | None = None
     budget: float
     max_members: int
     is_active: bool
     member: MemberBrief | None = None
+    game_mode: str = "draft_market"
 
 
 class JoinRequest(BaseModel):
@@ -75,7 +98,7 @@ async def list_leagues(
 
     response = (
         supabase.table("fantasy_leagues")
-        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, competitions(name)")
+        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, game_mode, competitions(name, logo_url)")
         .in_("id", league_ids)
         .execute()
     )
@@ -83,6 +106,7 @@ async def list_leagues(
     for league in response.data:
         competition_row = league.pop("competitions", None) or {}
         league["competition_name"] = competition_row.get("name", "")
+        league["logo_url"] = competition_row.get("logo_url")
         m = member_by_league.get(league["id"])
         results.append({
             **league,
@@ -107,7 +131,7 @@ async def create_league(
     # (temporal hasta Fase 3 cuando el usuario elija la competition)
     active_comp_resp = (
         supabase.table("competitions")
-        .select("id, name")
+        .select("id, name, logo_url")
         .eq("is_active", True)
         .ilike("name", "%LEC%")
         .limit(1)
@@ -120,18 +144,23 @@ async def create_league(
         )
     active_comp = active_comp_resp.data[0]
 
+    db_max_members = (
+        body.max_members if body.max_members is not None else _NO_LIMIT_SENTINEL
+    )
     league_resp = (
         supabase.table("fantasy_leagues")
         .insert({
             "name": body.name,
             "owner_id": user["id"],
-            "max_members": body.max_members,
+            "max_members": db_max_members,
             "competition_id": active_comp["id"],
+            "game_mode": body.game_mode,
         })
         .execute()
     )
     league = league_resp.data[0]
     league["competition_name"] = active_comp["name"]
+    league["logo_url"] = active_comp.get("logo_url")
 
     supabase.table("league_members").insert({
         "league_id": league["id"],
@@ -139,12 +168,14 @@ async def create_league(
     }).execute()
 
     # Inicializar mercado inmediatamente (8 listings, closes_at = now + 24h)
-    try:
-        from market.refresh import initialize_league_market
-        initialize_league_market(supabase, league["id"])
-    except Exception as exc:
-        import logging
-        logging.getLogger(__name__).error("Failed to initialize market for league %s: %s", league["id"], exc)
+    # En ligas budget_pick no hay mercado
+    if body.game_mode != "budget_pick":
+        try:
+            from market.refresh import initialize_league_market
+            initialize_league_market(supabase, league["id"])
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error("Failed to initialize market for league %s: %s", league["id"], exc)
 
     return league
 
@@ -185,7 +216,8 @@ async def join_by_invite_code(
         .eq("league_id", league["id"])
         .execute()
     )
-    if len(count_resp.data) >= league["max_members"]:
+    cap = league["max_members"]
+    if cap != _NO_LIMIT_SENTINEL and len(count_resp.data) >= cap:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La liga está llena")
 
     member_resp = (
@@ -219,7 +251,7 @@ async def get_league(
 
     response = (
         supabase.table("fantasy_leagues")
-        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, competitions(name)")
+        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, game_mode, competitions(name, logo_url)")
         .eq("id", str(league_id))
         .single()
         .execute()
@@ -230,6 +262,7 @@ async def get_league(
     data = dict(response.data)
     competition_row = data.pop("competitions", None) or {}
     data["competition_name"] = competition_row.get("name", "")
+    data["logo_url"] = competition_row.get("logo_url")
 
     m = member_resp.data[0]
     return {
@@ -301,7 +334,8 @@ async def join_league(
         .eq("league_id", str(league_id))
         .execute()
     )
-    if len(count_resp.data) >= league["max_members"]:
+    cap = league["max_members"]
+    if cap != _NO_LIMIT_SENTINEL and len(count_resp.data) >= cap:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La liga está llena")
 
     member_resp = (

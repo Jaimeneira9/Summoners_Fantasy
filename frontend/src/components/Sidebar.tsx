@@ -8,6 +8,7 @@ interface SidebarProps {
   leagueId: string;
   leagueName?: string;
   hasIncompleteRoster?: boolean;
+  gameMode?: string | null;
 }
 
 const itemClass = (active: boolean) =>
@@ -17,7 +18,7 @@ const itemClass = (active: boolean) =>
       : "text-foreground hover:bg-white/5 hover:translate-x-1"
   }`;
 
-export default function Sidebar({ leagueId, leagueName, hasIncompleteRoster }: SidebarProps) {
+export default function Sidebar({ leagueId, leagueName, hasIncompleteRoster, gameMode }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -61,48 +62,63 @@ export default function Sidebar({ leagueId, leagueName, hasIncompleteRoster }: S
           )}
         </Link>
 
-        {/* Mercado (acordeón) */}
-        <button
-          onClick={() => setMarketOpen(!marketOpen)}
-          className={itemClass(isMarketActive) + " w-full"}
-        >
-          <span className="material-symbols-outlined text-xl">storefront</span>
-          <span className="flex-1 text-left">Mercado</span>
-          <span
-            className={`material-symbols-outlined text-base transition-transform duration-200 ${
-              marketOpen ? "rotate-180" : ""
-            }`}
+        {/* Explorar — solo en modo budget_pick */}
+        {gameMode === "budget_pick" && (
+          <Link
+            href={`/leagues/${leagueId}/market?tab=scout`}
+            className={itemClass(pathname.includes("/market"))}
           >
-            expand_more
-          </span>
-        </button>
+            <span className="material-symbols-outlined text-xl">search</span>
+            <span>Explorar</span>
+          </Link>
+        )}
 
-        {marketOpen && (
-          <div className="ml-4 mt-1 space-y-0.5">
-            {[
-              { label: "En vivo", tab: "live" },
-              { label: "Pujas", tab: "bids" },
-              { label: "Ofertas", tab: "offers" },
-              { label: "Explorar", tab: "scout" },
-            ].map(({ label, tab }) => {
-              const isActive =
-                pathname.includes("/market") && searchParams.get("tab") === tab;
-              return (
-                <Link
-                  key={tab}
-                  href={`/leagues/${leagueId}/market?tab=${tab}`}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-150 select-none ${
-                    isActive
-                      ? "bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
-                      : "text-white/70 hover:bg-white/5 hover:translate-x-1"
-                  }`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
-                  {label}
-                </Link>
-              );
-            })}
-          </div>
+        {/* Mercado (acordeón) — oculto en modo budget_pick */}
+        {gameMode !== "budget_pick" && (
+          <>
+            <button
+              onClick={() => setMarketOpen(!marketOpen)}
+              className={itemClass(isMarketActive) + " w-full"}
+            >
+              <span className="material-symbols-outlined text-xl">storefront</span>
+              <span className="flex-1 text-left">Mercado</span>
+              <span
+                className={`material-symbols-outlined text-base transition-transform duration-200 ${
+                  marketOpen ? "rotate-180" : ""
+                }`}
+              >
+                expand_more
+              </span>
+            </button>
+
+            {marketOpen && (
+              <div className="ml-4 mt-1 space-y-0.5">
+                {[
+                  { label: "En vivo", tab: "live" },
+                  { label: "Pujas", tab: "bids" },
+                  { label: "Ofertas", tab: "offers" },
+                  { label: "Explorar", tab: "scout" },
+                ].map(({ label, tab }) => {
+                  const isActive =
+                    pathname.includes("/market") && searchParams.get("tab") === tab;
+                  return (
+                    <Link
+                      key={tab}
+                      href={`/leagues/${leagueId}/market?tab=${tab}`}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all duration-150 select-none ${
+                        isActive
+                          ? "bg-[var(--color-primary)]/10 text-[var(--color-primary)]"
+                          : "text-white/70 hover:bg-white/5 hover:translate-x-1"
+                      }`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
+                      {label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
 
         {/* Clasificación */}

@@ -23,7 +23,19 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `HTTP ${res.status}`);
+    const detail = body.detail;
+    let message: string;
+    if (!detail) {
+      message = `HTTP ${res.status}`;
+    } else if (typeof detail === "string") {
+      message = detail;
+    } else if (Array.isArray(detail)) {
+      // Pydantic validation errors: [{loc, msg, type}, ...]
+      message = detail.map((e: { msg?: string }) => e.msg ?? JSON.stringify(e)).join("; ");
+    } else {
+      message = JSON.stringify(detail);
+    }
+    throw new Error(message);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -160,9 +172,13 @@ export type League = {
   invite_code: string;
   owner_id: string;
   budget: number;
-  competition: string;
+  competition_id: string;
+  competition_name: string;
+  logo_url: string | null;
+  max_members: number;
   is_active: boolean;
-  member: { id: string; remaining_budget: number; total_points: number } | null;
+  game_mode: string;
+  member: { id: string; remaining_budget: number; total_points: number; display_name: string | null } | null;
 };
 
 export type Slot =
@@ -264,6 +280,27 @@ export type CaptainResponse = {
   success: boolean;
   captain_player_id: string | null;
   message: string;
+};
+
+export type AvailablePlayer = {
+  id: string;
+  name: string;
+  team: string;
+  role: string;
+  image_url: string | null;
+  current_price: number;
+  last_price_change_pct: number;
+  split_points: number;
+  in_my_roster: boolean;
+};
+
+export type PickResult = {
+  ok: boolean;
+  slot: string;
+  player_id: string;
+  price_paid: number;
+  remaining_budget: number;
+  released_player_id: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -395,10 +432,10 @@ export const api = {
   leagues: {
     list: () => req<League[]>("/leagues/"),
     get: (id: string) => req<League>(`/leagues/${id}`),
-    create: (name: string, maxMembers: number) =>
+    create: (name: string, maxMembers: number | null, gameMode: "draft_market" | "budget_pick" = "draft_market") =>
       req<League>("/leagues/", {
         method: "POST",
-        body: JSON.stringify({ name, max_members: maxMembers }),
+        body: JSON.stringify({ name, max_members: maxMembers, game_mode: gameMode }),
       }),
     join: (inviteCode: string) =>
       req("/leagues/join", {
@@ -412,6 +449,13 @@ export const api = {
   roster: {
     get: (leagueId: string, week?: number | null) =>
       req<Roster>(`/roster/${leagueId}${week != null ? `?week=${week}` : ""}`),
+    availablePlayers: (leagueId: string, role?: string) =>
+      req<AvailablePlayer[]>(`/roster/${leagueId}/available-players${role ? `?role=${role}` : ""}`),
+    pick: (leagueId: string, playerId: string, slot: string) =>
+      req<PickResult>(`/roster/${leagueId}/pick`, {
+        method: "POST",
+        body: JSON.stringify({ player_id: playerId, slot }),
+      }),
     move: (leagueId: string, rosterPlayerId: string, newSlot: Slot) =>
       req(`/roster/${leagueId}/move`, {
         method: "PATCH",
