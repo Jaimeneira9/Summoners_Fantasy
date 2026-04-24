@@ -52,7 +52,14 @@ export default function BottomNav({ leagueId, hasIncompleteRoster, gameMode }: B
             isActive: pathname.includes("/market"),
           },
         ]
-      : []),
+      : [
+          {
+            label: "Explorar",
+            icon: "search",
+            href: `/leagues/${leagueId}/market?tab=scout`,
+            isActive: pathname.includes("/market"),
+          },
+        ]),
     {
       label: "Equipos",
       icon: "shield",

@@ -24,8 +24,9 @@
 
 ## Local Services
 
-- Frontend (Next.js) runs on port 3000; Backend (FastAPI) runs on port 8000
-- Port 3000 may be reserved on Windows — check before starting
+- Frontend (Next.js) runs on port 3002 (`next dev -p 3002`); Backend (FastAPI) runs on port 8000
+- Start backend: `cd backend && venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+- Start frontend: `cd frontend && npm run dev` (port 3002)
 - Always verify services are actually responding, not just that the command returned
 
 ---

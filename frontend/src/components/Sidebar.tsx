@@ -62,6 +62,17 @@ export default function Sidebar({ leagueId, leagueName, hasIncompleteRoster, gam
           )}
         </Link>
 
+        {/* Explorar — solo en modo budget_pick */}
+        {gameMode === "budget_pick" && (
+          <Link
+            href={`/leagues/${leagueId}/market?tab=scout`}
+            className={itemClass(pathname.includes("/market"))}
+          >
+            <span className="material-symbols-outlined text-xl">search</span>
+            <span>Explorar</span>
+          </Link>
+        )}
+
         {/* Mercado (acordeón) — oculto en modo budget_pick */}
         {gameMode !== "budget_pick" && (
           <>

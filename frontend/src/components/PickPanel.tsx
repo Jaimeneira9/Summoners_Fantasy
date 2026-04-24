@@ -389,7 +389,7 @@ export function PickPanel({
                 margin: "3px 0 0",
               }}
             >
-              Ordenados por puntos · {slot}
+              Ordenados por puntos · {slotLabel}
             </p>
           </div>
           <button

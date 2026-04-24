@@ -61,6 +61,7 @@ class LeagueOut(BaseModel):
     owner_id: UUID
     competition_id: UUID
     competition_name: str  # derivado del join con competitions
+    logo_url: str | None = None
     budget: float
     max_members: int
     is_active: bool
@@ -97,7 +98,7 @@ async def list_leagues(
 
     response = (
         supabase.table("fantasy_leagues")
-        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, game_mode, competitions(name)")
+        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, game_mode, competitions(name, logo_url)")
         .in_("id", league_ids)
         .execute()
     )
@@ -105,6 +106,7 @@ async def list_leagues(
     for league in response.data:
         competition_row = league.pop("competitions", None) or {}
         league["competition_name"] = competition_row.get("name", "")
+        league["logo_url"] = competition_row.get("logo_url")
         m = member_by_league.get(league["id"])
         results.append({
             **league,
@@ -129,7 +131,7 @@ async def create_league(
     # (temporal hasta Fase 3 cuando el usuario elija la competition)
     active_comp_resp = (
         supabase.table("competitions")
-        .select("id, name")
+        .select("id, name, logo_url")
         .eq("is_active", True)
         .ilike("name", "%LEC%")
         .limit(1)
@@ -158,6 +160,7 @@ async def create_league(
     )
     league = league_resp.data[0]
     league["competition_name"] = active_comp["name"]
+    league["logo_url"] = active_comp.get("logo_url")
 
     supabase.table("league_members").insert({
         "league_id": league["id"],
@@ -248,7 +251,7 @@ async def get_league(
 
     response = (
         supabase.table("fantasy_leagues")
-        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, game_mode, competitions(name)")
+        .select("id, name, invite_code, owner_id, competition_id, budget, max_members, is_active, game_mode, competitions(name, logo_url)")
         .eq("id", str(league_id))
         .single()
         .execute()
@@ -259,6 +262,7 @@ async def get_league(
     data = dict(response.data)
     competition_row = data.pop("competitions", None) or {}
     data["competition_name"] = competition_row.get("name", "")
+    data["logo_url"] = competition_row.get("logo_url")
 
     m = member_resp.data[0]
     return {

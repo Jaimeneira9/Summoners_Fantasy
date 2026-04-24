@@ -172,10 +172,13 @@ export type League = {
   invite_code: string;
   owner_id: string;
   budget: number;
-  competition: string;
+  competition_id: string;
+  competition_name: string;
+  logo_url: string | null;
+  max_members: number;
   is_active: boolean;
   game_mode: string;
-  member: { id: string; remaining_budget: number; total_points: number } | null;
+  member: { id: string; remaining_budget: number; total_points: number; display_name: string | null } | null;
 };
 
 export type Slot =
