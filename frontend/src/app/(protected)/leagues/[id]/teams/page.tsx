@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import Image from "next/image";
 import { useParams } from "next/navigation";
 import { api, type TeamStandingEntry, type TeamStandingsOut, type Split } from "@/lib/api";
 
@@ -120,11 +121,13 @@ function TeamRow({
 
       {/* EQUIPO — flex-grow */}
       <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10 }}>
-        <img
+        <Image
           src={teamLogoUrl(entry.team_name, entry.logo_url)}
           alt={entry.team_name}
+          width={32}
+          height={32}
           onError={(e) => { e.currentTarget.style.display = "none"; }}
-          style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "contain", background: "#1A1A1A", flexShrink: 0 }}
+          style={{ borderRadius: "50%", objectFit: "contain", background: "#1A1A1A", flexShrink: 0 }}
         />
         <span style={{
           fontFamily: "'Space Grotesk', sans-serif",

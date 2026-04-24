@@ -6,7 +6,7 @@ import Link from "next/link";
 import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 gsap.registerPlugin(useGSAP);
-import { api, type Roster, type RosterPlayer, type Slot, type Split, type PickResult } from "@/lib/api";
+import { api, type Roster, type RosterPlayer, type Slot, type Split } from "@/lib/api";
 import { JornadaSelector } from "@/components/JornadaSelector";
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
@@ -424,7 +424,7 @@ export default function LineupPage() {
   };
 
   // After a successful pick: reload roster to reflect new player + updated budget
-  const handlePickResult = (_result: PickResult) => {
+  const handlePickResult = () => {
     setPickSlot(null);
     load();
   };

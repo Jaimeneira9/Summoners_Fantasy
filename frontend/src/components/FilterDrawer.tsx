@@ -1,7 +1,7 @@
 "use client";
 
 import { createPortal } from "react-dom";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Split } from "@/lib/api";
 
 export interface FilterDrawerFilters {
@@ -39,14 +39,14 @@ export default function FilterDrawer({
   const [hoveredSplit, setHoveredSplit] = useState<string | null>(null);
 
   useEffect(() => { setMounted(true); }, []);
-  useEffect(() => { if (isOpen) setDraft({ ...committed }); }, [isOpen]);
+  useEffect(() => { if (isOpen) setDraft({ ...committed }); }, [isOpen, committed]);
 
   const priceValid = draft.priceMax === undefined || draft.priceMin <= draft.priceMax;
 
-  function handleClose() {
+  const handleClose = useCallback(() => {
     setIsClosing(true);
     setTimeout(() => { setIsClosing(false); onClose(); }, 220);
-  }
+  }, [onClose]);
 
   // Escape key
   useEffect(() => {
@@ -54,7 +54,7 @@ export default function FilterDrawer({
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") handleClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isOpen]);
+  }, [isOpen, handleClose]);
 
   if (!mounted || (!isOpen && !isClosing)) return null;
 
