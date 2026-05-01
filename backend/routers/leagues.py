@@ -24,6 +24,7 @@ class LeagueCreate(BaseModel):
     name: str = Field(min_length=3, max_length=60)
     max_members: Optional[int] = None
     game_mode: GameMode = "draft_market"
+    competition_id: UUID
 
     @model_validator(mode="after")
     def validate_max_members(self) -> "LeagueCreate":
@@ -127,20 +128,18 @@ async def create_league(
     user: dict = Depends(get_current_user),
 ) -> LeagueOut:
     """Crea una liga y añade al creador como primer miembro. Inicializa el mercado."""
-    # Resolver competition activa LEC antes del insert
-    # (temporal hasta Fase 3 cuando el usuario elija la competition)
     active_comp_resp = (
         supabase.table("competitions")
         .select("id, name, logo_url")
+        .eq("id", str(body.competition_id))
         .eq("is_active", True)
-        .ilike("name", "%LEC%")
         .limit(1)
         .execute()
     )
     if not active_comp_resp.data:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="No active LEC competition found",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Competition not found or not active",
         )
     active_comp = active_comp_resp.data[0]
 
@@ -411,15 +410,15 @@ async def get_member_roster(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Miembro no encontrado")
     member = member_resp.data[0]
 
-    # Obtener competition activa (necesaria para snapshot y split_points)
-    active_comp = (
-        supabase.table("competitions")
-        .select("id")
-        .eq("is_active", True)
-        .limit(1)
+    # Obtener competition_id desde fantasy_leagues (necesaria para snapshot y split_points)
+    fl_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
         .execute()
     )
-    active_comp_id: str | None = active_comp.data[0]["id"] if active_comp.data else None
+    active_comp_id: str | None = str(fl_resp.data["competition_id"]) if fl_resp.data and fl_resp.data.get("competition_id") else None
 
     # Si se pidió semana y hay competition activa, servir desde snapshot (sin fallback al roster actual)
     roster_players: list[dict] = []

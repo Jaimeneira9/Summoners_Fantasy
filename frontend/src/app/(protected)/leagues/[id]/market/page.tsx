@@ -113,33 +113,6 @@ export default function MarketPage() {
     refreshRetained();
   }, [leagueId, refreshRetained]);
 
-  if (league?.game_mode === "budget_pick") {
-    return (
-      <div className="min-h-[100dvh] flex items-center justify-center" style={{ background: "#0A0A0A", color: "#F0E8D0" }}>
-        <div className="text-center py-20 px-6">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
-          >
-            <span className="material-symbols-outlined text-3xl" style={{ color: "#333333" }}>storefront</span>
-          </div>
-          <p
-            className="font-semibold mb-2"
-            style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: "16px" }}
-          >
-            Este modo de juego no tiene mercado.
-          </p>
-          <p
-            className="text-sm"
-            style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
-          >
-            En Budget Pick los jugadores son elegidos al inicio de la temporada y no se pueden fichar.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-[100dvh] overflow-x-hidden" style={{ background: "#0A0A0A", color: "#F0E8D0" }}>
       {/* Page header */}
@@ -277,7 +250,32 @@ export default function MarketPage() {
 
       {/* Content */}
       <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-24">
-        {tab === "mercado"   && <MarketTab  leagueId={leagueId} budget={budget} availableBudget={budget !== null ? budget - retainedBudget : null} splitName={split?.name} onBid={refreshBudget} isMobile={isMobile} bidsByListing={bidsByListing} />}
+        {tab === "mercado"   && (league?.game_mode === "budget_pick" ? (
+          <div className="py-20 text-center">
+            <div
+              className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+              style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}
+            >
+              <svg className="w-7 h-7" style={{ color: "#333333" }} fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.016a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z" />
+              </svg>
+            </div>
+            <p
+              className="font-semibold mb-2"
+              style={{ color: "#F0E8D0", fontFamily: "'Space Grotesk', sans-serif", fontSize: "16px" }}
+            >
+              Este modo no tiene mercado
+            </p>
+            <p
+              className="text-sm max-w-sm mx-auto"
+              style={{ color: "#555555", fontFamily: "'Space Grotesk', sans-serif" }}
+            >
+              En Budget Pick podés explorar y fichar jugadores directamente desde la pestaña Explorar.
+            </p>
+          </div>
+        ) : (
+          <MarketTab leagueId={leagueId} budget={budget} availableBudget={budget !== null ? budget - retainedBudget : null} splitName={split?.name} onBid={refreshBudget} isMobile={isMobile} bidsByListing={bidsByListing} />
+        ))}
         {tab === "mis-pujas" && <MyBidsTab  leagueId={leagueId} />}
         {tab === "ofertas"   && <OffersTab  leagueId={leagueId} />}
         {tab === "explorar"  && <ScoutTab   leagueId={leagueId} isMobile={isMobile} />}

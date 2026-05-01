@@ -63,6 +63,12 @@ LEAGUE_REGISTRY: dict[str, dict] = {
         "tier": 1,
         "gol_gg_slug": "LCS 2026 Spring",
     },
+    "LES": {
+        "name": "LES",
+        "region": "Spain",
+        "tier": 2,
+        "gol_gg_slug": "LES 2026 Spring",
+    },
 }
 
 # Roles que participan en el fantasy (excluye coach por ahora — sistema WIP)

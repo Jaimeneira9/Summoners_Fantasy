@@ -1047,46 +1047,34 @@ def _update_manager_total_points(
 # ---------------------------------------------------------------------------
 
 
-async def run_series_ingest(supabase: Client) -> None:
+async def _ingest_single_competition(supabase: Client, competition: dict) -> None:
     """
-    Pipeline completo de ingestión de series desde gol.gg.
+    Ejecuta el pipeline completo para UNA competition.
 
-    Obtiene el slug de la competition activa (is_active=True) desde la DB,
-    fetch la matchlist, agrupa los games por (home, away, date) formando
-    series, y procesa cada serie en orden.
+    Raises: cualquier excepción no capturada (el caller hace try/except por competition).
     """
-    logger.info("Starting series ingest pipeline")
-
-    # 1. Obtener gol_gg_slug de la competition activa (sin filtrar por nombre)
-    try:
-        comp_resp = (
-            supabase.table("competitions")
-            .select("id, name, gol_gg_slug, current_week")
-            .eq("is_active", True)
-            .limit(1)
-            .execute()
-        )
-    except Exception as exc:
-        logger.error("Failed to query competitions: %s", exc)
-        return
-
-    if not comp_resp.data:
-        logger.error("No active competition found in DB (is_active=True)")
-        return
-
-    competition = comp_resp.data[0]
     competition_id: str = str(competition["id"])
     competition_name: str = competition.get("name", "<unnamed>")
     gol_gg_slug: str | None = competition.get("gol_gg_slug")
-    # TA-2: Leer current_week de la DB para filtrar entries y snapshots
-    current_week_db: int = competition.get("current_week") or 1
-    # T-8a: Extraer league tag desde el nombre de la competition (ej. "LEC 2026 Spring" → "LEC")
+    # Leer current_week de la DB para filtrar entries y snapshots
+    current_week_db: int | None = competition.get("current_week")
+    # Extraer league tag desde el nombre de la competition (ej. "LEC 2026 Spring" → "LEC")
     # Fallback a "LEC" si el nombre no empieza con letras o está vacío
     league_tag: str = competition_name.split()[0].upper() if competition_name and competition_name != "<unnamed>" else "LEC"
 
+    # Guard: current_week NULL → WARNING + skip (no asumir semana 1 silenciosamente)
+    if current_week_db is None:
+        logger.warning(
+            "Competition '%s' (id=%s) has current_week=NULL — skipping "
+            "(configure current_week first)",
+            competition_name,
+            competition_id,
+        )
+        return
+
     if not gol_gg_slug:
         logger.error(
-            "Active competition '%s' (id=%s) has no gol_gg_slug configured",
+            "Competition '%s' (id=%s) has no gol_gg_slug configured — skipping",
             competition_name,
             competition_id,
         )
@@ -1191,7 +1179,7 @@ async def run_series_ingest(supabase: Client) -> None:
                 team_away_id=team_away_id,
                 existing_game_ids=existing_game_ids if existing_game_ids is not None else set(),
                 new_price_player_ids=new_price_player_ids,
-                league_tag=league_tag,  # NUEVO
+                league_tag=league_tag,
                 scoring_competition_id=competition_id,
             )
             processed_player_ids.update(series_player_ids)
@@ -1281,6 +1269,53 @@ async def run_series_ingest(supabase: Client) -> None:
         except Exception as exc:
             logger.error(
                 "Manager scoring failed after series ingest (non-blocking): %s",
+                exc,
+                exc_info=True,
+            )
+
+
+async def run_series_ingest(supabase: Client) -> None:
+    """
+    Pipeline completo de ingestión de series desde gol.gg.
+
+    Consulta TODAS las competitions activas (is_active=True) y procesa cada una
+    de forma independiente. Si una competition falla, el loop continúa con la siguiente.
+    """
+    logger.info("Starting series ingest pipeline")
+
+    # 1. Obtener todas las competitions activas
+    try:
+        comp_resp = (
+            supabase.table("competitions")
+            .select("id, name, gol_gg_slug, current_week")
+            .eq("is_active", True)
+            .execute()
+        )
+    except Exception as exc:
+        logger.error("Failed to query competitions: %s", exc)
+        return
+
+    competitions = comp_resp.data or []
+    if not competitions:
+        logger.error("No active competition found in DB (is_active=True)")
+        return
+
+    logger.info(
+        "Processing %d active competition(s): %s",
+        len(competitions),
+        [c.get("name", "<unnamed>") for c in competitions],
+    )
+
+    for competition in competitions:
+        competition_id = str(competition["id"])
+        competition_name = competition.get("name", "<unnamed>")
+        try:
+            await _ingest_single_competition(supabase, competition)
+        except Exception as exc:
+            logger.error(
+                "Competition '%s' (id=%s) failed with unhandled exception: %s",
+                competition_name,
+                competition_id,
                 exc,
                 exc_info=True,
             )

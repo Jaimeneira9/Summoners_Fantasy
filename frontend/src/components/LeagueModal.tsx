@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
+import { api, type Competition } from "@/lib/api";
 
 // ---------------------------------------------------------------------------
 // League SVG logos
@@ -61,25 +61,19 @@ function LogoMSI() {
 }
 
 // ---------------------------------------------------------------------------
-// League data
+// Helper: get logo component by competition name
 // ---------------------------------------------------------------------------
 
-type CompetitionOption = {
-  id: string;
-  name: string;
-  region: string;
-  active: boolean;
-  logo: React.ReactNode;
-  iconBg: string;
-};
-
-const COMPETITIONS: CompetitionOption[] = [
-  { id: "lec", name: "LEC", region: "Europe", active: true,  logo: <LogoLEC />, iconBg: "#1A1228" },
-  { id: "lck", name: "LCK", region: "Korea",  active: false, logo: <LogoLCK />, iconBg: "#1A1228" },
-  { id: "lpl", name: "LPL", region: "China",  active: false, logo: <LogoLPL />, iconBg: "#1A1228" },
-  { id: "lcs", name: "LCS", region: "NA",     active: false, logo: <LogoLCS />, iconBg: "#1A1228" },
-  { id: "msi", name: "MSI", region: "Global", active: false, logo: <LogoMSI />, iconBg: "#1A1228" },
-];
+function CompetitionLogo({ name }: { name: string }) {
+  const upper = name.toUpperCase();
+  if (upper.startsWith("LEC")) return <LogoLEC />;
+  if (upper.startsWith("LCK")) return <LogoLCK />;
+  if (upper.startsWith("LPL")) return <LogoLPL />;
+  if (upper.startsWith("LCS")) return <LogoLCS />;
+  if (upper.startsWith("MSI")) return <LogoMSI />;
+  // Fallback: first 3 letters as text
+  return <span style={{ fontSize: "10px", fontWeight: 700, color: "#C89B3C" }}>{upper.slice(0, 3)}</span>;
+}
 
 // ---------------------------------------------------------------------------
 // Lock icon (SVG inline)
@@ -126,6 +120,11 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Competitions state
+  const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
+  const [competitionsLoading, setCompetitionsLoading] = useState(false);
+
   // Trap focus and handle Escape
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -148,6 +147,22 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
     return () => { document.body.style.overflow = ""; };
   }, [isOpen]);
 
+  // Fetch competitions when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    setCompetitionsLoading(true);
+    api.competitions.list()
+      .then((data) => {
+        setCompetitions(data);
+        setSelectedCompetitionId(data[0]?.id ?? null);
+      })
+      .catch(() => {
+        setCompetitions([]);
+        setSelectedCompetitionId(null);
+      })
+      .finally(() => setCompetitionsLoading(false));
+  }, [isOpen]);
+
   // Reset state when modal opens (and sync mode with initialMode)
   useEffect(() => {
     if (isOpen) {
@@ -158,11 +173,17 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
       setInviteCode("");
       setError(null);
       setBusy(false);
+    } else {
+      setSelectedCompetitionId(null);
+      setCompetitions([]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const selectedComp = competitions.find((c) => c.id === selectedCompetitionId);
+  const compAbbr = selectedComp?.name.split(" ")[0].toUpperCase() ?? "la liga";
 
   const done = () => { onClose(); router.refresh(); };
 
@@ -171,7 +192,7 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
     setBusy(true);
     setError(null);
     try {
-      await api.leagues.create(ligaNombre.trim(), maxManagers, gameMode);
+      await api.leagues.create(ligaNombre.trim(), maxManagers, gameMode, selectedCompetitionId!);
       done();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error al crear la liga");
@@ -333,37 +354,41 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
           >
             <p style={{ ...labelStyle, marginBottom: "10px" }}>Competición</p>
             <div style={{ display: "flex", gap: "10px" }}>
-              {COMPETITIONS.map((c) => (
-                <div
-                  key={c.id}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: "6px",
-                    opacity: c.active ? 1 : 0.4,
-                    flexShrink: 0,
-                  }}
-                >
+              {competitionsLoading ? null : competitions.map((c) => {
+                const selected = c.id === selectedCompetitionId;
+                return (
                   <div
+                    key={c.id}
+                    onClick={() => setSelectedCompetitionId(c.id)}
                     style={{
-                      width: "60px",
-                      height: "60px",
-                      borderRadius: "14px",
-                      background: c.active ? "rgba(200,155,60,0.10)" : c.iconBg,
-                      border: c.active ? "1.5px solid rgba(200,155,60,0.35)" : "1.5px solid #2A2B3D",
                       display: "flex",
+                      flexDirection: "column",
                       alignItems: "center",
-                      justifyContent: "center",
+                      gap: "6px",
+                      flexShrink: 0,
+                      cursor: "pointer",
                     }}
                   >
-                    {c.logo}
+                    <div
+                      style={{
+                        width: "60px",
+                        height: "60px",
+                        borderRadius: "14px",
+                        background: selected ? "rgba(200,155,60,0.10)" : "#1A1228",
+                        border: selected ? "1.5px solid rgba(200,155,60,0.35)" : "1.5px solid #2A2B3D",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <CompetitionLogo name={c.name} />
+                    </div>
+                    <span style={{ fontSize: "11px", fontWeight: 600, color: selected ? "#E8E9EE" : "#6B6C7E" }}>
+                      {c.name}
+                    </span>
                   </div>
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: c.active ? "#E8E9EE" : "#6B6C7E" }}>
-                    {c.name}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -379,60 +404,46 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
             className="hidden md:block"
           >
             <p style={{ ...labelStyle, padding: "0 20px", marginBottom: "10px" }}>Competición</p>
-            {COMPETITIONS.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "12px",
-                  padding: "10px 20px",
-                  opacity: c.active ? 1 : 0.4,
-                  background: c.active ? "rgba(200,155,60,0.06)" : "transparent",
-                  borderLeft: c.active ? "2px solid #C89B3C" : "2px solid transparent",
-                  cursor: c.active ? "default" : "not-allowed",
-                }}
-              >
+            {competitionsLoading ? null : competitions.map((c) => {
+              const selected = c.id === selectedCompetitionId;
+              return (
                 <div
+                  key={c.id}
+                  onClick={() => setSelectedCompetitionId(c.id)}
                   style={{
-                    width: "36px",
-                    height: "36px",
-                    borderRadius: "9px",
-                    background: c.active ? "rgba(200,155,60,0.10)" : c.iconBg,
-                    border: c.active ? "1px solid rgba(200,155,60,0.35)" : "1px solid #2A2B3D",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
+                    gap: "12px",
+                    padding: "10px 20px",
+                    background: selected ? "rgba(200,155,60,0.06)" : "transparent",
+                    borderLeft: selected ? "2px solid #C89B3C" : "2px solid transparent",
+                    cursor: "pointer",
                   }}
                 >
-                  {c.logo}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ fontSize: "13px", fontWeight: 700, color: c.active ? "#E8E9EE" : "#6B6C7E", margin: 0 }}>
-                    {c.name}
-                  </p>
-                  <p style={{ fontSize: "11px", color: "#6B6C7E", margin: 0 }}>{c.region}</p>
-                </div>
-                {!c.active && (
-                  <span
+                  <div
                     style={{
-                      marginLeft: "auto",
-                      fontSize: "9px",
-                      fontWeight: 700,
-                      letterSpacing: "0.06em",
-                      background: "#2A2B3D",
-                      color: "#6B6C7E",
-                      borderRadius: "4px",
-                      padding: "2px 5px",
+                      width: "36px",
+                      height: "36px",
+                      borderRadius: "9px",
+                      background: selected ? "rgba(200,155,60,0.10)" : "#1A1228",
+                      border: selected ? "1px solid rgba(200,155,60,0.35)" : "1px solid #2A2B3D",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       flexShrink: 0,
                     }}
                   >
-                    SOON
-                  </span>
-                )}
-              </div>
-            ))}
+                    <CompetitionLogo name={c.name} />
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={{ fontSize: "13px", fontWeight: 700, color: selected ? "#E8E9EE" : "#6B6C7E", margin: 0 }}>
+                      {c.name}
+                    </p>
+                    <p style={{ fontSize: "11px", color: "#6B6C7E", margin: 0 }}>{c.name.split(" ")[0]}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Right panel: form */}
@@ -451,7 +462,7 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                     Nueva liga
                   </p>
                   <p style={{ fontSize: "13px", color: "#6B6C7E", margin: 0 }}>
-                    Configurá tu liga de LEC y compartí el código con tus amigos.
+                    Configurá tu liga de {compAbbr} y compartí el código con tus amigos.
                   </p>
                 </div>
 
@@ -546,7 +557,7 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                     required
                     minLength={3}
                     maxLength={60}
-                    placeholder="Mi liga de LEC..."
+                    placeholder={`Mi liga de ${compAbbr}...`}
                     style={inputBase}
                     onFocus={(e) => {
                       e.currentTarget.style.borderColor = "#C89B3C";
@@ -623,7 +634,7 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                   </button>
                   <button
                     type="submit"
-                    disabled={busy || ligaNombre.trim().length < 3}
+                    disabled={busy || ligaNombre.trim().length < 3 || !selectedCompetitionId}
                     style={{
                       padding: "10px 24px",
                       fontSize: "13px",
@@ -632,12 +643,12 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                       background: "#C89B3C",
                       border: "none",
                       borderRadius: "10px",
-                      cursor: busy || ligaNombre.trim().length < 3 ? "not-allowed" : "pointer",
-                      opacity: busy || ligaNombre.trim().length < 3 ? 0.4 : 1,
+                      cursor: busy || ligaNombre.trim().length < 3 || !selectedCompetitionId ? "not-allowed" : "pointer",
+                      opacity: busy || ligaNombre.trim().length < 3 || !selectedCompetitionId ? 0.4 : 1,
                       transition: "opacity 0.15s, filter 0.15s",
                     }}
                     onMouseEnter={(e) => {
-                      if (!busy && ligaNombre.trim().length >= 3)
+                      if (!busy && ligaNombre.trim().length >= 3 && selectedCompetitionId)
                         e.currentTarget.style.filter = "brightness(0.9)";
                     }}
                     onMouseLeave={(e) => { e.currentTarget.style.filter = "none"; }}

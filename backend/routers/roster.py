@@ -133,32 +133,38 @@ async def get_roster(
     """Devuelve la plantilla del usuario en una liga."""
     member = _get_member(supabase, str(league_id), user["id"])
 
-    # ── Step 2: Resolve active competition + current week (needed by multiple blocks) ──
+    # ── Step 2: Resolve competition from fantasy_leagues + current week ──
     competition_id: Optional[str] = None
     current_week: Optional[int] = None
+
+    fl_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
+        .execute()
+    )
+    if not fl_resp.data or not fl_resp.data.get("competition_id"):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Liga sin competición asignada",
+        )
+    competition_id = str(fl_resp.data["competition_id"])
+
     try:
-        comp_resp = (
-            supabase.table("competitions")
-            .select("id")
-            .eq("is_active", True)
+        week_resp = (
+            supabase.table("series")
+            .select("week")
+            .eq("competition_id", competition_id)
+            .eq("status", "finished")
+            .order("week", desc=True)
             .limit(1)
             .execute()
         )
-        if comp_resp.data:
-            competition_id = comp_resp.data[0]["id"]
-            week_resp = (
-                supabase.table("series")
-                .select("week")
-                .eq("competition_id", competition_id)
-                .eq("status", "finished")
-                .order("week", desc=True)
-                .limit(1)
-                .execute()
-            )
-            if week_resp.data:
-                current_week = week_resp.data[0]["week"]
+        if week_resp.data:
+            current_week = week_resp.data[0]["week"]
     except Exception:
-        pass  # non-critical — roster still loads without competition/week
+        pass  # non-critical — roster still loads without week
 
     # ── Historical snapshot branch (when week is provided) ──
     if week is not None:
@@ -535,17 +541,17 @@ async def set_captain(
     member = _get_member(supabase, str(league_id), user["id"])
     member_id = member["id"]
 
-    # 1. Obtener competition_id activo
-    comp_resp = (
-        supabase.table("competitions")
-        .select("id")
-        .eq("is_active", True)
-        .limit(1)
+    # 1. Obtener competition_id desde la fantasy_league específica
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
         .execute()
     )
-    if not comp_resp.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay competición activa")
-    competition_id = comp_resp.data[0]["id"]
+    if not league_resp.data or not league_resp.data.get("competition_id"):
+        raise HTTPException(status_code=503, detail="Liga sin competición asignada")
+    competition_id = str(league_resp.data["competition_id"])
 
     # 2. Bloquear solo si hay series en progreso (no si ya terminaron)
     series_resp = (

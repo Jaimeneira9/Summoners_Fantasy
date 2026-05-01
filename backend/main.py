@@ -95,6 +95,7 @@ from routers import players, leagues, market, scoring, trades, roster, activity,
 from routers import splits as splits_router
 from routers import series as series_router
 from routers import match_detail as match_detail_router
+from routers import competitions as competitions_router
 
 app = FastAPI(title="Summoner's Fantasy API", version="0.1.0", lifespan=lifespan)
 
@@ -149,6 +150,7 @@ app.include_router(splits_router.router,prefix="/splits",    tags=["splits"])
 app.include_router(teams_router.router,  prefix="/teams",     tags=["teams"])
 app.include_router(series_router.router,       prefix="/series",    tags=["series"])
 app.include_router(match_detail_router.router, prefix="/series",    tags=["match-detail"])
+app.include_router(competitions_router.router, prefix="/competitions", tags=["competitions"])
 
 
 @app.get("/health")
@@ -224,19 +226,17 @@ def admin_backfill_week_scoring(
 
     supabase = _get_supabase()
 
-    # 1. Fetch active competition
+    # 1. Fetch ALL active competitions
     comp_resp = (
         supabase.table("competitions")
         .select("id, name")
         .eq("is_active", True)
-        .limit(1)
         .execute()
     )
     if not comp_resp.data:
         raise HTTPException(status_code=404, detail="No active competition found")
-    competition_id: str = str(comp_resp.data[0]["id"])
 
-    # 2. Double-count guard
+    # 2. Double-count guard (global: cualquier league_member con total_points > 0)
     guard_resp = (
         supabase.table("league_members")
         .select("id", count="exact")
@@ -250,13 +250,17 @@ def admin_backfill_week_scoring(
             detail="Some league members already have total_points > 0. Backfill refused to prevent double-counting.",
         )
 
-    # 3. Score managers (absolute, idempotent — itera todas las semanas con snapshot)
+    # 3. Score managers para TODAS las competitions activas (absoluto, idempotente)
     # Nota: snapshots son creados por el pipeline live, no por el backfill
-    _update_manager_total_points(supabase, competition_id)
+    processed = []
+    for comp in comp_resp.data:
+        competition_id: str = str(comp["id"])
+        _update_manager_total_points(supabase, competition_id)
+        processed.append(competition_id)
 
     return {
         "message": "Backfill complete (all snapped weeks)",
-        "competition_id": competition_id,
+        "competitions_processed": processed,
     }
 
 

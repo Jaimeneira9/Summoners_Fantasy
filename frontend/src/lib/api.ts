@@ -45,6 +45,12 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 // Types
 // ---------------------------------------------------------------------------
 
+export type Competition = {
+  id: string;
+  name: string;
+  logo_url: string | null;
+};
+
 export type PlayerBrief = {
   name: string;
   team: string;
@@ -432,10 +438,10 @@ export const api = {
   leagues: {
     list: () => req<League[]>("/leagues/"),
     get: (id: string) => req<League>(`/leagues/${id}`),
-    create: (name: string, maxMembers: number | null, gameMode: "draft_market" | "budget_pick" = "draft_market") =>
+    create: (name: string, maxMembers: number | null, gameMode: "draft_market" | "budget_pick" = "draft_market", competitionId: string) =>
       req<League>("/leagues/", {
         method: "POST",
-        body: JSON.stringify({ name, max_members: maxMembers, game_mode: gameMode }),
+        body: JSON.stringify({ name, max_members: maxMembers, game_mode: gameMode, competition_id: competitionId }),
       }),
     join: (inviteCode: string) =>
       req("/leagues/join", {
@@ -565,5 +571,8 @@ export const api = {
       req<H2HResponse>(`/series/${seriesId}/h2h?league_id=${leagueId}`),
     matchDetail: (seriesId: string, leagueId: string) =>
       req<MatchDetailEnvelope>(`/series/${seriesId}/match-detail?league_id=${leagueId}`),
+  },
+  competitions: {
+    list: () => req<Competition[]>("/competitions/"),
   },
 };

@@ -90,11 +90,25 @@ async def scout_players(
 ) -> list[ScoutPlayer]:
     """Todos los jugadores activos con stats promedio y owner dentro de la liga dada."""
 
-    # 1. Todos los jugadores activos
+    # 0. Resolver competition de la liga para filtrar jugadores por league
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id, competitions(name)")
+        .eq("id", str(league_id))
+        .single()
+        .execute()
+    )
+    if not league_resp.data:
+        raise HTTPException(status_code=404, detail="Liga no encontrada")
+    comp_name = (league_resp.data.get("competitions") or {}).get("name", "")
+    league_abbr = comp_name.split()[0].upper() if comp_name else "LEC"
+
+    # 1. Todos los jugadores activos filtrados por league
     players_resp = (
         supabase.table("players")
         .select("id, name, team, role, image_url, current_price, last_price_change_pct")
         .eq("is_active", True)
+        .eq("league", league_abbr)
         .order("name")
         .execute()
     )
