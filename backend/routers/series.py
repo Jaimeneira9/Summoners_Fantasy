@@ -90,19 +90,6 @@ def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No eres miembro de esta liga")
 
 
-def _get_active_competition(supabase: Client) -> dict:
-    comp_resp = (
-        supabase.table("competitions")
-        .select("id, name")
-        .eq("is_active", True)
-        .limit(1)
-        .execute()
-    )
-    if not comp_resp.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay competición activa")
-    return comp_resp.data[0]
-
-
 def _build_result(winner_id: str | None, team_home_id: str, game_count: int) -> str | None:
     """Build result string e.g. '2-1' from home team's perspective."""
     if not winner_id:
@@ -261,12 +248,20 @@ def get_calendar(
     user: dict = Depends(get_current_user),
 ) -> CalendarResponse:
     """
-    Returns all series for the active competition, ordered by date ASC.
+    Returns all series for the league's competition, ordered by date ASC.
     """
     _check_membership(supabase, str(league_id), user["id"])
 
-    competition = _get_active_competition(supabase)
-    competition_id = competition["id"]
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
+        .execute()
+    )
+    if not league_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga no encontrada")
+    competition_id = league_resp.data["competition_id"]
 
     # Fetch all series with home/away team info
     series_resp = (

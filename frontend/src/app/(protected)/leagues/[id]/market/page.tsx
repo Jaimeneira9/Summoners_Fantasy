@@ -6,13 +6,53 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 gsap.registerPlugin(useGSAP);
 import { api, type Listing, type SellOffer, type MyBid, type Split, type League, type ScoutPlayer } from "@/lib/api";
-import { ROLE_LABEL } from "@/components/RoleIcon";
+import { ROLE_LABEL, RoleIcon } from "@/components/RoleIcon";
 import { getTeamBadgeUrl } from "@/components/PlayerCard";
 import { getRoleColor } from "@/lib/roles";
 import { PriceTrend } from "@/components/PriceTrend";
 import { ActionPopup } from "@/components/ActionPopup";
 import FilterDrawer, { FilterDrawerFilters } from "@/components/FilterDrawer";
 import { Button } from "@/components/ui/Button";
+
+// ---------------------------------------------------------------------------
+// PlayerAvatar — renders image with RoleIcon fallback on load error
+// ---------------------------------------------------------------------------
+function PlayerAvatar({
+  imageUrl,
+  role,
+  name,
+  className,
+  style,
+  iconClassName,
+}: {
+  imageUrl: string | null | undefined;
+  role: string;
+  name: string;
+  className?: string;
+  style?: React.CSSProperties;
+  iconClassName?: string;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+
+  if (!imageUrl || imgFailed) {
+    return (
+      <div className={`flex items-center justify-center ${className ?? "w-full h-full"}`} style={style}>
+        <RoleIcon role={role} className={iconClassName ?? "w-10 h-10 opacity-40"} />
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={imageUrl}
+      alt={name}
+      className={className ?? "w-full h-full"}
+      style={{ objectFit: "cover", objectPosition: "center top", ...style }}
+      onError={() => setImgFailed(true)}
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -79,7 +119,6 @@ export default function MarketPage() {
   const [retainedBudget, setRetainedBudget] = useState(0);
   const [bidsByListing, setBidsByListing] = useState<Map<string, number>>(new Map());
   const [league, setLeague]               = useState<League | null>(null);
-  const [split, setSplit]                 = useState<Split | null>(null);
 
   const refreshRetained = useCallback(() => {
     api.bids.myBids(leagueId)
@@ -99,7 +138,6 @@ export default function MarketPage() {
       setLeague(l);
       if (l.member) setBudget(l.member.remaining_budget);
     }).catch(() => {});
-    api.splits.active().then(setSplit).catch(() => {});
     refreshRetained();
   }, [leagueId, refreshRetained]);
 
@@ -274,7 +312,7 @@ export default function MarketPage() {
             </p>
           </div>
         ) : (
-          <MarketTab leagueId={leagueId} budget={budget} availableBudget={budget !== null ? budget - retainedBudget : null} splitName={split?.name} onBid={refreshBudget} isMobile={isMobile} bidsByListing={bidsByListing} />
+          <MarketTab leagueId={leagueId} budget={budget} availableBudget={budget !== null ? budget - retainedBudget : null} onBid={refreshBudget} isMobile={isMobile} bidsByListing={bidsByListing} />
         ))}
         {tab === "mis-pujas" && <MyBidsTab  leagueId={leagueId} />}
         {tab === "ofertas"   && <OffersTab  leagueId={leagueId} />}
@@ -292,7 +330,6 @@ function MarketTab({
   leagueId,
   budget,
   availableBudget,
-  splitName,
   onBid,
   isMobile,
   bidsByListing,
@@ -300,7 +337,6 @@ function MarketTab({
   leagueId: string;
   budget: number | null;
   availableBudget: number | null;
-  splitName?: string;
   onBid: () => void;
   isMobile?: boolean;
   bidsByListing?: Map<string, number>;
@@ -423,9 +459,7 @@ function MarketTab({
           <div key={l.id} className="market-card" style={isMobile ? { width: "100%" } : undefined}>
             <PlayerCard
               listing={l}
-              leagueId={leagueId}
               budget={budget}
-              splitName={splitName}
               isMobile={isMobile}
               existingBid={bidsByListing?.get(l.id)}
               onOpenPopup={() => { setPopupListing(l); setPopupExistingBid(bidsByListing?.get(l.id) ?? null); setPopupError(null); }}
@@ -492,18 +526,14 @@ function MarketTab({
 // ---------------------------------------------------------------------------
 function PlayerCard({
   listing,
-  leagueId,
   budget,
-  splitName,
   isMobile,
   onOpenPopup,
   onOpenStats,
   existingBid,
 }: {
   listing: Listing;
-  leagueId: string;
   budget: number | null;
-  splitName?: string;
   isMobile?: boolean;
   onOpenPopup: () => void;
   onOpenStats: () => void;
@@ -517,17 +547,6 @@ function PlayerCard({
 
   const roleColorHex = getRoleColor(p.role);
   const hasBudget = budget !== null && budget >= listing.ask_price;
-
-  // Initials fallback
-  const initials = p.name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-
-  // suppress unused warning
-  void splitName;
-  void leagueId;
 
   // ── MOBILE: horizontal card ──────────────────────────────────────────────
   if (isMobile) {
@@ -562,20 +581,13 @@ function PlayerCard({
             aria-label={`Ver estadísticas de ${p.name}`}
             style={{ width: 72, height: 96, position: "relative", background: roleColorHex, borderRadius: "10px 0 0 0", overflow: "hidden" }}
           >
-            {p.image_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={p.image_url}
-                alt={p.name}
-                style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <span style={{ fontSize: "24px", fontWeight: 700, fontFamily: "'Barlow Condensed', sans-serif", color: "rgba(255,255,255,0.15)", letterSpacing: "0.05em" }}>
-                  {initials}
-                </span>
-              </div>
-            )}
+            <PlayerAvatar
+              imageUrl={p.image_url}
+              role={p.role}
+              name={p.name}
+              className="w-full h-full"
+              iconClassName="w-10 h-10 opacity-40"
+            />
             {/* Role color bar */}
             <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 3, background: roleColorHex, filter: "brightness(1.4)" }} />
             {success && (
@@ -683,29 +695,13 @@ function PlayerCard({
           className="absolute inset-0 focus:outline-none hover:brightness-75 transition-all duration-150"
           aria-label={`Ver estadísticas de ${p.name}`}
         >
-          {p.image_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={p.image_url}
-              alt={p.name}
-              className="w-full h-full"
-              style={{ objectFit: "cover", objectPosition: "center top" }}
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <span
-                style={{
-                  fontSize: "48px",
-                  fontWeight: 700,
-                  fontFamily: "'Barlow Condensed', sans-serif",
-                  color: "rgba(255,255,255,0.15)",
-                  letterSpacing: "0.05em",
-                }}
-              >
-                {initials}
-              </span>
-            </div>
-          )}
+          <PlayerAvatar
+            imageUrl={p.image_url}
+            role={p.role}
+            name={p.name}
+            className="w-full h-full"
+            iconClassName="w-16 h-16 opacity-40"
+          />
         </button>
 
         {/* Bottom gradient overlay */}
@@ -935,22 +931,13 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
         className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
         style={{ background: roleColorHex + "33", border: `1px solid ${roleColorHex}44` }}
       >
-        {bid.player_image_url
-          // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={bid.player_image_url} alt={bid.player_name} className="w-full h-full object-cover object-top" />
-          : (
-            <span
-              style={{
-                fontFamily: "'Barlow Condensed', sans-serif",
-                fontSize: "14px",
-                fontWeight: 700,
-                color: roleColorHex,
-              }}
-            >
-              {bid.player_name[0]?.toUpperCase()}
-            </span>
-          )
-        }
+        <PlayerAvatar
+          imageUrl={bid.player_image_url}
+          role={bid.player_role}
+          name={bid.player_name}
+          className="w-full h-full object-cover object-top"
+          iconClassName="w-5 h-5 opacity-60"
+        />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -1122,22 +1109,13 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
         className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
         style={{ background: roleColorHex + "33", border: `1px solid ${roleColorHex}44` }}
       >
-        {p.image_url
-          // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover object-top" />
-          : (
-            <span
-              style={{
-                fontFamily: "'Barlow Condensed', sans-serif",
-                fontSize: "14px",
-                fontWeight: 700,
-                color: roleColorHex,
-              }}
-            >
-              {p.name[0]?.toUpperCase()}
-            </span>
-          )
-        }
+        <PlayerAvatar
+          imageUrl={p.image_url}
+          role={p.role}
+          name={p.name}
+          className="w-full h-full object-cover object-top"
+          iconClassName="w-5 h-5 opacity-60"
+        />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -1293,11 +1271,11 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
   const load = useCallback(() => {
     if (splitInitializing) return;
     setLoading(true);
-    api.players.scout(leagueId, filters.splitId ?? undefined)
+    api.players.scout(leagueId)
       .then((data) => { setPlayers(data); setAnimationKey((k) => k + 1); })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [leagueId, filters.splitId, splitInitializing]);
+  }, [leagueId, splitInitializing]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1515,15 +1493,13 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
           className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center"
           style={{ background: roleColorHex + "22", border: `1px solid ${roleColorHex}33` }}
         >
-          {p.image_url
-            // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={p.image_url} alt={p.name} className="w-full h-full object-cover object-top" />
-            : (
-              <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "22px", fontWeight: 700, color: roleColorHex }}>
-                {p.name[0]?.toUpperCase()}
-              </span>
-            )
-          }
+          <PlayerAvatar
+            imageUrl={p.image_url}
+            role={p.role}
+            name={p.name}
+            className="w-full h-full object-cover object-top"
+            iconClassName="w-8 h-8 opacity-60"
+          />
         </div>
 
         {/* Nombre + equipo + badges */}

@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from supabase import Client
 
@@ -46,33 +46,35 @@ def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
 @router.get("/standings/{league_id}", response_model=TeamStandingsOut)
 def get_team_standings(
     league_id: UUID,
-    competition_id: str | None = Query(None),
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> TeamStandingsOut:
     """
-    Standings reales de LEC teams para el competition activo o el indicado.
+    Standings reales de LEC teams para la competition de la liga.
     W/L basado en series.winner_id. Stats agregadas desde player_game_stats.
     """
     _check_membership(supabase, str(league_id), user["id"])
 
-    # 1. Encontrar la competition — por id si se provee, sino la activa
-    if competition_id:
-        comp_resp = (
-            supabase.table("competitions")
-            .select("id, name")
-            .eq("id", competition_id)
-            .limit(1)
-            .execute()
-        )
-    else:
-        comp_resp = (
-            supabase.table("competitions")
-            .select("id, name")
-            .eq("is_active", True)
-            .limit(1)
-            .execute()
-        )
+    # 1. Obtener competition_id de la liga — garantiza que los standings corresponden a la liga del usuario
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
+        .execute()
+    )
+    if not league_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga no encontrada")
+
+    competition_id: str = league_resp.data["competition_id"]
+
+    comp_resp = (
+        supabase.table("competitions")
+        .select("id, name")
+        .eq("id", competition_id)
+        .limit(1)
+        .execute()
+    )
     if not comp_resp.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No hay competición activa")
 

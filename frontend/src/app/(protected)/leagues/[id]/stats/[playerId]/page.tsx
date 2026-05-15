@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { api, type PlayerSplitHistory, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat, type PriceHistoryEntry } from "@/lib/api";
+import { api, type PlayerSplitHistory, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat, type PriceHistoryEntry, type League } from "@/lib/api";
 
 import type { PlayerHistoryResponse, WeekStat } from "./_components/types";
 import { LoadingSkeleton } from "./_components/LoadingSkeleton";
@@ -74,32 +74,39 @@ export default function PlayerStatsPage() {
     let cancelled = false;
 
     Promise.all([
-      api.scoring.playerHistory(playerId),
-      api.splits.playerHistory(playerId),
+      api.leagues.get(leagueId),
       api.splits.list(),
     ])
-      .then(([history, splitHistory, splitList]) => {
+      .then(([leagueData, splitList]) => {
         if (cancelled) return;
-        const h = history as PlayerHistoryResponse;
-        setHistoryData(h);
-        setSplitHistory(splitHistory as PlayerSplitHistory[]);
-        const availableSplits = splitList as Split[];
-        setSplits(availableSplits);
+        const lg = leagueData as League;
+        const filteredSplits = (splitList as Split[]).filter(s => s.id === lg.competition_id);
+        setSplits(filteredSplits);
 
-        // Por defecto mostrar el split activo, con fallback al primero de la lista
-        const activeSplit = availableSplits.find(s => s.is_active) ?? availableSplits[0] ?? null;
-        const defaultSplitId = activeSplit?.id ?? null;
-        setSelectedSplitId(defaultSplitId);
+        return api.scoring.playerHistory(playerId, leagueId).then((history) => {
+          if (cancelled) return;
+          const h = history as PlayerHistoryResponse;
+          setHistoryData(h);
 
-        // Default to last week del split seleccionado por defecto
-        const defaultStats = defaultSplitId
-          ? h.stats.filter(s => s.competition_id === defaultSplitId)
-          : h.stats;
-        if (defaultStats.length > 0) {
-          setSelectedWeek(defaultStats.length);
-        } else if (h.stats.length > 0) {
-          setSelectedWeek(h.stats.length);
-        }
+          const activeSplit = filteredSplits.find(s => s.is_active) ?? filteredSplits[0] ?? null;
+          const defaultSplitId = activeSplit?.id ?? null;
+          setSelectedSplitId(defaultSplitId);
+
+          const defaultStats = defaultSplitId
+            ? h.stats.filter(s => s.competition_id === defaultSplitId)
+            : h.stats;
+          if (defaultStats.length > 0) {
+            setSelectedWeek(defaultStats.length);
+          } else if (h.stats.length > 0) {
+            setSelectedWeek(h.stats.length);
+          }
+        });
+      })
+      .then(() => {
+        if (cancelled) return;
+        return api.splits.playerHistory(playerId).then((splitHistory) => {
+          if (!cancelled) setSplitHistory(splitHistory as PlayerSplitHistory[]);
+        });
       })
       .catch((e: Error) => { if (!cancelled) setError(e.message); })
       .finally(() => {
@@ -110,7 +117,7 @@ export default function PlayerStatsPage() {
       });
 
     return () => { cancelled = true; };
-  }, [playerId]);
+  }, [playerId, leagueId]);
 
   // Independent schedule fetch — does not block hero render
   useEffect(() => {

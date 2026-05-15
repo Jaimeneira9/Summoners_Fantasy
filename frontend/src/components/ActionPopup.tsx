@@ -3,6 +3,50 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
+import { RoleIcon } from "@/components/RoleIcon";
+
+// ---------------------------------------------------------------------------
+// PlayerImage — img with RoleIcon fallback on load error or missing src
+// ---------------------------------------------------------------------------
+function PlayerImage({ src, name, role }: { src?: string | null; name: string; role: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      <div
+        style={{
+          width: 48,
+          height: 48,
+          borderRadius: "8px",
+          background: "#1e2535",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <RoleIcon role={role} className="w-7 h-7 opacity-50" />
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt={name}
+      style={{
+        width: 48,
+        height: 48,
+        borderRadius: "8px",
+        objectFit: "cover",
+        objectPosition: "center top",
+        flexShrink: 0,
+      }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -160,40 +204,7 @@ export function ActionPopup({
           className="flex items-center gap-3 px-5 py-4"
           style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
         >
-          {playerImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={playerImage}
-              alt={playerName}
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: "8px",
-                objectFit: "cover",
-                objectPosition: "center top",
-                flexShrink: 0,
-              }}
-            />
-          ) : (
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: "8px",
-                background: "#1e2535",
-                flexShrink: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "18px",
-                fontWeight: 700,
-                color: "rgba(255,255,255,0.2)",
-                fontFamily: "'Barlow Condensed', sans-serif",
-              }}
-            >
-              {playerName[0]?.toUpperCase()}
-            </div>
-          )}
+          <PlayerImage src={playerImage} name={playerName} role={playerRole} />
 
           <div className="flex flex-col gap-0.5 min-w-0">
             <p

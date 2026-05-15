@@ -515,8 +515,8 @@ export const api = {
       req<LeaderboardResponse>(`/scoring/leaderboard/${leagueId}${week != null ? `?week=${week}` : ""}`),
     detailedLeaderboard: (leagueId: string) =>
       req<DetailedLeaderboardEntry[]>(`/scoring/leaderboard/${leagueId}/detailed`),
-    playerHistory: (playerId: string) =>
-      req<{ player: { id: string; name: string; team: string; role: string; image_url: string | null; current_price: number }; stats: PlayerMatchStat[]; total_points: number }>(`/scoring/player/${playerId}/history`),
+    playerHistory: (playerId: string, leagueId: string) =>
+      req<{ player: { id: string; name: string; team: string; role: string; image_url: string | null; current_price: number }; stats: PlayerMatchStat[]; total_points: number }>(`/scoring/player/${playerId}/history?league_id=${leagueId}`),
   },
   splits: {
     active: () => req<Split | null>("/splits/active"),
@@ -524,8 +524,8 @@ export const api = {
     playerHistory: (playerId: string) => req<PlayerSplitHistory[]>(`/splits/player/${playerId}/history`),
   },
   players: {
-    scout: (leagueId: string, competitionId?: string) =>
-      req<ScoutPlayer[]>(`/players/scout?league_id=${leagueId}${competitionId ? `&competition_id=${competitionId}` : ""}`),
+    scout: (leagueId: string) =>
+      req<ScoutPlayer[]>(`/players/scout?league_id=${leagueId}`),
     schedule: (playerId: string) =>
       req<PlayerSchedule>(`/players/${playerId}/schedule`),
     seriesGames: (playerId: string, seriesId: string) =>

@@ -84,13 +84,12 @@ async def list_players(
 @router.get("/scout", response_model=list[ScoutPlayer])
 async def scout_players(
     league_id: UUID = Query(..., description="ID de la liga para resolver owner_name"),
-    competition_id: str | None = Query(None, description="Filtrar stats por competición/split"),
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[ScoutPlayer]:
     """Todos los jugadores activos con stats promedio y owner dentro de la liga dada."""
 
-    # 0. Resolver competition de la liga para filtrar jugadores por league
+    # 0. Resolver competition de la liga para filtrar jugadores por league y stats
     league_resp = (
         supabase.table("fantasy_leagues")
         .select("competition_id, competitions(name)")
@@ -100,6 +99,7 @@ async def scout_players(
     )
     if not league_resp.data:
         raise HTTPException(status_code=404, detail="Liga no encontrada")
+    competition_id: str = str(league_resp.data["competition_id"])
     comp_name = (league_resp.data.get("competitions") or {}).get("name", "")
     league_abbr = comp_name.split()[0].upper() if comp_name else "LEC"
 
@@ -119,26 +119,17 @@ async def scout_players(
     player_ids = [p["id"] for p in players]
 
     # 2. Stats desde player_series_stats (nivel serie, no game)
-    # Si se filtra por competition_id, join con series para filtrar en Python
-    if competition_id:
-        stats_resp = (
-            supabase.table("player_series_stats")
-            .select("player_id, avg_kills, avg_deaths, avg_assists, avg_cs_per_min, avg_dpm, avg_vision_score, series_points, series(competition_id)")
-            .in_("player_id", player_ids)
-            .execute()
-        )
-        raw_stats = [
-            row for row in (stats_resp.data or [])
-            if (row.get("series") or {}).get("competition_id") == competition_id
-        ]
-    else:
-        stats_resp = (
-            supabase.table("player_series_stats")
-            .select("player_id, avg_kills, avg_deaths, avg_assists, avg_cs_per_min, avg_dpm, avg_vision_score, series_points")
-            .in_("player_id", player_ids)
-            .execute()
-        )
-        raw_stats = stats_resp.data or []
+    # Filtrar siempre por la competition_id de la liga
+    stats_resp = (
+        supabase.table("player_series_stats")
+        .select("player_id, avg_kills, avg_deaths, avg_assists, avg_cs_per_min, avg_dpm, avg_vision_score, series_points, series(competition_id)")
+        .in_("player_id", player_ids)
+        .execute()
+    )
+    raw_stats = [
+        row for row in (stats_resp.data or [])
+        if (row.get("series") or {}).get("competition_id") == competition_id
+    ]
 
     # Agregar por player_id — cada row ya es un promedio de serie
     buckets: dict[str, list] = defaultdict(list)
@@ -158,11 +149,10 @@ async def scout_players(
     gold_by_player: dict[str, list[float]] = defaultdict(list)
     xp_by_player: dict[str, list[float]] = defaultdict(list)
     for pgs_row in (pgs_resp.data or []):
-        if competition_id:
-            game = pgs_row.get("games") or {}
-            series_data = game.get("series") or {}
-            if str(series_data.get("competition_id") or "") != competition_id:
-                continue
+        game = pgs_row.get("games") or {}
+        series_data = game.get("series") or {}
+        if str(series_data.get("competition_id") or "") != competition_id:
+            continue
         pid = pgs_row["player_id"]
         if pgs_row.get("gold_diff_15") is not None:
             gold_by_player[pid].append(float(pgs_row["gold_diff_15"]))

@@ -1,7 +1,7 @@
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from supabase import Client
 
@@ -123,17 +123,17 @@ async def get_leaderboard(
             if not slot.startswith("bench"):
                 member_starter_player_ids[mid].append(rp["player_id"])
 
-    # Obtener competition activa
-    active_comp_resp = (
-        supabase.table("competitions")
-        .select("id")
-        .eq("is_active", True)
-        .limit(1)
+    # Obtener competition_id de la liga (fuente de verdad: fantasy_leagues, no competitions global)
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
         .execute()
     )
-    active_competition_id: str | None = (
-        (active_comp_resp.data or [{}])[0].get("id") if active_comp_resp.data else None
-    )
+    if not league_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga no encontrada")
+    active_competition_id: str | None = str(league_resp.data["competition_id"]) if league_resp.data.get("competition_id") else None
 
     # Obtener semanas disponibles (solo semanas con lineup_snapshots)
     available_weeks: list[int] = []
@@ -153,105 +153,116 @@ async def get_leaderboard(
         available_weeks = sorted(week_set)
         current_week = max(available_weeks) if available_weeks else None
 
-    # Calcular week_points si se pidió una semana
-    week_points_map: dict[str, float | None] = {mid: None for mid in member_ids}
-    if week is not None and active_competition_id:
-        # Series terminadas de esa semana
+    def _calc_week_points(target_week: int) -> dict[str, float]:
+        """Calcula los puntos de cada member para una semana específica. Retorna 0.0 si no hay datos."""
+        from collections import defaultdict as _defaultdict
+
         series_week_resp = (
             supabase.table("series")
             .select("id")
             .eq("competition_id", active_competition_id)
-            .eq("week", week)
+            .eq("week", target_week)
             .eq("status", "finished")
             .execute()
         )
         series_ids_for_week = [s["id"] for s in (series_week_resp.data or [])]
 
-        if series_ids_for_week:
-            # Intentar reconstruir member_starter_player_ids desde lineup_snapshots
-            snap_resp = (
-                supabase.table("lineup_snapshots")
-                .select("member_id, slot, player_id, captain_player_id")
-                .eq("competition_id", active_competition_id)
-                .eq("week", week)
-                .in_("member_id", member_ids)
-                .execute()
-            )
-            if snap_resp.data:
-                # Rebuild from snapshot
-                from collections import defaultdict as _defaultdict
-                snapped: dict[str, list[str]] = _defaultdict(list)
-                captain_by_member: dict[str, str | None] = {}
-                for row in snap_resp.data:
-                    mid_snap = row["member_id"]
-                    if row["player_id"] and not (row.get("slot") or "").startswith("bench"):
-                        snapped[mid_snap].append(row["player_id"])
-                    # captain_player_id is the same on every row for a member — take first non-None
-                    if mid_snap not in captain_by_member and row.get("captain_player_id") is not None:
-                        captain_by_member[mid_snap] = row["captain_player_id"]
-                # Replace member_starter_player_ids with snapshot data for this week
-                week_starter_player_ids: dict[str, list[str]] = {
-                    mid: snapped.get(mid, []) for mid in member_ids
-                }
-            else:
-                # No snapshot: manager had no starters this week → 0 points
-                week_starter_player_ids = {mid: [] for mid in member_ids}
-                captain_by_member = {}
+        result: dict[str, float] = {mid: 0.0 for mid in member_ids}
 
-            # Fallback: fetch captain_selections for members without a captain in the snapshot
-            members_without_captain = [mid for mid in member_ids if mid not in captain_by_member]
-            if members_without_captain:
-                try:
-                    cap_resp = (
-                        supabase.table("captain_selections")
-                        .select("member_id, captain_player_id")
-                        .eq("competition_id", active_competition_id)
-                        .eq("week", week)
-                        .in_("member_id", members_without_captain)
-                        .execute()
-                    )
-                    for cap_row in (cap_resp.data or []):
-                        captain_by_member[cap_row["member_id"]] = cap_row.get("captain_player_id")
-                except Exception as exc:
-                    logger.warning("Failed to fetch captain_selections for week=%d: %s", week, exc)
+        if not series_ids_for_week:
+            return result
 
-            # Fetch player_series_stats para todos los starters de esta semana
-            all_starter_ids = list({pid for pids in week_starter_player_ids.values() for pid in pids})
-            if all_starter_ids:
-                pss_resp = (
-                    supabase.table("player_series_stats")
-                    .select("player_id, series_id, series_points")
-                    .in_("player_id", all_starter_ids)
-                    .in_("series_id", series_ids_for_week)
+        snap_resp = (
+            supabase.table("lineup_snapshots")
+            .select("member_id, slot, player_id, captain_player_id")
+            .eq("competition_id", active_competition_id)
+            .eq("week", target_week)
+            .in_("member_id", member_ids)
+            .execute()
+        )
+        if snap_resp.data:
+            snapped: dict[str, list[str]] = _defaultdict(list)
+            captain_by_member: dict[str, str | None] = {}
+            for row in snap_resp.data:
+                mid_snap = row["member_id"]
+                if row["player_id"] and not (row.get("slot") or "").startswith("bench"):
+                    snapped[mid_snap].append(row["player_id"])
+                if mid_snap not in captain_by_member and row.get("captain_player_id") is not None:
+                    captain_by_member[mid_snap] = row["captain_player_id"]
+            week_starter_player_ids: dict[str, list[str]] = {
+                mid: snapped.get(mid, []) for mid in member_ids
+            }
+        else:
+            week_starter_player_ids = {mid: [] for mid in member_ids}
+            captain_by_member = {}
+
+        members_without_captain = [mid for mid in member_ids if mid not in captain_by_member]
+        if members_without_captain:
+            try:
+                cap_resp = (
+                    supabase.table("captain_selections")
+                    .select("member_id, captain_player_id")
+                    .eq("competition_id", active_competition_id)
+                    .eq("week", target_week)
+                    .in_("member_id", members_without_captain)
                     .execute()
                 )
-                # Acumular puntos por jugador (raw, sin multiplicador de capitán)
-                player_week_points: dict[str, float] = {}
-                for row in (pss_resp.data or []):
-                    pid = row["player_id"]
-                    pts = float(row.get("series_points") or 0)
-                    player_week_points[pid] = player_week_points.get(pid, 0.0) + pts
+                for cap_row in (cap_resp.data or []):
+                    captain_by_member[cap_row["member_id"]] = cap_row.get("captain_player_id")
+            except Exception as exc:
+                logger.warning("Failed to fetch captain_selections for week=%d: %s", target_week, exc)
 
-                for mid in member_ids:
-                    starters = week_starter_player_ids[mid]
-                    if len(starters) < 5:
-                        week_points_map[mid] = 0.0
-                    else:
-                        captain_pid = captain_by_member.get(mid)
-                        total = sum(
-                            player_week_points.get(pid, 0.0) * (
-                                2 if captain_pid is not None and str(pid) == str(captain_pid)
-                                else 1
-                            )
-                            for pid in starters
-                        )
-                        week_points_map[mid] = total
-        else:
-            # Semana pedida sin series → 0 para todos
-            for mid in member_ids:
-                week_points_map[mid] = 0.0
+        all_starter_ids = list({pid for pids in week_starter_player_ids.values() for pid in pids})
+        if not all_starter_ids:
+            return result
 
-    # Ordenar según contexto: si hay week → por week_points desc, si no → por total_points
+        pss_resp = (
+            supabase.table("player_series_stats")
+            .select("player_id, series_id, series_points")
+            .in_("player_id", all_starter_ids)
+            .in_("series_id", series_ids_for_week)
+            .execute()
+        )
+        player_week_points: dict[str, float] = {}
+        for row in (pss_resp.data or []):
+            pid = row["player_id"]
+            pts = float(row.get("series_points") or 0)
+            player_week_points[pid] = player_week_points.get(pid, 0.0) + pts
+
+        for mid in member_ids:
+            starters = week_starter_player_ids[mid]
+            if len(starters) < 5:
+                result[mid] = 0.0
+            else:
+                captain_pid = captain_by_member.get(mid)
+                result[mid] = sum(
+                    player_week_points.get(pid, 0.0) * (
+                        2 if captain_pid is not None and str(pid) == str(captain_pid) else 1
+                    )
+                    for pid in starters
+                )
+
+        return result
+
+    week_points_map: dict[str, float | None] = {mid: None for mid in member_ids}
+    dynamic_total_points: dict[str, float] = {mid: 0.0 for mid in member_ids}
+
+    # Total dinámico: query a la view — filtra por member_ids, no necesita competition_id
+    if member_ids:
+        pts_resp = (
+            supabase.table("member_total_points")
+            .select("member_id, total_points")
+            .in_("member_id", member_ids)
+            .execute()
+        )
+        for row in (pts_resp.data or []):
+            dynamic_total_points[row["member_id"]] = float(row["total_points"] or 0)
+
+    # Si se pidió una semana específica, calculamos los puntos de esa semana
+    if active_competition_id and week is not None:
+        week_points_map = {mid: v for mid, v in _calc_week_points(week).items()}
+
+    # Ordenar según contexto: si hay week → por week_points desc, si no → por total dinámico desc
     if week is not None:
         members_sorted = sorted(
             members,
@@ -259,7 +270,11 @@ async def get_leaderboard(
             reverse=True,
         )
     else:
-        members_sorted = members  # ya viene ordenado por total_points desde la query
+        members_sorted = sorted(
+            members,
+            key=lambda m: dynamic_total_points.get(m["id"], 0.0),
+            reverse=True,
+        )
 
     entries = [
         LeaderboardEntry(
@@ -267,7 +282,7 @@ async def get_leaderboard(
             member_id=m["id"],
             username=profiles_map.get(m.get("user_id", ""), {}).get("username"),
             avatar_url=profiles_map.get(m.get("user_id", ""), {}).get("avatar_url"),
-            total_points=float(m["total_points"] or 0),
+            total_points=dynamic_total_points.get(m["id"], 0.0),
             remaining_budget=float(m["remaining_budget"] or 0),
             player_count=player_counts.get(m["id"], 0),
             week_points=week_points_map.get(m["id"]),
@@ -286,10 +301,22 @@ async def get_leaderboard(
 @router.get("/player/{player_id}/history")
 async def get_player_score_history(
     player_id: UUID,
+    league_id: UUID = Query(..., description="ID de la liga para filtrar por competition"),
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
     """Historial de stats y puntuación de un jugador (últimas 10 series)."""
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
+        .execute()
+    )
+    if not league_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga no encontrada")
+    competition_id: str = str(league_resp.data["competition_id"])
+
     # Datos básicos del jugador
     player_resp = (
         supabase.table("players")
@@ -317,6 +344,10 @@ async def get_player_score_history(
     )
     raw_series = series_stats_resp.data or []
 
+    raw_series = [
+        row for row in raw_series
+        if str((row.get("series") or {}).get("competition_id") or "") == competition_id
+    ]
     raw_series.sort(key=lambda x: (x.get("series") or {}).get("date") or "", reverse=True)
     raw_series = raw_series[:10]
 
@@ -452,31 +483,18 @@ async def get_player_score_history(
             } if s else None,
         })
 
-    # Obtener la competition activa para calcular el total del split actual
-    active_comp_resp = (
-        supabase.table("competitions")
-        .select("id")
-        .eq("is_active", True)
-        .limit(1)
+    # Sumar series_points de todas las series de la competition de la liga (sin límite de 10)
+    total_resp = (
+        supabase.table("player_series_stats")
+        .select("series_points, series(competition_id)")
+        .eq("player_id", str(player_id))
         .execute()
     )
-    active_competition_id = (active_comp_resp.data or [{}])[0].get("id") if active_comp_resp.data else None
-
-    # Sumar series_points de todas las series del split activo (sin límite de 10)
-    if active_competition_id:
-        total_resp = (
-            supabase.table("player_series_stats")
-            .select("series_points, series(competition_id)")
-            .eq("player_id", str(player_id))
-            .execute()
-        )
-        total_points = sum(
-            float(r.get("series_points") or 0)
-            for r in (total_resp.data or [])
-            if str((r.get("series") or {}).get("competition_id") or "") == str(active_competition_id)
-        )
-    else:
-        total_points = 0.0
+    total_points = sum(
+        float(r.get("series_points") or 0)
+        for r in (total_resp.data or [])
+        if str((r.get("series") or {}).get("competition_id") or "") == competition_id
+    )
 
     return {"player": player, "stats": stats, "total_points": round(total_points, 2)}
 

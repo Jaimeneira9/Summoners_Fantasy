@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import { useParams } from "next/navigation";
-import { api, type TeamStandingEntry, type TeamStandingsOut, type Split } from "@/lib/api";
+import { api, type TeamStandingEntry, type TeamStandingsOut } from "@/lib/api";
 
 const TEAM_LOGO_BASE =
   "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/";
@@ -231,38 +231,22 @@ export default function TeamsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [animationKey, setAnimationKey] = useState(0);
-  const [splits, setSplits] = useState<Split[]>([]);
-  const [selectedCompetitionId, setSelectedCompetitionId] = useState<string | null>(null);
-  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    api.splits
-      .list()
-      .then((splitList) => {
-        if (cancelled) return;
-        setSplits(splitList);
-        const activeSplit = splitList.find((s) => s.is_active);
-        const defaultId = activeSplit?.id ?? splitList[0]?.id ?? null;
-        setSelectedCompetitionId(defaultId);
-        setInitializing(false);
-      })
-      .catch((e: Error) => {
-        if (!cancelled) { setError(e.message); setInitializing(false); }
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    if (selectedCompetitionId === null || initializing) return;
     setLoading(true);
     setError(null);
     api.teams
-      .standings(leagueId, selectedCompetitionId)
-      .then((d) => { setData(d); setAnimationKey((k) => k + 1); })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [leagueId, selectedCompetitionId, initializing]);
+      .standings(leagueId)
+      .then((d) => {
+        if (cancelled) return;
+        setData(d);
+        setAnimationKey((k) => k + 1);
+      })
+      .catch((e: Error) => { if (!cancelled) setError(e.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [leagueId]);
 
   const sortedEntries = useMemo(() => {
     if (!data) return [];
@@ -302,43 +286,8 @@ export default function TeamsPage() {
           </h1>
         </div>
 
-        {/* Competition selector */}
-        {splits.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ position: "relative", display: "inline-block" }}>
-              <select
-                value={selectedCompetitionId ?? ""}
-                onChange={(e) => setSelectedCompetitionId(e.target.value)}
-                style={{
-                  appearance: "none",
-                  background: "#1A1A1A",
-                  border: "1px solid #2A2A2A",
-                  borderRadius: 8,
-                  padding: "8px 36px 8px 12px",
-                  color: "#F0E8D0",
-                  fontSize: 13,
-                  fontFamily: "'Space Grotesk', sans-serif",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  outline: "none",
-                }}
-              >
-                {splits.map((split) => (
-                  <option key={split.id} value={split.id}>{split.name}</option>
-                ))}
-              </select>
-              <svg
-                style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}
-                width="12" height="12" viewBox="0 0 12 12" fill="none"
-              >
-                <path d="M2 4L6 8L10 4" stroke="#555555" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-          </div>
-        )}
-
         {/* Loading skeleton */}
-        {(initializing || loading) && <SkeletonRows />}
+        {loading && <SkeletonRows />}
 
         {/* Error */}
         {error && (
