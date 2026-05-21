@@ -149,20 +149,20 @@ def test_create_league_returns_201() -> None:
         ("league_members", lm_chain),
     )
 
-    r = _client(sb).post("/leagues/", json={"name": "Nueva Liga"})
+    r = _client(sb).post("/leagues/", json={"name": "Nueva Liga", "competition_id": COMPETITION_ID})
     assert r.status_code == 201
     assert r.json()["name"] == "Mi Liga"
 
 
 def test_create_league_name_too_short() -> None:
     sb = _sb([LEAGUE])
-    r = _client(sb).post("/leagues/", json={"name": "ab"})
+    r = _client(sb).post("/leagues/", json={"name": "ab", "competition_id": COMPETITION_ID})
     assert r.status_code == 422
 
 
 def test_create_league_max_members_out_of_range() -> None:
     sb = _sb([LEAGUE])
-    r = _client(sb).post("/leagues/", json={"name": "Liga X", "max_members": 1})
+    r = _client(sb).post("/leagues/", json={"name": "Liga X", "max_members": 1, "competition_id": COMPETITION_ID})
     assert r.status_code == 422
 
 
