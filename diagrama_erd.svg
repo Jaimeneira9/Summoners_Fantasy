@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="900" height="700" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="900" height="700" fill="#FDF8F0"/>
+  
+  <!-- Title -->
+  <text x="450" y="35" text-anchor="middle" font-family="Arial" font-size="22" font-weight="bold" fill="#6B4C9A">Modelo de Datos - Summoner's Fantasy</text>
+  
+  <!-- Core LEC Section -->
+  <rect x="50" y="60" width="380" height="300" fill="#6B4C9A" opacity="0.1" rx="8"/>
+  <text x="240" y="85" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#6B4C9A">CORE LEC (Datos Reales)</text>
+  
+  <!-- Core LEC Tables -->
+  <rect x="70" y="100" width="150" height="50" fill="#FFFFFF" stroke="#6B4C9A" stroke-width="2" rx="4"/>
+  <text x="145" y="120" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">competitions</text>
+  <text x="145" y="135" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">LEC Spring/Summer</text>
+  
+  <rect x="260" y="100" width="150" height="50" fill="#FFFFFF" stroke="#6B4C9A" stroke-width="2" rx="4"/>
+  <text x="335" y="120" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">teams</text>
+  <text x="335" y="135" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">G2, FNC, etc. + aliases[]</text>
+  
+  <rect x="70" y="170" width="150" height="50" fill="#FFFFFF" stroke="#6B4C9A" stroke-width="2" rx="4"/>
+  <text x="145" y="190" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">players</text>
+  <text x="145" y="205" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Jugadores por rol, precio</text>
+  
+  <rect x="260" y="170" width="150" height="50" fill="#FFFFFF" stroke="#6B4C9A" stroke-width="2" rx="4"/>
+  <text x="335" y="190" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">series</text>
+  <text x="335" y="205" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">BO3/BO5 entre equipos</text>
+  
+  <rect x="70" y="240" width="150" height="50" fill="#FFFFFF" stroke="#6B4C9A" stroke-width="2" rx="4"/>
+  <text x="145" y="260" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">games</text>
+  <text x="145" y="275" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Partidas individuales</text>
+  
+  <rect x="260" y="240" width="150" height="50" fill="#FFFFFF" stroke="#6B4C9A" stroke-width="2" rx="4"/>
+  <text x="335" y="260" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">player_game_stats</text>
+  <text x="335" y="275" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Stats + fantasy points</text>
+  
+  <rect x="165" y="300" width="150" height="50" fill="#FFFFFF" stroke="#6B4C9A" stroke-width="2" rx="4"/>
+  <text x="240" y="320" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">player_series_stats</text>
+  <text x="240" y="335" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Promedios por serie</text>
+  
+  <!-- Fantasy Layer Section -->
+  <rect x="470" y="60" width="380" height="400" fill="#1A1A2E" opacity="0.1" rx="8"/>
+  <text x="660" y="85" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#1A1A2E">FANTASY LAYER (Juego)</text>
+  
+  <!-- Fantasy Tables -->
+  <rect x="490" y="100" width="160" height="50" fill="#FFFFFF" stroke="#1A1A2E" stroke-width="2" rx="4"/>
+  <text x="570" y="120" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">fantasy_leagues</text>
+  <text x="570" y="135" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Ligas privadas, invite codes</text>
+  
+  <rect x="670" y="100" width="160" height="50" fill="#FFFFFF" stroke="#1A1A2E" stroke-width="2" rx="4"/>
+  <text x="750" y="120" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">league_members</text>
+  <text x="750" y="135" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Usuarios, presupuesto, puntos</text>
+  
+  <rect x="490" y="170" width="160" height="50" fill="#FFFFFF" stroke="#1A1A2E" stroke-width="2" rx="4"/>
+  <text x="570" y="190" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">roster_slots</text>
+  <text x="570" y="205" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">5 slots por miembro (roles)</text>
+  
+  <rect x="670" y="170" width="160" height="50" fill="#FFFFFF" stroke="#1A1A2E" stroke-width="2" rx="4"/>
+  <text x="750" y="190" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">market_listings</text>
+  <text x="750" y="205" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Jugadores en subasta</text>
+  
+  <rect x="490" y="240" width="160" height="50" fill="#FFFFFF" stroke="#1A1A2E" stroke-width="2" rx="4"/>
+  <text x="570" y="260" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">bids</text>
+  <text x="570" y="275" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Pujas ciegas de usuarios</text>
+  
+  <rect x="670" y="240" width="160" height="50" fill="#FFFFFF" stroke="#1A1A2E" stroke-width="2" rx="4"/>
+  <text x="750" y="260" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">trades</text>
+  <text x="750" y="275" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Intercambios entre miembros</text>
+  
+  <rect x="580" y="310" width="160" height="50" fill="#FFFFFF" stroke="#1A1A2E" stroke-width="2" rx="4"/>
+  <text x="660" y="330" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">transactions</text>
+  <text x="660" y="345" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Historial inmutable</text>
+  
+  <rect x="580" y="380" width="160" height="50" fill="#FFFFFF" stroke="#1A1A2E" stroke-width="2" rx="4"/>
+  <text x="660" y="400" text-anchor="middle" font-family="Arial" font-size="12" font-weight="bold" fill="#1A1A2E">activity_log</text>
+  <text x="660" y="415" text-anchor="middle" font-family="Arial" font-size="9" fill="#666">Feed de eventos de liga</text>
+  
+  <!-- Relationships (dashed lines) -->
+  <line x1="430" y1="200" x2="470" y2="200" stroke="#6B4C9A" stroke-width="2" stroke-dasharray="5,5"/>
+  <line x1="430" y1="270" x2="470" y2="270" stroke="#6B4C9A" stroke-width="2" stroke-dasharray="5,5"/>
+  
+  <!-- Legend -->
+  <rect x="50" y="380" width="380" height="80" fill="#D4AF37" opacity="0.2" rx="8"/>
+  <text x="240" y="405" text-anchor="middle" font-family="Arial" font-size="14" font-weight="bold" fill="#6B4C9A">Relaciones Clave</text>
+  <text x="240" y="425" text-anchor="middle" font-family="Arial" font-size="10" fill="#1A1A2E">competitions → teams → players → series → games → stats</text>
+  <text x="240" y="445" text-anchor="middle" font-family="Arial" font-size="10" fill="#1A1A2E">fantasy_leagues → league_members → roster_slots → market_listings → bids</text>
+</svg>
