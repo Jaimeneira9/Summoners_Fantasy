@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * Botones de acción de la página de ligas: "Crear liga" y "Unirse con código".
+ *
+ * Wrapper ligero que gestiona el estado de apertura del LeagueModal.
+ * Al hacer clic en cada botón, abre el modal con el modo correspondiente (create | join).
+ */
+
 import { useState } from "react";
 import { LeagueModal } from "@/components/LeagueModal";
 

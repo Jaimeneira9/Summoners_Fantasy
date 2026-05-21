@@ -1,5 +1,14 @@
 "use client";
 
+/**
+ * Barra de pestañas para navegar entre la vista general de la serie y cada game individual.
+ *
+ * Pestaña "General" → selected === "series"
+ * Pestaña "G{n}" → selected === game_number (número entero)
+ *
+ * El tab activo se resalta con un borde inferior amarillo (#fcd400).
+ * El scroll horizontal permite manejar series largas (BO5) en mobile.
+ */
 import type { GameDetailData } from "@/types/match-detail";
 
 interface GameTabBarProps {

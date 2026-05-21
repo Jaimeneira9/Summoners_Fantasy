@@ -53,9 +53,9 @@ export function ClausePanel({
     color: "#444",
   };
 
-  // Owned by me + protection active (clause_active = false = window still open): show upgrade UI
-  // clause_active = false → expires > now → protection period not yet over
-  if (info.owned_by_me && info.clause_amount !== null && info.clause_expires_at !== null && !info.clause_active) {
+  // Owned by me + protection active (clause_expired = false = window still open): show upgrade UI
+  // clause_expired = false → expires > now → protection period not yet over
+  if (info.owned_by_me && info.clause_amount !== null && info.clause_expires_at !== null && !info.clause_expired) {
     const days = daysRemaining(info.clause_expires_at);
     return (
       <div style={{ ...cardStyle, border: "1px solid #3A2E00" }}>
@@ -171,9 +171,9 @@ export function ClausePanel({
     );
   }
 
-  // Owned by someone else + protection expired (clause_active = true = can activate): show activate button
-  // clause_active = true → expires <= now → protection period is over, rival can trigger clause
-  if (info.is_owned && !info.owned_by_me && info.clause_active && info.clause_amount !== null) {
+  // Owned by someone else + protection expired (clause_expired = true = can activate): show activate button
+  // clause_expired = true → expires <= now → protection period is over, rival can trigger clause
+  if (info.is_owned && !info.owned_by_me && info.clause_expired && info.clause_amount !== null) {
     return (
       <div style={{ ...cardStyle, border: "1px solid #2A1A00", background: "#130F00" }}>
         <div style={{ flex: 1, display: "flex", gap: 16, flexWrap: "wrap" as const, alignItems: "center" }}>
@@ -293,8 +293,8 @@ export function ClausePanel({
     );
   }
 
-  // Owned by someone else + protection still active (clause_active = false): rival can't activate yet
-  if (info.is_owned && !info.owned_by_me && !info.clause_active && info.clause_amount !== null && info.clause_expires_at !== null) {
+  // Owned by someone else + protection still active (clause_expired = false): rival can't activate yet
+  if (info.is_owned && !info.owned_by_me && !info.clause_expired && info.clause_amount !== null && info.clause_expires_at !== null) {
     const days = daysRemaining(info.clause_expires_at);
     return (
       <div style={{ ...cardStyle, border: "1px solid #1A2A1A", background: "#0D130D" }}>

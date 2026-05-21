@@ -1,3 +1,20 @@
+/**
+ * Tipos para el detalle de un partido (serie BO1/BO3/BO5) en el calendario.
+ *
+ * El endpoint /calendar/{seriesId} devuelve un MatchDetailEnvelope con mode: "played" | "upcoming".
+ * Según el mode, solo uno de los campos (played | upcoming) estará poblado.
+ *
+ * MatchDetailPlayed: stats reales tras completarse la serie.
+ *   - games: array de GameDetailData (uno por game jugado)
+ *   - series_stats: stats agregadas de toda la serie por jugador
+ *
+ * MatchDetailUpcoming: datos pre-partido.
+ *   - season_averages: promedios de temporada de cada jugador para comparar
+ *
+ * PlayerGameStatRow: stats de un game individual (K/D/A exactos, diffs @15, winner).
+ * PlayerSeriesStatRow: agregados de la serie (promedios K/D/A, series_points totales).
+ * PlayerSeasonAvgRow: promedios acumulados del split hasta la fecha.
+ */
 export type PlayerRole = "top" | "jungle" | "mid" | "adc" | "support";
 
 export interface TeamDetailInfo {

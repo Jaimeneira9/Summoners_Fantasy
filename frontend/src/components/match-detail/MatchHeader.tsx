@@ -1,3 +1,11 @@
+/**
+ * Cabecera visual de un partido: logos de ambos equipos, marcador o "VS", y badge de estado.
+ *
+ * En modo "played": muestra el resultado numérico (score home – score away) en amarillo.
+ * En modo "upcoming": muestra "VS" y la fecha formateada en español.
+ *
+ * Los logos se resuelven desde team.logo_url o, como fallback, desde Supabase Storage.
+ */
 import type { TeamDetailInfo } from "@/types/match-detail";
 
 interface MatchHeaderProps {

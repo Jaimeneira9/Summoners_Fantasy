@@ -1,5 +1,27 @@
 "use client";
 
+/**
+ * Página del Mercado de Fichajes.
+ *
+ * Agrupa cuatro tabs en una sola ruta, controladas por el query param ?tab:
+ *   - "live"   → MarketTab    : listings activos del mercado (subasta con countdown)
+ *   - "bids"   → MyBidsTab   : pujas realizadas por el manager (activas, ganadas, perdidas)
+ *   - "offers" → OffersTab   : ofertas de compra recibidas (para jugadores propios)
+ *   - "scout"  → ScoutTab    : explorador de todos los jugadores con stats y filtros
+ *
+ * La selección de tab se persiste en la URL (?tab=live), no en estado local,
+ * para que el navegador del usuario mantenga el estado al volver atrás.
+ *
+ * Presupuesto:
+ * El componente raíz carga el presupuesto disponible y lo pasa a MarketTab.
+ * `retainedBudget` = suma de pujas activas (ese dinero no puede usarse en otras pujas).
+ * El presupuesto visible = remaining_budget - retainedBudget.
+ *
+ * Modo budget_pick:
+ * Si la liga es modo budget_pick, el tab "mercado" muestra un mensaje informativo
+ * y redirige al usuario al tab "explorar" donde puede fichar directamente.
+ */
+
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import gsap from "gsap";
@@ -17,6 +39,11 @@ import { Button } from "@/components/ui/Button";
 // ---------------------------------------------------------------------------
 // PlayerAvatar — renders image with RoleIcon fallback on load error
 // ---------------------------------------------------------------------------
+
+/**
+ * Avatar de jugador con fallback al ícono de rol si la imagen no carga.
+ * Usa estado local `imgFailed` para detectar el error de carga y mostrar el ícono.
+ */
 function PlayerAvatar({
   imageUrl,
   role,
@@ -57,11 +84,21 @@ function PlayerAvatar({
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/** Tabs disponibles en la página del mercado. */
 type Tab = "mercado" | "mis-pujas" | "ofertas" | "explorar";
 
 // ---------------------------------------------------------------------------
 // Countdown hook
 // ---------------------------------------------------------------------------
+
+/**
+ * Hook que devuelve un string de cuenta regresiva actualizado cada segundo.
+ * Formato: "2h 30m 45s" o "Cerrado" cuando el tiempo expiró.
+ * El intervalo se limpia automáticamente cuando el componente se desmonta.
+ *
+ * @param closesAt - ISO timestamp de cierre del listing. null/undefined desactiva el countdown.
+ */
 function useCountdown(closesAt: string | null | undefined): string {
   const [label, setLabel] = useState("");
   useEffect(() => {
@@ -84,6 +121,8 @@ function useCountdown(closesAt: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 // Market page
 // ---------------------------------------------------------------------------
+
+/** Mapeo de query param (?tab=live) a Tab interno. */
 const URL_TAB_MAP: Record<string, Tab> = {
   live:   "mercado",
   bids:   "mis-pujas",
@@ -98,6 +137,13 @@ const MOBILE_TABS: { key: string; label: string }[] = [
   { key: "scout",  label: "Explorar" },
 ];
 
+/**
+ * Componente raíz del mercado.
+ * Responsabilidades:
+ * - Leer el tab activo desde la URL y renderizar el sub-componente correspondiente
+ * - Mantener el presupuesto del manager y el monto retenido en pujas
+ * - Proveer callbacks de refresco de presupuesto a los tabs hijos
+ */
 export default function MarketPage() {
   const { id: leagueId } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -120,12 +166,19 @@ export default function MarketPage() {
   const [bidsByListing, setBidsByListing] = useState<Map<string, number>>(new Map());
   const [league, setLeague]               = useState<League | null>(null);
 
+  /**
+   * Recalcula el presupuesto retenido en pujas activas.
+   * También actualiza bidsByListing para que cada PlayerCard sepa
+   * si el manager ya pujó en ese listing y por cuánto.
+   */
   const refreshRetained = useCallback(() => {
     api.bids.myBids(leagueId)
       .then((bids) => {
         const active = bids.filter((b) => b.status === "active");
+        // Suma total de dinero comprometido en pujas activas
         const sum = active.reduce((acc, b) => acc + b.bid_amount, 0);
         setRetainedBudget(sum);
+        // Map listing_id → bid_amount para lookup O(1) en cada card
         const map = new Map<string, number>();
         active.forEach((b) => map.set(b.listing_id, b.bid_amount));
         setBidsByListing(map);
@@ -324,8 +377,34 @@ export default function MarketPage() {
 }
 
 // ---------------------------------------------------------------------------
+// Shared role label map
+// ---------------------------------------------------------------------------
+
+/** Etiquetas legibles de los roles para filtros y selectores. */
+const ROLE_LABELS: Record<string, string> = {
+  all:     "TODOS",
+  top:     "TOP",
+  jungle:  "JGL",
+  mid:     "MID",
+  adc:     "ADC",
+  support: "SUP",
+};
+
+// ---------------------------------------------------------------------------
 // Market tab
 // ---------------------------------------------------------------------------
+
+/**
+ * Tab principal del mercado: muestra los listings activos con subasta.
+ *
+ * - Filtra por rol y búsqueda de texto (nombre/equipo) client-side
+ * - Anima la grilla de cards con GSAP (fade + slide-in) al cambiar filtros
+ * - Al hacer clic en una card se abre ActionPopup para ingresar el monto de la puja
+ * - Al confirmar la puja llama a api.bids.place y luego a onBid() para refrescar presupuesto
+ *
+ * @param availableBudget - Presupuesto real disponible (remaining_budget - retainedBudget)
+ * @param bidsByListing - Map de listing_id a monto pujado por el manager (para mostrar puja existente)
+ */
 function MarketTab({
   leagueId,
   budget,
@@ -364,14 +443,6 @@ function MarketTab({
   useEffect(() => { load(); }, [load]);
 
   const roles = ["all", "top", "jungle", "mid", "adc", "support"];
-  const roleLabels: Record<string, string> = {
-    all:     "TODOS",
-    top:     "TOP",
-    jungle:  "JGL",
-    mid:     "MID",
-    adc:     "ADC",
-    support: "SUP",
-  };
 
   const filtered = listings
     .filter((l) => roleFilter === "all" || l.players.role === roleFilter)
@@ -445,7 +516,7 @@ function MarketTab({
             }}
           >
             {roles.map((r) => (
-              <option key={r} value={r}>{roleLabels[r] ?? r.toUpperCase()}</option>
+              <option key={r} value={r}>{ROLE_LABELS[r] ?? r.toUpperCase()}</option>
             ))}
           </select>
           <svg style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -524,6 +595,19 @@ function MarketTab({
 // ---------------------------------------------------------------------------
 // Player card — Paper B Premium style
 // ---------------------------------------------------------------------------
+
+/**
+ * Card de un jugador en el mercado. Tiene dos layouts según el viewport:
+ * - Mobile (isMobile): horizontal, foto a la izquierda, info a la derecha
+ * - Desktop: vertical, foto arriba con overlay de degradado, info abajo
+ *
+ * Estado:
+ * - `success`: feedback visual post-puja exitosa (checkmark verde)
+ * - `countdown`: tiempo restante del listing (via useCountdown hook)
+ *
+ * El botón de puja muestra el monto de la puja existente si el manager ya pujó.
+ * Si el listing cerró (countdown === "Cerrado") el botón se deshabilita.
+ */
 function PlayerCard({
   listing,
   budget,
@@ -874,6 +958,12 @@ function PlayerCard({
 // ---------------------------------------------------------------------------
 // My bids tab
 // ---------------------------------------------------------------------------
+
+/**
+ * Tab de pujas del manager.
+ * Lista todas las pujas (activas, ganadas, perdidas, canceladas) via api.bids.myBids.
+ * Cada puja se muestra en un BidRow con opción de cancelar si sigue activa.
+ */
 function MyBidsTab({ leagueId }: { leagueId: string }) {
   const [bids, setBids]       = useState<MyBid[]>([]);
   const [loading, setLoading] = useState(true);
@@ -905,6 +995,11 @@ function MyBidsTab({ leagueId }: { leagueId: string }) {
   );
 }
 
+/**
+ * Fila de una puja individual en el tab Mis Pujas.
+ * Muestra avatar, nombre del jugador, monto pujado y estado (active/won/lost/cancelled).
+ * Si la puja está activa, muestra el countdown y permite cancelar.
+ */
 function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onCancel: () => void }) {
   const [busy, setBusy] = useState(false);
   const countdown       = useCountdown(bid.status === "active" ? bid.listing_closes_at : null);
@@ -1046,6 +1141,12 @@ function BidRow({ bid, leagueId, onCancel }: { bid: MyBid; leagueId: string; onC
 // ---------------------------------------------------------------------------
 // Offers tab
 // ---------------------------------------------------------------------------
+
+/**
+ * Tab de ofertas recibidas.
+ * Muestra las sell offers pendientes para los jugadores del manager via api.market.sellOffers.
+ * El manager puede aceptar (vende el jugador al precio de la oferta) o rechazar.
+ */
 function OffersTab({ leagueId }: { leagueId: string }) {
   const [offers, setOffers]   = useState<SellOffer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1077,6 +1178,12 @@ function OffersTab({ leagueId }: { leagueId: string }) {
   );
 }
 
+/**
+ * Fila de una oferta de venta recibida.
+ * Muestra el jugador, precio ofrecido, días restantes y tipo de oferta
+ * (badge "Manager" si vino de otro usuario, "Liga" si es automática del sistema).
+ * Los botones Aceptar/Rechazar manejan estado de loading independiente por acción.
+ */
 function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: string; onAction: () => void }) {
   const [busy, setBusy] = useState<"accept" | "reject" | null>(null);
   const [err, setErr]   = useState<string | null>(null);
@@ -1225,6 +1332,8 @@ function OfferRow({ offer, leagueId, onAction }: { offer: SellOffer; leagueId: s
 // ---------------------------------------------------------------------------
 // Scout tab
 // ---------------------------------------------------------------------------
+
+/** Campos disponibles para ordenar la tabla de scouting. */
 type SortField =
   | "total_points"
   | "current_price"
@@ -1239,6 +1348,20 @@ type SortField =
   | "avg_vision_score";
 type SortDir = "asc" | "desc";
 
+/**
+ * Tab de exploración de jugadores con stats completas y filtros avanzados.
+ *
+ * Funcionalidades:
+ * - Carga el split activo al montar y lo pre-selecciona en el filtro
+ * - Filtra client-side por rol, equipo y rango de precio
+ * - Ordena por cualquiera de las stats disponibles (puntos, precio, KDA, etc.)
+ * - El campo "deaths" se invierte al ordenar (menor = mejor)
+ * - Al hacer clic en un jugador navega a /leagues/:id/stats/:playerId?from=scout
+ * - Muestra FilterDrawer (bottom sheet en mobile) para filtros avanzados
+ *
+ * `activeFilterCount`: número de filtros no-default para el badge del botón FILTROS.
+ * `animationKey`: se incrementa al cambiar filtros para relanzar la animación en cascada.
+ */
 function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean }) {
   const router = useRouter();
   const [players, setPlayers]           = useState<ScoutPlayer[]>([]);
@@ -1258,7 +1381,9 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
   const [splits, setSplits]             = useState<Split[]>([]);
   const [splitInitializing, setSplitInitializing] = useState(true);
 
-  // Cargar splits en el mount y pre-seleccionar el split activo
+  // Carga los splits disponibles y pre-selecciona el activo para el filtro del drawer.
+  // Se espera a que esto termine (splitInitializing) antes de cargar los jugadores,
+  // así el primer render ya tiene el split correcto seleccionado.
   useEffect(() => {
     api.splits.list().then((data) => {
       setSplits(data);
@@ -1279,10 +1404,6 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
 
   useEffect(() => { load(); }, [load]);
 
-  const roleLabels: Record<string, string> = {
-    all: "TODOS", top: "TOP", jungle: "JGL", mid: "MID", adc: "ADC", support: "SUP",
-  };
-
   const teamsWithoutAll = Array.from(new Set(players.map((p) => p.team))).sort();
 
   const activeFilterCount = [
@@ -1292,6 +1413,7 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
     filters.priceMin !== 0 || filters.priceMax !== undefined,
   ].filter(Boolean).length;
 
+  // KDA: (kills + assists) / deaths. Si deaths = 0, se usa kills + assists como "perfect KDA".
   const kda = (p: ScoutPlayer) => p.total_deaths > 0
     ? (p.total_kills + p.total_assists) / p.total_deaths
     : p.total_kills + p.total_assists;
@@ -1310,6 +1432,11 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
     { value: "avg_vision_score", label: "Vision Score" },
   ];
 
+  /**
+   * Retorna el valor numérico de un jugador para el campo de ordenamiento activo.
+   * avg_deaths se invierte (negativo) para que al ordenar desc, los que menos mueren
+   * aparezcan primero (menor cantidad de muertes = mejor rendimiento).
+   */
   const getSortValue = (p: ScoutPlayer): number => {
     if (sortField === "kda") return kda(p);
     if (sortField === "avg_deaths") return -p.avg_deaths; // menor es mejor → invertimos para que desc = mejores primero
@@ -1458,7 +1585,7 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
         committed={filters}
         splits={splits}
         teams={teamsWithoutAll}
-        roleLabels={roleLabels}
+        roleLabels={ROLE_LABELS}
         isMobile={isMobile ?? false}
       />
 
@@ -1466,6 +1593,15 @@ function ScoutTab({ leagueId, isMobile }: { leagueId: string; isMobile?: boolean
   );
 }
 
+/**
+ * Fila de un jugador en el explorador (ScoutTab).
+ * Layout: foto | nombre + equipo + badges | stats grid
+ *
+ * En mobile muestra solo 3 stats (PTS, KDA, CS/m).
+ * En desktop muestra la grilla completa de 10 columnas.
+ * Los badges de ownership (@manager), cláusula (monto) y EN VENTA se muestran inline.
+ * Los badges de cláusula solo aparecen si la cláusula no ha expirado.
+ */
 function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; animationDelay: number; onOpen: () => void }) {
   const roleColorHex = getRoleColor(p.role);
   const kdaVal = p.total_deaths > 0

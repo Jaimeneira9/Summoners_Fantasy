@@ -1,5 +1,16 @@
 "use client";
 
+/**
+ * Barra de navegación lateral — visible solo en desktop (lg+).
+ *
+ * Muestra el nombre de la liga en el header y los ítems de navegación principales.
+ * El ítem "Mercado" es un acordeón con subítems (live, bids, offers, scout).
+ * En modo budget_pick, el acordeón se reemplaza por un ítem directo "Explorar" (scout).
+ *
+ * El ítem activo se detecta con usePathname() + useSearchParams() para los sub-tabs del mercado.
+ * El punto rojo en "Roster" indica que el roster está incompleto (prop hasIncompleteRoster).
+ */
+
 import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
