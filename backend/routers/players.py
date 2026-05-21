@@ -1,3 +1,25 @@
+"""
+Router: Jugadores (players).
+
+Rutas principales:
+  GET /                               — lista de jugadores activos con filtros opcionales
+  GET /scout                          — vista de scouting con stats promedio y dueño en la liga
+  GET /{player_id}                    — detalle de un jugador
+  GET /{player_id}/schedule           — próximas partidas del equipo del jugador
+  GET /{player_id}/price-history      — historial de precios enriquecido con jornadas y rival
+  GET /{player_id}/series/{series_id}/games — stats game-by-game en una serie específica
+
+Lógica de negocio central:
+  - Los stats de scouting agregan desde player_series_stats (nivel serie) y
+    player_game_stats (para gold_diff_15 y xp_diff_15, que no están en series_stats).
+  - El schedule usa un cache module-level con TTL de 60 minutos para evitar
+    queries repetitivas al mismo equipo.
+  - El historial de precios hace interpolación forward: si un jugador no tuvo cambio
+    de precio en una jornada, se usa el último precio conocido anterior.
+  - Los stats de scouting siempre se filtran por la competition_id de la liga,
+    no por la competición activa global.
+"""
+
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -15,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Module-level schedule cache: team_name -> (matches, cached_at)
+# Cache de schedule por equipo para evitar queries repetidas. TTL = 60 minutos.
 _schedule_cache: dict[str, tuple[list, datetime]] = {}
 _SCHEDULE_CACHE_TTL_SECONDS = 3600  # 60 minutes
 
@@ -68,6 +90,10 @@ async def list_players(
     league: str = Query("LEC"),
     supabase: Client = Depends(get_supabase),
 ) -> list[PlayerOut]:
+    """Lista jugadores activos. Permite filtrar por rol, equipo y liga.
+
+    No requiere autenticación. Ordenados por equipo y luego por rol.
+    """
     query = supabase.table("players").select(
         "id, name, team, role, league, current_price, image_url, is_active"
     ).eq("league", league).eq("is_active", True)
@@ -87,7 +113,15 @@ async def scout_players(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[ScoutPlayer]:
-    """Todos los jugadores activos con stats promedio y owner dentro de la liga dada."""
+    """Vista de scouting: jugadores activos con stats agregadas y dueño en la liga.
+
+    Combina tres fuentes de datos en una sola respuesta:
+    1. player_series_stats — KDA, CS/min, DPM, puntos de fantasía.
+    2. player_game_stats   — gold_diff_15 y xp_diff_15 (no están en series_stats).
+    3. roster_players      — dueño actual, cláusula, estado de venta.
+
+    Todos los stats se filtran por la competition_id de la liga (no por competición activa global).
+    """
 
     # 0. Resolver competition de la liga para filtrar jugadores por league y stats
     league_resp = (
@@ -308,7 +342,11 @@ async def get_player_series_games(
     series_id: UUID,
     supabase: Client = Depends(get_supabase),
 ) -> SeriesGamesResponse:
-    """Devuelve stats game-by-game de un jugador en una serie específica."""
+    """Devuelve stats game-by-game de un jugador en una serie específica.
+
+    Incluye el resultado del game (1=victoria, 0=derrota, None=no finalizado),
+    calculado comparando games.winner_id con el team_id del jugador.
+    """
     # Resolver team_id del jugador para determinar resultado por game
     player_resp = (
         supabase.table("players")
@@ -529,6 +567,7 @@ async def get_player(
     player_id: UUID,
     supabase: Client = Depends(get_supabase),
 ) -> PlayerOut:
+    """Devuelve el detalle básico de un jugador por su UUID. No requiere autenticación."""
     response = (
         supabase.table("players")
         .select("id, name, team, role, league, current_price, image_url, is_active")

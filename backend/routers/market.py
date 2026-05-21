@@ -1,3 +1,35 @@
+"""
+Router: Mercado de jugadores (market).
+
+Rutas principales:
+  GET  /{league_id}/listings                        — listings activos del mercado (sistema + peer)
+  POST /{league_id}/buy                             — comprar un jugador del mercado de sistema
+  POST /{league_id}/sell                            — señalar intención de venta (for_sale=True)
+  DELETE /{league_id}/sell                          — cancelar intención de venta
+  GET  /{league_id}/sell-offers                     — ver las sell_offers recibidas
+  POST /{league_id}/offer                           — crear oferta peer-to-peer (comprador → vendedor)
+  POST /{league_id}/sell-offers/{id}/accept         — aceptar oferta del sistema o peer
+  POST /{league_id}/sell-offers/{id}/reject         — rechazar oferta
+  GET  /{league_id}/candidates                      — pool de candidatos propios
+  GET  /{league_id}/clause/{player_id}              — info de la cláusula de un jugador
+  POST /{league_id}/clause/{rp_id}/activate         — activar cláusula de rescisión
+  POST /{league_id}/clause/{rp_id}/upgrade          — subir el importe de la cláusula
+
+Lógica de negocio central:
+  - Solo disponible en ligas de modo 'draft_market'. Las ligas budget_pick no tienen mercado.
+  - Los listings del sistema se generan automáticamente (market/refresh.py).
+    Las peer offers se crean manualmente cuando un manager quiere comprar un jugador ajeno.
+  - La compra descuenta el presupuesto mediante RPC atómica (deduct_budget) para evitar
+    condiciones de carrera en updates concurrentes de remaining_budget.
+  - Al aceptar una sell_offer del sistema: el jugador sale del roster, va al pool de candidatos
+    (market_candidates) y se acredita el precio al vendedor.
+  - La cláusula de rescisión tiene un período de protección de 14 días desde la última compra.
+    Pasado ese período, cualquier manager puede activarla pagando clause_amount.
+    La nueva cláusula vale MAX(precio pagado, precio actual) para que no pueda bajar.
+  - Lazy refresh: si hay listings activos vencidos cuando se consulta el mercado, se
+    resuelven automáticamente antes de devolver los listings.
+"""
+
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID
@@ -116,6 +148,7 @@ class TransactionOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _get_member(supabase: Client, league_id: str, user_id: str) -> dict:
+    """Devuelve el registro de league_members del usuario, o lanza HTTP 403."""
     resp = (
         supabase.table("league_members")
         .select("id, remaining_budget")
@@ -129,6 +162,7 @@ def _get_member(supabase: Client, league_id: str, user_id: str) -> dict:
 
 
 def _get_roster(supabase: Client, member_id: str) -> dict:
+    """Devuelve el roster del miembro, o lanza HTTP 404 si no tiene equipo."""
     resp = (
         supabase.table("rosters")
         .select("id")
@@ -141,7 +175,11 @@ def _get_roster(supabase: Client, member_id: str) -> dict:
 
 
 def _auto_assign_slot(supabase: Client, roster_id: str, player_role: str) -> str:
-    """Devuelve el slot natural del rol si está libre, si no el primer bench disponible."""
+    """Devuelve el slot natural del rol si está libre; si no, el primer bench disponible.
+
+    Prioridad: slot del rol (starter_1…coach) → bench_1 → bench_2.
+    Lanza HTTP 409 si no hay slots libres.
+    """
     natural = ROLE_TO_SLOT.get(player_role, "bench_1")
     occupied_resp = (
         supabase.table("roster_players")
@@ -172,7 +210,14 @@ async def get_listings(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[ListingDetailOut]:
-    """Listado de jugadores disponibles en el mercado de una liga."""
+    """Devuelve los listings activos del mercado de la liga.
+
+    Combina dos tipos de oferta:
+    - Listings del sistema (market_listings): generados automáticamente por el pipeline.
+    - Peer offers (sell_offers con from_member_id NOT NULL): oferta directa de un manager.
+    Aplica lazy refresh si hay listings vencidos antes de devolver los datos.
+    Enriquece cada jugador con sus split_points de la competición activa.
+    """
     _get_member(supabase, str(league_id), user["id"])
 
     league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
@@ -284,7 +329,13 @@ async def buy_player(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> TransactionOut:
-    """Compra un jugador del mercado. El slot se asigna automáticamente según el rol."""
+    """Compra un jugador de un listing activo del mercado.
+
+    El slot se asigna automáticamente según el rol del jugador (_auto_assign_slot).
+    El descuento de presupuesto se hace via RPC atómica (deduct_budget) para evitar
+    race conditions. Si hay vendedor (seller_id), se le acredita el importe.
+    La cláusula de rescisión se inicializa con 14 días de protección.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
@@ -411,7 +462,11 @@ async def set_sell_intent(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> SellIntentOut:
-    """Señala la intención de vender un jugador (for_sale=True)."""
+    """Marca un jugador como disponible para venta (for_sale=True).
+
+    No genera una sell_offer inmediata: el sistema la creará en el próximo
+    refresco diario del mercado (market/refresh.py).
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
@@ -452,7 +507,7 @@ async def cancel_sell_intent(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> SellIntentOut:
-    """Cancela la intención de venta (for_sale=False)."""
+    """Cancela la intención de venta, limpiando el flag for_sale=False en roster_players."""
     member = _get_member(supabase, str(league_id), user["id"])
 
     league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
@@ -496,7 +551,11 @@ async def get_sell_offers(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[SellOfferOut]:
-    """Devuelve las sell_offers pendientes del usuario en la liga."""
+    """Devuelve las sell_offers pendientes dirigidas al usuario en la liga.
+
+    Incluye tanto offers del sistema (from_member_id IS NULL) como peer offers
+    (from_member_id NOT NULL). Para las peer, resuelve el username del comprador.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     resp = (
@@ -560,7 +619,15 @@ async def create_peer_offer(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> PeerOfferOut:
-    """Crea una oferta de compra directa entre managers (peer offer)."""
+    """Crea una oferta de compra directa de un manager a otro (peer offer).
+
+    Solo se puede ofertar por jugadores marcados for_sale=True que pertenezcan
+    a otro manager de la misma liga. Guarda las guardas:
+    - no oferta sobre jugador propio
+    - presupuesto suficiente
+    - no duplicar oferta pendiente para el mismo jugador
+    La oferta expira en 7 días si no es respondida.
+    """
     buyer_member = _get_member(supabase, str(league_id), user["id"])
 
     league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
@@ -664,7 +731,14 @@ async def accept_sell_offer(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> TransactionOut:
-    """Acepta la oferta del sistema: elimina del roster, añade al pool de candidatos."""
+    """Acepta una sell_offer: elimina al jugador del roster y acredita el precio al vendedor.
+
+    Flujo de venta completo:
+    1. Jugador se elimina de roster_players.
+    2. Se acredita ask_price al presupuesto del vendedor (RPC atómica add_budget).
+    3. Jugador pasa al pool market_candidates para aparecer en el próximo ciclo de mercado.
+    4. Se registra la transacción en transactions.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
@@ -693,10 +767,11 @@ async def accept_sell_offer(
     if offer["roster_player_id"]:
         supabase.table("roster_players").delete().eq("id", offer["roster_player_id"]).execute()
 
-    # Acreditar el precio de venta al presupuesto del vendedor
-    supabase.table("league_members").update({
-        "remaining_budget": float(member["remaining_budget"]) + float(offer["ask_price"])
-    }).eq("id", member["id"]).execute()
+    # Acreditar el precio de venta al presupuesto del vendedor — atómico, sin read-modify-write
+    supabase.rpc("add_budget", {
+        "p_member_id": member["id"],
+        "p_amount": float(offer["ask_price"])
+    }).execute()
 
     supabase.table("market_candidates").insert({
         "league_id": str(league_id),
@@ -726,7 +801,10 @@ async def reject_sell_offer(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Rechaza la oferta del sistema: limpia for_sale en roster_player."""
+    """Rechaza una sell_offer y limpia el flag for_sale en el roster_player.
+
+    El jugador sigue en el roster del manager; la oferta queda en estado 'rejected'.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     offer_resp = (
@@ -763,7 +841,11 @@ async def get_candidates(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[CandidateOut]:
-    """Candidatos en el pool que pertenecen al usuario (para ver su estado)."""
+    """Devuelve los jugadores que el usuario vendió y están pendientes en el pool de candidatos.
+
+    Un candidato es un jugador que el manager aceptó vender y ahora espera ser
+    subastado en el próximo ciclo de mercado (market_candidates).
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     resp = (
@@ -792,7 +874,7 @@ class ClauseInfoOut(BaseModel):
     owned_by_me: bool
     clause_amount: float | None
     clause_expires_at: str | None  # ISO string o None
-    clause_active: bool
+    clause_expired: bool
     roster_player_id: str | None
     for_sale: bool = False
 
@@ -804,7 +886,13 @@ async def activate_clause(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Activa la cláusula de rescisión: paga el importe y ficha al jugador."""
+    """Activa la cláusula de rescisión de un jugador ajeno para ficharlo.
+
+    Solo es posible activarla cuando ha expirado el período de protección (14 días
+    desde la última compra). El comprador paga clause_amount; el vendedor lo recibe.
+    La nueva cláusula del comprador vale MAX(clause_amount, current_price) para
+    que no pueda bajar aunque el jugador haya caído de precio.
+    """
     buyer_member = _get_member(supabase, league_id, user["id"])
 
     league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", league_id).single().execute()
@@ -977,7 +1065,13 @@ async def upgrade_clause(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Sube el importe de la cláusula pagando una cantidad: nueva_cláusula = vieja + amount * 0.5."""
+    """Sube el importe de la cláusula de rescisión de un jugador propio.
+
+    Fórmula: nueva_cláusula = cláusula_actual + amount_pagado * 0.5
+    El manager paga 'amount' pero la cláusula sube solo la mitad, incentivando
+    hacerlo temprano. Solo se puede subir si la cláusula no ha expirado.
+    Si el jugador no tiene cláusula, se inicializa con expires_at = ahora + 14 días.
+    """
     member = _get_member(supabase, league_id, user["id"])
 
     league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", league_id).single().execute()
@@ -1058,7 +1152,12 @@ async def get_clause_info(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> ClauseInfoOut:
-    """Devuelve información de la cláusula de un jugador en el contexto de una liga."""
+    """Devuelve el estado de la cláusula de un jugador en la liga.
+
+    Indica si el jugador está en la liga (is_owned), si es del usuario (owned_by_me),
+    el importe y si ya expiró el período de protección (clause_expired=True significa
+    que puede ser activada por otro manager).
+    """
     member = _get_member(supabase, league_id, user["id"])
 
     # Buscar roster_players para este jugador en esta liga via join
@@ -1084,7 +1183,7 @@ async def get_clause_info(
             owned_by_me=False,
             clause_amount=None,
             clause_expires_at=None,
-            clause_active=False,
+            clause_expired=False,
             roster_player_id=None,
         )
 
@@ -1094,22 +1193,22 @@ async def get_clause_info(
     owned_by_me = owner_user_id == user["id"]
 
     clause_expires_at: str | None = rp.get("clause_expires_at")
-    clause_active = False
+    clause_expired = False
     if clause_expires_at:
         try:
             expires = datetime.fromisoformat(clause_expires_at)
             if expires.tzinfo is None:
                 expires = expires.replace(tzinfo=timezone.utc)
-            clause_active = expires <= datetime.now(timezone.utc)
+            clause_expired = expires <= datetime.now(timezone.utc)
         except (ValueError, TypeError):
-            clause_active = False
+            clause_expired = False
 
     return ClauseInfoOut(
         is_owned=True,
         owned_by_me=owned_by_me,
         clause_amount=float(rp["clause_amount"]) if rp.get("clause_amount") is not None else None,
         clause_expires_at=clause_expires_at,
-        clause_active=clause_active,
+        clause_expired=clause_expired,
         roster_player_id=str(rp["id"]),
         for_sale=bool(rp.get("for_sale", False)),
     )

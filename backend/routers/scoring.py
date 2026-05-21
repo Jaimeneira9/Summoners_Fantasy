@@ -1,3 +1,24 @@
+"""
+Router: Puntuación y leaderboard de la liga.
+
+Rutas principales:
+  GET /leaderboard/{league_id}          — ranking de managers (con soporte de filtro por jornada)
+  GET /leaderboard/{league_id}/detailed — ranking con stats agregadas por manager
+  GET /player/{player_id}/history       — historial de puntuación de un jugador (últimas 10 series)
+
+Lógica de negocio central:
+  - El leaderboard básico consulta la view member_total_points para los puntos totales
+    (más eficiente que sumar series por series).
+  - Al filtrar por semana (?week=N), los puntos se recalculan desde lineup_snapshots
+    (el equipo que tenía el manager ese día) y player_series_stats (puntos de esa jornada).
+    El capitán dobla los puntos de ese jugador.
+  - El leaderboard detallado agrega stats de player_game_stats filtrando por
+    competition_id del league a través del join games → series.
+  - avg_pts_per_week solo cuenta semanas donde la suma de starters > 0 (semanas jugadas).
+  - El historial de un jugador incluye stat_breakdown: la contribución de cada stat
+    al puntaje de fantasía, usando ROLE_WEIGHTS del scoring engine.
+"""
+
 import logging
 from uuid import UUID
 
@@ -51,6 +72,7 @@ class DetailedLeaderboardEntry(BaseModel):
 
 
 def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
+    """Lanza HTTP 403 si el usuario no es miembro de la liga indicada."""
     resp = (
         supabase.table("league_members")
         .select("id")
@@ -69,6 +91,13 @@ async def get_leaderboard(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> LeaderboardResponse:
+    """Ranking de managers de la liga. Opcionalmente filtra por jornada (?week=N).
+
+    Sin week: ordena por total_points dinámico (desde la view member_total_points).
+    Con week: recalcula puntos de esa jornada usando snapshots y player_series_stats,
+    y dobla los puntos del capitán. El orden cambia al ranking de esa jornada.
+    Siempre incluye available_weeks y current_week para el selector del frontend.
+    """
     _check_membership(supabase, str(league_id), user["id"])
 
     members_resp = (
@@ -154,7 +183,12 @@ async def get_leaderboard(
         current_week = max(available_weeks) if available_weeks else None
 
     def _calc_week_points(target_week: int) -> dict[str, float]:
-        """Calcula los puntos de cada member para una semana específica. Retorna 0.0 si no hay datos."""
+        """Calcula los puntos de jornada de cada manager.
+
+        Usa lineup_snapshots como fuente del equipo (no el roster actual).
+        Un manager necesita al menos 5 starters en el snapshot para puntuar.
+        El capitán aporta el doble de sus puntos individuales.
+        """
         from collections import defaultdict as _defaultdict
 
         series_week_resp = (
@@ -305,7 +339,14 @@ async def get_player_score_history(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Historial de stats y puntuación de un jugador (últimas 10 series)."""
+    """Historial de stats y puntuación de un jugador, filtrado por la competition de la liga.
+
+    Devuelve las últimas 10 series jugadas en la competición. Para cada serie incluye:
+    - Stats promedio (KDA, CS/min, DPM) desde player_series_stats.
+    - gold_diff_15 y xp_diff_15 desde player_game_stats (promedio de games de esa serie).
+    - stat_breakdown: contribución de cada stat al puntaje según ROLE_WEIGHTS del engine.
+    - total_points: acumulado de toda la competición (sin límite de 10 series).
+    """
     league_resp = (
         supabase.table("fantasy_leagues")
         .select("competition_id")
@@ -505,9 +546,12 @@ def get_detailed_leaderboard(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[DetailedLeaderboardEntry]:
-    """
-    Leaderboard detallado: incluye stats agregadas por manager (KDA, gold@15, pts/semana).
-    Más costoso que el leaderboard básico — corre en threadpool (sync def).
+    """Leaderboard detallado con stats agregadas por manager (KDA, gold@15, pts/semana).
+
+    Más costoso que el leaderboard básico porque agrega player_game_stats y
+    player_series_stats de todos los starters de cada manager.
+    Corre en threadpool (sync def) para no bloquear el event loop.
+    avg_pts_per_week solo cuenta semanas donde el equipo sumó puntos > 0.
     """
     _check_membership(supabase, str(league_id), user["id"])
 
@@ -568,16 +612,18 @@ def get_detailed_leaderboard(
             if not slot.startswith("bench"):
                 member_starter_ids[member_id].append(rp["player_id"])
 
-    # 5. Fetch active competition_id
-    active_comp_resp = (
-        supabase.table("competitions")
-        .select("id")
-        .eq("is_active", True)
-        .limit(1)
+    # 5. Fetch competition_id from the league (source of truth: fantasy_leagues, not global competitions)
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
         .execute()
     )
+    if not league_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga no encontrada")
     active_competition_id: str | None = (
-        (active_comp_resp.data or [{}])[0].get("id") if active_comp_resp.data else None
+        str(league_resp.data["competition_id"]) if league_resp.data.get("competition_id") else None
     )
 
     # 6. Batch query: player_game_stats for all starters, filtered by active competition

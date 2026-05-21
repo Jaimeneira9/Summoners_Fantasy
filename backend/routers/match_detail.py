@@ -1,5 +1,32 @@
 from __future__ import annotations
 
+"""
+Router: Detalle completo de un partido (match_detail).
+
+Rutas principales:
+  GET /{series_id}/match-detail — detalle unificado de una serie (jugada o programada)
+
+Lógica de negocio central:
+  - Devuelve un envelope con mode='played' o mode='upcoming' según el status de la serie.
+  - Modo 'played': stats game-by-game desde player_game_stats + resumen de serie.
+    Las stats se obtienen en una sola query batch (_fetch_game_stats) para evitar N+1.
+  - Modo 'upcoming': promedios de temporada de los jugadores de ambos equipos, calculados
+    con promedio ponderado por games_played (no promedio simple de promedios).
+  - _resolve_canonical_team_name resuelve el nombre corto de players.team (ej. "G2")
+    al nombre canónico del equipo (ej. "G2 Esports") via teams.aliases[], para que el
+    frontend pueda agrupar correctamente jugadores por equipo.
+  - avg_xp_diff_15 siempre es None porque player_series_stats no tiene esa columna.
+
+Referencia de columnas verificadas en migraciones:
+  games.duration_min              — numeric(6,2), NULL hasta que finaliza el game
+  games.winner_id                 — uuid FK a teams.id, NULL hasta que finaliza
+  player_game_stats.result        — int CHECK (0=loss, 1=win), NULL si no finalizado
+  player_game_stats.xp_diff_15   — integer, puede ser NULL
+  player_game_stats.gold_diff_15  — integer, puede ser NULL
+  player_series_stats.avg_gold_diff_15 — numeric(8,2), puede ser NULL
+  player_series_stats NO tiene columna avg_xp_diff_15
+"""
+
 # ---------------------------------------------------------------------------
 # Column name reference (verified from supabase/migrations/):
 #   games.duration_min         — numeric(6,2), NULL until game finishes
@@ -125,15 +152,16 @@ class MatchDetailEnvelope(BaseModel):
 
 
 def _safe_avg(values: list[float]) -> float:
+    """Promedio seguro: retorna 0.0 si la lista está vacía."""
     return round(sum(values) / len(values), 2) if values else 0.0
 
 
 def _fetch_game_stats(
     supabase: Client, series_id: str
 ) -> tuple[list[dict], list[dict]]:
-    """
-    Returns (games_rows, player_stats_rows).
-    Single batch query for all player_game_stats — no N+1.
+    """Obtiene games y player_game_stats de una serie en dos queries batch (sin N+1).
+
+    Retorna (games_rows, player_stats_rows). Si no hay games, player_stats_rows es [].
     """
     games_resp = (
         supabase.table("games")
@@ -169,11 +197,12 @@ def _resolve_canonical_team_name(
     home_team_data: dict,
     away_team_data: dict,
 ) -> str:
-    """
-    Maps a raw team name (e.g. 'G2' from players.team) to the canonical full
-    team name used by TeamDetailInfo (e.g. 'G2 Esports' from teams.name).
+    """Mapea el nombre corto de players.team al nombre canónico de teams.name.
 
-    Checks against aliases[] for each team; falls back to the raw value.
+    players.team almacena nombres como "G2" o "Fnatic" (alias cortos).
+    teams.name almacena el nombre completo como "G2 Esports".
+    Compara contra teams.aliases[] e incluye el nombre canónico como alias implícito.
+    Si no encuentra match, retorna el valor raw y emite un warning en logs.
     """
     raw_lower = raw_team.strip().lower()
 
@@ -202,7 +231,12 @@ def _build_played(
     games_rows: list[dict],
     player_stats_rows: list[dict],
 ) -> MatchDetailPlayed:
-    """Build MatchDetailPlayed from pre-fetched data."""
+    """Construye MatchDetailPlayed desde datos ya cargados por el caller.
+
+    Agrupa player_game_stats por game_id. Calcula scores contando winner_id.
+    Genera series_stats agregando stats game-by-game por jugador.
+    Todos los jugadores se ordenan por ROLE_ORDER (top → support).
+    """
     series_id = str(series["id"])
     team_home_id = str(series["team_home_id"])
     team_away_id = str(series["team_away_id"])
@@ -345,7 +379,13 @@ def _build_played(
 
 
 def _build_upcoming(supabase: Client, series: dict) -> MatchDetailUpcoming:
-    """Build MatchDetailUpcoming with season averages from player_series_stats."""
+    """Construye MatchDetailUpcoming con promedios de temporada desde player_series_stats.
+
+    Usa promedio ponderado por games_played para evitar el bias de series con
+    distinto número de games (ej. una serie de 3 games no pesa igual que una de 1).
+    Incluye todos los jugadores activos de ambos equipos aunque no tengan stats aún.
+    Los jugadores se ordenan: primero equipo local (ROLE_ORDER), luego visitante.
+    """
     series_id = str(series["id"])
     team_home_id = str(series["team_home_id"])
     team_away_id = str(series["team_away_id"])
@@ -515,10 +555,11 @@ def get_match_detail(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> MatchDetailEnvelope:
-    """
-    Unified match detail endpoint.
-    Returns mode='played' for finished/in_progress series with game-by-game stats.
-    Returns mode='upcoming' for scheduled series with season averages.
+    """Endpoint unificado de detalle de partido.
+
+    Devuelve mode='played' para series finalizadas o en curso, con stats game-by-game.
+    Devuelve mode='upcoming' para series programadas, con promedios de temporada.
+    Requiere que el usuario sea miembro de la liga (league_id en query param).
     """
     _check_membership(supabase, str(league_id), user["id"])
 

@@ -1,3 +1,21 @@
+"""
+Router: Splits / competiciones históricas (splits).
+
+Rutas principales:
+  GET /                          — todas las competiciones (activas e históricas)
+  GET /active                    — la competición activa actual
+  GET /player/{player_id}/history — estadísticas históricas de un jugador por competición
+
+Lógica de negocio central:
+  - En este sistema, "split" y "competition" son sinónimos: cada split es una fila
+    en la tabla competitions. El modelo SplitOut aglutina ambos conceptos.
+  - El historial de un jugador agrupa sus player_series_stats por competition_id,
+    ponderando correctamente los promedios por games_played para evitar el "average
+    of averages" cuando las series tienen distinto número de games.
+  - Las métricas opcionales (DPM, wards/min, kill participation) solo se incluyen
+    en el promedio cuando el valor está presente en la row, no como cero.
+"""
+
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -40,6 +58,7 @@ async def list_splits(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[SplitOut]:
+    """Lista todas las competiciones (splits), ordenadas por fecha de creación DESC."""
     resp = (
         supabase.table("competitions")
         .select("id, name, is_active, start_date, end_date, reset_date")
@@ -65,6 +84,7 @@ async def get_active_split(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> SplitOut | None:
+    """Devuelve la competición activa (is_active=True) o None si no hay ninguna."""
     resp = (
         supabase.table("competitions")
         .select("id, name, is_active, start_date, end_date, reset_date")
@@ -92,7 +112,13 @@ async def get_player_split_history(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[HistoricalStatsOut]:
-    """Estadísticas históricas agregadas por competición de un jugador."""
+    """Estadísticas históricas de un jugador, agregadas por competición (split).
+
+    Cada entrada de HistoricalStatsOut representa un split completo, con promedios
+    ponderados por games_played para evitar sesgos en series de distinta duración.
+    Las métricas opcionales (DPM, wards_per_min, kill_participation) solo entran en
+    el promedio cuando la row tiene el valor presente (no como 0).
+    """
     resp = (
         supabase.table("player_series_stats")
         .select(
