@@ -1,3 +1,24 @@
+"""
+Router: Ligas de fantasy (fantasy_leagues).
+
+Rutas principales:
+  GET  /                          — ligas del usuario autenticado
+  POST /                          — crear una liga nueva
+  POST /join                      — unirse por invite_code sin conocer el league_id
+  GET  /{league_id}               — detalle de una liga
+  GET  /{league_id}/members       — miembros de una liga
+  POST /{league_id}/join          — unirse por invite_code conociendo el league_id
+  PATCH/{league_id}/me            — actualizar nick del usuario en la liga
+  GET  /{league_id}/members/{id}/roster — roster público de otro manager
+  DELETE/{league_id}              — eliminar liga (solo el propietario)
+
+Lógica de negocio central:
+  - Dos modos de juego: 'draft_market' (mercado de pujas) y 'budget_pick' (fichajes directos).
+  - Las ligas budget_pick no tienen mercado ni máximo de miembros obligatorio.
+  - Al crear una liga en modo draft_market se inicializa el mercado de forma síncrona.
+  - El roster de otro manager puede servirse desde snapshots históricos por jornada.
+"""
+
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -84,7 +105,12 @@ async def list_leagues(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[LeagueOut]:
-    """Ligas en las que el usuario es miembro o propietario."""
+    """Devuelve todas las ligas en las que el usuario es miembro.
+
+    Hace dos queries: primero obtiene los league_ids del usuario desde
+    league_members, luego trae los datos de fantasy_leagues con join a
+    competitions para obtener el nombre de la competición.
+    """
     memberships = (
         supabase.table("league_members")
         .select("league_id, id, remaining_budget, total_points, display_name")
@@ -127,7 +153,12 @@ async def create_league(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> LeagueOut:
-    """Crea una liga y añade al creador como primer miembro. Inicializa el mercado."""
+    """Crea una liga y añade al creador como primer miembro.
+
+    Valida que la competición exista y esté activa antes de insertar.
+    En ligas draft_market, inicializa el mercado inmediatamente (8 listings,
+    cierre en 24 horas). En budget_pick no hay mercado, se omite ese paso.
+    """
     active_comp_resp = (
         supabase.table("competitions")
         .select("id, name, logo_url")
@@ -185,7 +216,12 @@ async def join_by_invite_code(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> MemberOut:
-    """Unirse a una liga conociendo solo el invite_code (sin necesitar el league_id)."""
+    """Permite unirse a una liga conociendo solo el invite_code, sin saber el league_id.
+
+    Alternativa al endpoint POST /{league_id}/join, pensada para el flujo de
+    compartir link de invitación. Verifica actividad de la liga, duplicados
+    y aforo antes de insertar el miembro.
+    """
     league_resp = (
         supabase.table("fantasy_leagues")
         .select("id, invite_code, max_members, is_active")
@@ -237,7 +273,11 @@ async def get_league(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> LeagueOut:
-    """Detalle de una liga. Solo accesible si el usuario es miembro."""
+    """Devuelve el detalle de una liga.
+
+    Solo accesible si el usuario es miembro de la liga. Incluye datos de la
+    competición asociada (nombre, logo) via join a competitions.
+    """
     member_resp = (
         supabase.table("league_members")
         .select("id, remaining_budget, total_points, display_name")
@@ -281,6 +321,7 @@ async def list_members(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[MemberOut]:
+    """Lista todos los miembros de una liga con su presupuesto y puntos totales."""
     _assert_member(supabase, str(league_id), user["id"])
 
     response = (
@@ -299,7 +340,11 @@ async def join_league(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> MemberOut:
-    """Unirse a una liga mediante invite_code."""
+    """Permite unirse a una liga conociendo tanto el league_id como el invite_code.
+
+    Complementa a POST /join (que no requiere league_id). Este endpoint valida
+    que el invite_code coincida con la liga indicada en la ruta.
+    """
     league_resp = (
         supabase.table("fantasy_leagues")
         .select("id, invite_code, max_members, is_active")
@@ -364,7 +409,11 @@ async def update_my_nick(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> MemberOut:
-    """Actualiza el nick del usuario en una liga."""
+    """Actualiza el display_name del usuario en la liga indicada.
+
+    El display_name es el apodo visible dentro de la liga (distinto del username
+    global del perfil). Solo puede cambiarlo el propio miembro.
+    """
     existing = (
         supabase.table("league_members")
         .select("id")
@@ -392,10 +441,16 @@ async def get_member_roster(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Devuelve el roster público de otro miembro de la liga.
+    """Devuelve el roster público de otro manager en la liga.
 
-    Si se pasa ?week=N, intenta servir el equipo snapshotted de esa jornada.
-    Si no hay snapshot para esa semana, cae al roster actual.
+    Si se pasa ?week=N, sirve el equipo snapshotted de esa jornada desde
+    lineup_snapshots. Si no existe snapshot para esa semana, devuelve players=[]
+    con snapshot_available=False (sin fallback al roster actual, para que el
+    frontend diferencie 'sin datos' de 'equipo vacío').
+
+    Sin week: devuelve el roster actual con split_points y jornada_points del
+    último week con series finalizadas. El capitán se resuelve desde
+    captain_selections para la semana en curso.
     """
     _assert_member(supabase, str(league_id), user["id"])
 
@@ -575,7 +630,7 @@ async def delete_league(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> None:
-    """Elimina una liga. Solo el propietario puede hacerlo."""
+    """Elimina una liga permanentemente. Solo el propietario puede ejecutar esta acción."""
     league_resp = (
         supabase.table("fantasy_leagues")
         .select("id, owner_id")
@@ -596,6 +651,7 @@ async def delete_league(
 # ---------------------------------------------------------------------------
 
 def _assert_member(supabase: Client, league_id: str, user_id: str) -> None:
+    """Lanza HTTP 403 si el usuario no es miembro de la liga indicada."""
     resp = (
         supabase.table("league_members")
         .select("id")

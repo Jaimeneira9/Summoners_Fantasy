@@ -1,3 +1,20 @@
+"""
+Router: Series (partidas) de la competición.
+
+Rutas principales:
+  GET /{league_id}/calendar       — calendario completo de series de la competición
+  GET /{series_id}/h2h            — estadísticas head-to-head de una serie específica
+
+Lógica de negocio central:
+  - El calendario devuelve todas las series (pasadas, en curso y futuras) con resultado
+    formateado como "2-1" desde la perspectiva del equipo local.
+  - El H2H incluye stats globales de cada equipo en la competición (no solo de esa serie)
+    y stats individuales por jugador ordenadas por posición (top → support).
+  - Las stats de jugadores en H2H provienen de player_series_stats filtrando por
+    los series_ids de la competición activa.
+  - ROLE_ORDER se importa en match_detail.py para reutilizar el orden canónico de roles.
+"""
+
 import logging
 from uuid import UUID
 
@@ -11,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Orden canónico de posiciones para mostrar jugadores en la UI
 ROLE_ORDER = {"top": 1, "jungle": 2, "mid": 3, "adc": 4, "support": 5}
 
 
@@ -23,6 +41,8 @@ class SeriesCalendarEntry(BaseModel):
     series_id: str
     team_home: str
     team_away: str
+    team_home_logo_url: str | None
+    team_away_logo_url: str | None
     date: str
     week: int | None
     status: str
@@ -75,10 +95,12 @@ class H2HResponse(BaseModel):
 
 
 def _safe_avg(values: list[float]) -> float:
+    """Promedio seguro: retorna 0.0 si la lista está vacía."""
     return round(sum(values) / len(values), 2) if values else 0.0
 
 
 def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
+    """Lanza HTTP 403 si el usuario no es miembro de la liga indicada."""
     resp = (
         supabase.table("league_members")
         .select("id")
@@ -91,7 +113,11 @@ def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
 
 
 def _build_result(winner_id: str | None, team_home_id: str, game_count: int) -> str | None:
-    """Build result string e.g. '2-1' from home team's perspective."""
+    """Construye el marcador de la serie (ej. '2-1') desde la perspectiva del equipo local.
+
+    Asume formato BO3: el ganador siempre lleva 2 victories. Los games del perdedor
+    se calculan restando 2 al game_count total.
+    """
     if not winner_id:
         return None
     loser_wins = game_count - 2
@@ -111,7 +137,12 @@ def _build_team_stats(
     all_series: list[dict],
     player_ids_by_team_name: dict[str, list[str]],
 ) -> TeamH2HStats:
-    """Build TeamH2HStats for one team using pre-fetched series + player_game_stats."""
+    """Construye TeamH2HStats para un equipo usando series y player_game_stats pre-cargados.
+
+    El W/L se cuenta recorriendo all_series (ya cargadas por el caller para evitar N queries).
+    Las stats individuales se obtienen desde player_game_stats filtrando por competition_id
+    y status=finished a través del join games → series.
+    """
     wins = 0
     losses = 0
     for s in all_series:
@@ -187,7 +218,11 @@ def _build_players_stats(
     player_rows: list[dict],
     series_ids_in_competition: list[str],
 ) -> list[PlayerH2HStats]:
-    """Build PlayerH2HStats list for one team, sorted by role order."""
+    """Construye la lista de stats individuales para un equipo, ordenada por ROLE_ORDER.
+
+    Los coaches son excluidos. Las stats provienen de player_series_stats filtradas
+    por los series_ids de la competición (pasados como argumento para evitar re-query).
+    """
     team_players = [p for p in player_rows if p.get("team") == team_name and p.get("role") != "coach"]
     result: list[PlayerH2HStats] = []
 
@@ -247,8 +282,10 @@ def get_calendar(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> CalendarResponse:
-    """
-    Returns all series for the league's competition, ordered by date ASC.
+    """Devuelve todas las series de la competición de la liga, ordenadas por fecha ASC.
+
+    Incluye series pasadas, en curso y futuras. El resultado de series finalizadas
+    se formatea como "2-1" usando _build_result.
     """
     _check_membership(supabase, str(league_id), user["id"])
 
@@ -268,8 +305,8 @@ def get_calendar(
         supabase.table("series")
         .select(
             "id, date, week, status, winner_id, game_count, team_home_id, team_away_id,"
-            " home_team:teams!series_team_home_id_fkey(id, name),"
-            " away_team:teams!series_team_away_id_fkey(id, name)"
+            " home_team:teams!series_team_home_id_fkey(id, name, logo_url),"
+            " away_team:teams!series_team_away_id_fkey(id, name, logo_url)"
         )
         .eq("competition_id", competition_id)
         .order("date", desc=False)
@@ -293,6 +330,8 @@ def get_calendar(
                 series_id=str(s["id"]),
                 team_home=home_team.get("name") or "",
                 team_away=away_team.get("name") or "",
+                team_home_logo_url=home_team.get("logo_url"),
+                team_away_logo_url=away_team.get("logo_url"),
                 date=str(s.get("date") or ""),
                 week=s.get("week"),
                 status=s.get("status") or "scheduled",
@@ -310,9 +349,11 @@ def get_h2h(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> H2HResponse:
-    """
-    Returns head-to-head data for a specific series.
-    Auth check: user must be a member of the given league.
+    """Devuelve estadísticas head-to-head de una serie específica.
+
+    Requiere que el usuario sea miembro de la liga (league_id en query param).
+    Incluye stats globales de cada equipo en la competición (no solo en esa serie)
+    y stats individuales de cada jugador activo, ordenadas por ROLE_ORDER.
     """
     _check_membership(supabase, str(league_id), user["id"])
 

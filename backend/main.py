@@ -1,3 +1,32 @@
+"""
+Aplicación principal de Summoner's Fantasy — FastAPI.
+
+Este módulo es el punto de entrada de la API REST. Combina tres responsabilidades:
+
+  1. API REST: registra todos los routers (players, leagues, market, scoring, etc.)
+     bajo sus prefijos correspondientes.
+
+  2. Scheduler integrado: arranca un BackgroundScheduler (APScheduler) dentro del
+     proceso FastAPI para ejecutar los jobs del pipeline activo (gol.gg) y del
+     mercado. Jobs configurados:
+       - series_ingest   (cada hora)   → pipeline gol.gg
+       - market_refresh  (cada hora)   → refresco de listings y pujas
+       - split_reset     (01:00 UTC)   → chequeo de reset de split
+
+  3. Endpoints admin/debug: rutas que permiten forzar jobs manualmente
+     (con protección por entorno o secret header en producción).
+
+Cómo arranca (lifespan):
+  FastAPI usa el context manager `lifespan` para inicialización y shutdown.
+  Al iniciar: registra jobs en el scheduler, arranca el scheduler, y hace
+  bootstrap de listings sin closes_at (datos legacy).
+  Al parar: detiene el scheduler limpiamente.
+
+CORS:
+  Se permite el origen del frontend local (configurable via ALLOWED_ORIGINS o
+  FRONTEND_URL) más los dominios de producción hardcodeados. También se acepta
+  cualquier preview de Vercel via regex.
+"""
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -22,6 +51,13 @@ _scheduler = BackgroundScheduler()
 
 
 def _get_supabase() -> Client:
+    """
+    Crea y devuelve un cliente Supabase con service_role key.
+
+    Se usa service_role (no la anon key) para que el backend pueda leer y escribir
+    sin restricciones de RLS. Cada job del scheduler crea su propia instancia para
+    evitar problemas de estado compartido entre threads de APScheduler.
+    """
     return create_client(
         os.environ["SUPABASE_URL"],
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
@@ -29,6 +65,7 @@ def _get_supabase() -> Client:
 
 
 def _job_market_refresh() -> None:
+    """Wrapper del job de refresco de mercado para el scheduler."""
     from market.refresh import run_all_leagues_refresh
     try:
         run_all_leagues_refresh(_get_supabase())
@@ -38,6 +75,14 @@ def _job_market_refresh() -> None:
 
 
 def _job_series_ingest() -> None:
+    """
+    Wrapper del job de ingestión de series para el scheduler.
+
+    APScheduler ejecuta los jobs en threads síncronos, pero run_series_ingest()
+    es una coroutine async. Se usa asyncio.run() para ejecutarla en un event loop
+    nuevo, aislado del event loop principal de FastAPI (que no se puede compartir
+    entre threads).
+    """
     import asyncio
     from pipeline.series_ingest import run_series_ingest
     try:
@@ -48,7 +93,10 @@ def _job_series_ingest() -> None:
 
 
 def _job_check_split_reset() -> None:
-    """Runs daily: check if today is the reset_date for any active split."""
+    """
+    Chequeo diario de reset de split. Corre a las 01:00 UTC.
+    Si hoy es la reset_date configurada para algún split activo, ejecuta el reset.
+    """
     from admin.split_reset import run_split_reset_if_due
     try:
         run_split_reset_if_due(_get_supabase())
@@ -57,7 +105,15 @@ def _job_check_split_reset() -> None:
 
 
 def _bootstrap_closes_at(supabase: Client) -> None:
-    """Set closes_at on any active listings that have none (legacy data)."""
+    """
+    Migración de datos legacy: setea closes_at en listings activos que no lo tienen.
+
+    Cuando se deployó el campo closes_at en market_listings, los listings
+    existentes quedaron sin ese valor. Esta función los parchea al arrancar
+    la app, asignándoles una fecha de cierre razonable (ahora + LISTING_MINUTES).
+
+    Solo afecta registros con status='active' y closes_at NULL.
+    """
     from market.refresh import _LISTING_MINUTES
     closes_at = (datetime.now(timezone.utc) + timedelta(minutes=_LISTING_MINUTES)).isoformat()
     result = (
@@ -74,6 +130,15 @@ def _bootstrap_closes_at(supabase: Client) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Ciclo de vida de la aplicación FastAPI.
+
+    Se ejecuta al iniciar y al apagar el servidor. APScheduler arranca en segundo
+    plano (BackgroundScheduler) para no bloquear el event loop de asyncio.
+
+    Los jobs se configuran con next_run_time=ahora+1h para que no corran
+    inmediatamente al iniciar la app (evita conflictos en deploys y reinicios).
+    """
     from datetime import datetime, timedelta
     sb = _get_supabase()
 
@@ -127,6 +192,13 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Handler global de excepciones no capturadas.
+
+    Sin esto, FastAPI devuelve 500 sin CORS headers cuando una ruta lanza una
+    excepción no manejada, lo que hace que el frontend reciba un error de CORS
+    en lugar del error real. Este handler agrega los headers necesarios.
+    """
     logger.error("Unhandled exception: %s\n%s", exc, traceback.format_exc())
     return JSONResponse(
         status_code=500,
@@ -155,6 +227,7 @@ app.include_router(competitions_router.router, prefix="/competitions", tags=["co
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
+    """Endpoint de health check. Lo usan el scheduler keep_alive y los load balancers."""
     return {"status": "ok"}
 
 
@@ -212,10 +285,16 @@ def admin_backfill_week_scoring(
     x_debug_secret: str = Header(default=""),
 ) -> dict:
     """
-    Backfills lineup snapshots and manager scoring for a given week.
-    Reuses _take_lineup_snapshot_if_needed + _update_manager_total_points.
-    Guard: refuses with 409 if any league_member already has total_points > 0.
-    Auth: open in development, requires X-Debug-Secret header in production.
+    Recalcula puntos de managers para todas las semanas con snapshots.
+
+    Útil para corregir totales después de un fix en el scoring engine o
+    después de cargar datos de series que faltaban.
+
+    Guard anti-double-count: rechaza con 409 si algún manager ya tiene
+    total_points > 0 (indica que el scoring ya corrió previamente y el
+    backfill podría acumular incorrectamente).
+
+    Auth: abierto en development, requiere X-Debug-Secret en producción.
     """
     env = os.environ.get("ENVIRONMENT", "development")
     if env == "production":

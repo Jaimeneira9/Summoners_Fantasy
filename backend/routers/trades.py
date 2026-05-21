@@ -1,3 +1,24 @@
+"""
+Router: Intercambios entre managers (trades).
+
+Rutas principales:
+  GET  /{league_id}                  — listar trades pendientes del/para el usuario
+  POST /{league_id}                  — crear una oferta de trade
+  POST /{league_id}/{offer_id}/accept — aceptar un trade (transfiere jugadores y presupuesto)
+  POST /{league_id}/{offer_id}/reject — rechazar un trade
+  DELETE /{league_id}/{offer_id}     — cancelar un trade (solo el creador)
+
+Lógica de negocio central:
+  - Un trade puede incluir: jugador ofrecido, jugador solicitado, dinero ofrecido,
+    dinero solicitado. Debe haber al menos un jugador o dinero ofrecido.
+  - Al aceptar: los jugadores cambian de roster (sin borrar el row, solo se actualiza
+    roster_id), y los presupuestos se ajustan según el diferencial de dinero.
+  - Supabase REST no soporta OR nativo en filtros eq, por lo que la lista de trades
+    se obtiene con dos queries separadas (from_member + to_member) unidas en Python.
+  - _get_or_create_roster garantiza que un manager sin roster lo tenga al recibir
+    un jugador en un trade.
+"""
+
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -46,6 +67,7 @@ class TradeOfferOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _get_member(supabase: Client, league_id: str, user_id: str) -> dict:
+    """Devuelve el registro de league_members del usuario, o lanza HTTP 403."""
     resp = (
         supabase.table("league_members")
         .select("id, remaining_budget")
@@ -60,6 +82,7 @@ def _get_member(supabase: Client, league_id: str, user_id: str) -> dict:
 
 
 def _get_member_by_id(supabase: Client, member_id: str) -> dict:
+    """Devuelve el registro de league_members por su ID de miembro, o lanza HTTP 404."""
     resp = (
         supabase.table("league_members")
         .select("id, remaining_budget")
@@ -110,17 +133,14 @@ async def list_trades(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[TradeOfferOut]:
-    """Devuelve las ofertas de trade pendientes de/para el usuario en la liga."""
+    """Devuelve las ofertas de trade pendientes relacionadas con el usuario.
+
+    Incluye trades que el usuario creó (from_member_id) y que recibió (to_member_id).
+    Usa dos queries separadas y deduplicación en Python porque Supabase REST no soporta
+    OR en filtros eq nativamente.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
-    resp = (
-        supabase.table("trade_offers")
-        .select("*")
-        .eq("league_id", str(league_id))
-        .eq("status", "pending")
-        .in_("from_member_id", [member["id"], ""])  # OR trick — se reemplaza abajo
-        .execute()
-    )
     # Hacemos dos queries y unimos (Supabase REST no soporta OR nativo en eq)
     from_resp = (
         supabase.table("trade_offers")
@@ -154,7 +174,11 @@ async def create_trade(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> TradeOfferOut:
-    """Crea una oferta de trade."""
+    """Crea una oferta de trade hacia otro manager de la liga.
+
+    Valida que el jugador ofrecido pertenezca al creador y que el jugador solicitado
+    pertenezca al destinatario. No se puede hacer trade con uno mismo.
+    """
     from_member = _get_member(supabase, str(league_id), user["id"])
 
     if str(body.to_member_id) == from_member["id"]:
@@ -203,7 +227,12 @@ async def accept_trade(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Acepta la oferta de trade: transfiere jugadores y ajusta presupuestos."""
+    """Acepta una oferta de trade: transfiere jugadores y ajusta presupuestos.
+
+    La transferencia de jugadores se hace actualizando roster_id del roster_player,
+    no moviendo el row completo. El ajuste de presupuesto se calcula como diferencial
+    neto (requested_money - offered_money) para cada parte.
+    """
     to_member = _get_member(supabase, str(league_id), user["id"])
 
     offer_resp = (
@@ -331,6 +360,10 @@ async def cancel_trade(
 # ---------------------------------------------------------------------------
 
 def _get_or_create_roster(supabase: Client, member_id: str) -> str:
+    """Devuelve el roster_id del miembro; lo crea si no existe todavía.
+
+    Garantiza que un manager que recibe un jugador por trade tenga un roster.
+    """
     resp = (
         supabase.table("rosters")
         .select("id")

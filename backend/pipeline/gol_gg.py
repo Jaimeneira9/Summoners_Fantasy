@@ -655,53 +655,8 @@ def _parse_game_meta(markdown: str) -> GameMeta:
 
 
 # ---------------------------------------------------------------------------
-# Team list parser
-# ---------------------------------------------------------------------------
-
-
-def _parse_team_list(markdown: str) -> list[tuple[str, str]]:
-    """
-    Parsea el markdown del endpoint de teams de gol.gg.
-
-    Endpoint: teams/list/season-ALL/split-ALL/tournament-{slug}/
-
-    El markdown contiene una tabla con links del tipo:
-      [Team Name](./team-stats/1234/page-team-stats/season-ALL/split-ALL/tournament-XXX/)
-
-    Returns:
-        Lista de (team_name, team_numeric_id) donde team_numeric_id es el ID
-        numérico de gol.gg (ej: "1234"). Lista vacía si no hay teams.
-        Nunca levanta excepción por ausencia de datos.
-    """
-    # Captura (name, numeric_id) de links con formato:
-    # [Team Name](./team-stats/123/page-team-stats/...)
-    matches = re.findall(r"\[([^\]]+)\]\(\.\/team-stats\/(\d+)\/", markdown)
-    return [(name.strip(), team_id) for name, team_id in matches if name.strip() and team_id]
-
-
-# ---------------------------------------------------------------------------
 # Funciones públicas
 # ---------------------------------------------------------------------------
-
-
-async def fetch_team_list(tournament_slug: str) -> list[tuple[str, str]]:
-    """
-    Obtiene la lista de equipos de un torneo desde gol.gg.
-
-    Args:
-        tournament_slug: slug del torneo tal como aparece en gol.gg
-                         (ej. "LEC 2026 Spring", se urlencodea internamente).
-
-    Returns:
-        Lista de (team_name, team_numeric_id). Lista vacía si no hay equipos.
-    """
-    import urllib.parse
-
-    slug_encoded = urllib.parse.quote(tournament_slug, safe="")
-    url = f"https://gol.gg/teams/list/season-ALL/split-ALL/tournament-{slug_encoded}/"
-    logger.info("Fetching team list for tournament slug %s", tournament_slug)
-    markdown = await _fetch_markdown(url)
-    return _parse_team_list(markdown)
 
 
 async def fetch_matchlist(gol_gg_slug: str) -> list[GameEntry]:

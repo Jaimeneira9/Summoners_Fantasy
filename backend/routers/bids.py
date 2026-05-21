@@ -1,3 +1,20 @@
+"""
+Router: Pujas en listings del mercado (bids).
+
+Rutas principales:
+  POST /{league_id}/listings/{listing_id}  — colocar o actualizar una puja
+  GET  /{league_id}/my-bids                — ver las pujas activas del usuario
+  DELETE /{league_id}/listings/{listing_id} — cancelar la puja en un listing
+
+Lógica de negocio central:
+  - Las pujas son competitivas: gana la más alta al cierre del listing.
+  - El presupuesto disponible para pujar = remaining_budget - sum(pujas activas en otros listings).
+    Esto evita que el usuario comprometa el mismo dinero en varias pujas simultáneas.
+  - La puja mínima es igual al current_price del jugador.
+  - Si el usuario ya tiene una puja en ese listing, se actualiza en lugar de crear una nueva.
+  - No se puede cancelar una puja si el listing ya cerró (closes_at en el pasado).
+"""
+
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -38,6 +55,7 @@ class MyBidOut(BaseModel):
 
 
 def _get_member(supabase: Client, league_id: str, user_id: str) -> dict:
+    """Devuelve el registro de league_members del usuario, o lanza HTTP 403."""
     resp = (
         supabase.table("league_members")
         .select("id, remaining_budget")
@@ -58,7 +76,12 @@ async def place_bid(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> BidOut:
-    """Coloca o actualiza una puja en un listing activo."""
+    """Coloca o actualiza una puja en un listing activo.
+
+    Valida que el listing no haya cerrado, que la puja sea >= current_price del jugador,
+    y que el presupuesto disponible (descontando otras pujas activas) sea suficiente.
+    Si el usuario ya tiene puja en este listing, se actualiza en lugar de insertar.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     listing_resp = (
@@ -137,7 +160,11 @@ async def get_my_bids(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[MyBidOut]:
-    """Devuelve las pujas activas del usuario en la liga."""
+    """Devuelve todas las pujas del usuario en la liga (excepto canceladas).
+
+    Hace join manual de bids → listings → players para enriquecer cada puja
+    con información del jugador y fecha de cierre del listing.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     bids_resp = (
@@ -198,7 +225,7 @@ async def cancel_bid(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Cancela la puja del usuario en un listing (solo antes del cierre)."""
+    """Cancela la puja del usuario en un listing, si el mercado todavía no ha cerrado."""
     member = _get_member(supabase, str(league_id), user["id"])
 
     listing_resp = (

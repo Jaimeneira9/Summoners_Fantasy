@@ -1,3 +1,28 @@
+"""
+Router: Plantilla del manager (roster).
+
+Rutas principales:
+  GET  /{league_id}                       — plantilla actual del usuario (o histórica por ?week)
+  PATCH/{league_id}/move                  — mover/intercambiar jugadores de slot
+  PATCH/{league_id}/protect               — marcar/desmarcar jugador como protegido para reset
+  PUT  /{league_id}/lineups/{week}/captain — asignar o remover capitán de una jornada
+  POST /{league_id}/pick                  — fichar jugador en ligas budget_pick
+  GET  /{league_id}/available-players     — jugadores fichables en ligas budget_pick
+
+Lógica de negocio central:
+  - El roster actual enriquece cada jugador con split_points (puntos totales del split)
+    y jornada_points (puntos de la jornada más reciente con series finalizadas).
+  - ?week=N sirve desde lineup_snapshots; si no hay snapshot, devuelve players=[]
+    con snapshot_missing=True (no fallback al roster actual).
+  - La protección (is_protected) limita a 1 jugador por equipo y no puede repetirse
+    el mismo jugador que se protegió en el split anterior.
+  - El capitán dobla los puntos del jugador esa jornada. Solo puede ser un starter
+    (starter_1 a starter_5). Se guarda en captain_selections y se propaga a
+    lineup_snapshots si ya existen para esa semana.
+  - En budget_pick, el pick hace un swap atómico (RPC swap_budget): descuenta el
+    nuevo precio y devuelve el precio pagado por el jugador saliente.
+"""
+
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
 from uuid import UUID
@@ -107,6 +132,7 @@ class PickResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _get_member(supabase: Client, league_id: str, user_id: str) -> dict:
+    """Devuelve el registro de league_members del usuario incluyendo presupuesto y puntos, o lanza HTTP 403."""
     resp = (
         supabase.table("league_members")
         .select("id, remaining_budget, total_points")
@@ -130,7 +156,14 @@ async def get_roster(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> RosterOut:
-    """Devuelve la plantilla del usuario en una liga."""
+    """Devuelve la plantilla del usuario en la liga, con puntos y capitán.
+
+    Sin ?week: devuelve el roster actual con split_points (acumulados del split)
+    y jornada_points (solo la jornada más reciente con series finalizadas).
+    Con ?week=N: sirve desde lineup_snapshots. Si no hay snapshot retorna
+    snapshot_missing=True con players=[].
+    El capitán se resuelve desde captain_selections para la semana en curso.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     # ── Step 2: Resolve competition from fantasy_leagues + current week ──
@@ -381,7 +414,11 @@ async def move_player(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Mueve un jugador a otro slot. Si el destino está ocupado, intercambia ambos."""
+    """Mueve un jugador a un slot distinto. Si el destino está ocupado, intercambia ambos.
+
+    El swap usa la RPC swap_roster_slots para evitar violación del unique constraint
+    en (roster_id, slot) al cambiar los dos slots en una sola transacción SQL.
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     roster_resp = (
@@ -448,9 +485,13 @@ async def toggle_protect(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> dict:
-    """Marca/desmarca un jugador como protegido para el reset de split.
-    Solo puede haber 1 jugador protegido por equipo.
-    No se puede proteger al mismo jugador que se protegió en el split anterior."""
+    """Marca o desmarca un jugador como protegido para el reset de split.
+
+    Reglas de negocio:
+    - Solo puede haber 1 jugador protegido por equipo (al proteger uno, se desprotegen todos).
+    - No se puede proteger el mismo jugador que fue protegido en el split anterior
+      (verificado contra split_protect_history del último split inactivo).
+    """
     member = _get_member(supabase, str(league_id), user["id"])
 
     roster_resp = (
@@ -484,23 +525,23 @@ async def toggle_protect(
         ).execute()
         return {"message": "Protección eliminada", "is_protected": False}
 
-    # Comprobar restricción: ¿protegió este jugador en el split anterior?
-    prev_split_resp = (
-        supabase.table("splits")
+    # Comprobar restricción: ¿protegió este jugador en la competition anterior?
+    prev_comp_resp = (
+        supabase.table("competitions")
         .select("id")
         .eq("is_active", False)
         .order("created_at", desc=True)
         .limit(1)
         .execute()
     )
-    if prev_split_resp.data:
-        prev_split_id = prev_split_resp.data[0]["id"]
+    if prev_comp_resp.data:
+        prev_competition_id = prev_comp_resp.data[0]["id"]
         history_resp = (
             supabase.table("split_protect_history")
             .select("id")
             .eq("member_id", member["id"])
             .eq("player_id", str(player_id))
-            .eq("split_id", prev_split_id)
+            .eq("competition_id", prev_competition_id)
             .execute()
         )
         if history_resp.data:
@@ -531,12 +572,14 @@ async def set_captain(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> CaptainResponse:
-    """Asigna o remueve el capitán para la jornada indicada.
+    """Asigna o remueve el capitán para una jornada específica.
 
-    Validaciones:
-    - El manager debe ser miembro de la liga
-    - La jornada no debe haber comenzado (series.start_time > now)
-    - Si captain_player_id no es null: debe ser un starter en el roster actual
+    Restricciones:
+    - No se puede cambiar si hay series en_progreso para esa semana.
+    - El capitán debe ser un starter (starter_1 a starter_5), verificado primero
+      en lineup_snapshots (si existe) y luego en el roster actual como fallback.
+    - Se hace upsert en captain_selections y se propaga a lineup_snapshots si ya
+      existen para esa semana (para mantener consistencia en los cálculos de leaderboard).
     """
     member = _get_member(supabase, str(league_id), user["id"])
     member_id = member["id"]
@@ -662,7 +705,14 @@ async def pick_player(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> PickResponse:
-    """Ficha o reemplaza un jugador en una liga budget_pick."""
+    """Ficha un jugador (o reemplaza al actual del slot) en una liga budget_pick.
+
+    Solo disponible en ligas de modo budget_pick. No se puede cambiar durante una
+    jornada en curso. El slot debe corresponder al rol del jugador (SLOT_ROLES).
+    Si el slot tiene ocupante, se libera el jugador saliente y se devuelve su precio
+    al presupuesto. El swap de presupuesto se hace con la RPC atómica swap_budget.
+    Si el jugador saliente era capitán de la próxima jornada, se limpia el capitán.
+    """
 
     # 1. Verificar game_mode
     league_resp = (
@@ -821,7 +871,12 @@ async def get_available_players(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[AvailablePlayerOut]:
-    """Devuelve los jugadores disponibles para fichar en una liga budget_pick."""
+    """Lista todos los jugadores activos fichables en una liga budget_pick.
+
+    Filtra por la league abbr de la competición (players.league = primer token del nombre).
+    Añade split_points de la competición activa e in_my_roster para que el frontend
+    pueda resaltar los jugadores ya fichados. Ordenados por split_points DESC.
+    """
 
     # 1. Verificar game_mode y obtener competition_id
     league_resp = (
