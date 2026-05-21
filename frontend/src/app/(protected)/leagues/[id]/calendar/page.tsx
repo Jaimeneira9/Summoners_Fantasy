@@ -1,5 +1,20 @@
 "use client";
 
+/**
+ * Página de calendario de partidos.
+ *
+ * Muestra todas las series (BO3) de la competición agrupadas por jornada (semana).
+ * Cada jornada es un acordeón colapsable; por defecto se expande automáticamente
+ * la jornada más relevante: primero la que tenga series en curso, luego la
+ * próxima con partidos pendientes, y si todo está terminado, la última.
+ *
+ * Al hacer clic en una serie se navega a la página de H2H (/leagues/:id/h2h/:seriesId).
+ *
+ * Flujo de datos:
+ *   mount → api.series.calendar(leagueId) → setData
+ *           → groupByWeek → detectCurrentWeekLabel → setExpandedWeeks
+ */
+
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api, type SeriesCalendarEntry, type CalendarResponse } from "@/lib/api";
@@ -11,7 +26,12 @@ import { api, type SeriesCalendarEntry, type CalendarResponse } from "@/lib/api"
 const TEAM_LOGO_BASE =
   "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/";
 
-function teamLogoUrl(name: string): string {
+/**
+ * Construye la URL del logo de un equipo.
+ * Prioriza logo_url del backend; en su defecto genera la URL por convención de nombre.
+ */
+function teamLogoUrl(name: string, logo_url: string | null): string {
+  if (logo_url) return logo_url;
   return `${TEAM_LOGO_BASE}${name.toLowerCase().replace(/ /g, "-")}.webp`;
 }
 
@@ -19,6 +39,10 @@ function teamLogoUrl(name: string): string {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Formatea una fecha ISO en texto legible en español ("lun. 5 may.").
+ * Se agrega "T12:00:00" para evitar desfases de zona horaria al parsear solo la fecha.
+ */
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + "T12:00:00");
   return d.toLocaleDateString("es-ES", {
@@ -28,6 +52,11 @@ function formatDate(dateStr: string): string {
   });
 }
 
+/**
+ * Agrupa una lista de series por semana (week).
+ * Las series sin semana asignada van al grupo "sin-semana".
+ * Retorna un array ordenado por aparición natural en el mapa.
+ */
 function groupByWeek(
   series: SeriesCalendarEntry[]
 ): Array<{ week: number | null; label: string; matches: SeriesCalendarEntry[] }> {
@@ -53,6 +82,12 @@ function groupByWeek(
 // Status badge
 // ---------------------------------------------------------------------------
 
+/**
+ * Badge central de una tarjeta de partido.
+ * - finished + result: muestra el marcador ("2-0")
+ * - in_progress: punto amarillo pulsante + "EN CURSO"
+ * - scheduled: "- -" en gris
+ */
 function StatusBadge({ status, result }: { status: string; result: string | null }) {
   if (status === "finished" && result) {
     return (
@@ -129,11 +164,18 @@ function StatusBadge({ status, result }: { status: string; result: string | null
 // Team display
 // ---------------------------------------------------------------------------
 
+/**
+ * Componente de equipo para una fila de partido.
+ * @param align "left" = equipo local (logo a la izquierda); "right" = visitante (logo a la derecha).
+ * El layout se invierte con flexDirection para mantener el logo siempre hacia el centro.
+ */
 function TeamDisplay({
   name,
+  logoUrl,
   align,
 }: {
   name: string;
+  logoUrl: string | null;
   align: "left" | "right";
 }) {
   const isLeft = align === "left";
@@ -151,7 +193,7 @@ function TeamDisplay({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={teamLogoUrl(name)}
+        src={teamLogoUrl(name, logoUrl)}
         alt={name}
         onError={(e) => {
           e.currentTarget.style.display = "none";
@@ -187,6 +229,12 @@ function TeamDisplay({
 // Match card
 // ---------------------------------------------------------------------------
 
+/**
+ * Tarjeta de una serie individual en el calendario.
+ * Clickeable: navega a la página de H2H de la serie.
+ * Layout: [equipo local] — [marcador/estado] — [equipo visitante]
+ *         [fecha centrada]
+ */
 function MatchCard({
   entry,
   leagueId,
@@ -221,13 +269,13 @@ function MatchCard({
     >
       {/* Main row: home — status — away */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <TeamDisplay name={entry.team_home} align="left" />
+        <TeamDisplay name={entry.team_home} logoUrl={entry.team_home_logo_url} align="left" />
 
         <div style={{ display: "flex", justifyContent: "center", flexShrink: 0, minWidth: 56 }}>
           <StatusBadge status={entry.status} result={entry.result} />
         </div>
 
-        <TeamDisplay name={entry.team_away} align="right" />
+        <TeamDisplay name={entry.team_away} logoUrl={entry.team_away_logo_url} align="right" />
       </div>
 
       {/* Date row */}
@@ -275,6 +323,15 @@ function SkeletonCards() {
 // Helpers — current week detection
 // ---------------------------------------------------------------------------
 
+/**
+ * Determina qué semana debe estar expandida por defecto al cargar el calendario.
+ * Prioridad:
+ *   1. La semana con al menos una serie en curso (in_progress)
+ *   2. La primera semana con series pendientes (scheduled)
+ *   3. Si todo está finalizado, la última semana disponible
+ *
+ * Retorna el label de la semana (ej: "SEMANA 5") o null si no hay semanas.
+ */
 function detectCurrentWeekLabel(
   weeks: Array<{ week: number | null; label: string; matches: SeriesCalendarEntry[] }>
 ): string | null {
@@ -298,6 +355,19 @@ function detectCurrentWeekLabel(
 // Page
 // ---------------------------------------------------------------------------
 
+/**
+ * Página principal del calendario de partidos.
+ *
+ * Estado:
+ * - `data`: respuesta del backend con todas las series
+ * - `expandedWeeks`: Set de labels de semanas actualmente expandidas
+ * - `initializing`: true hasta que se completa la primera carga (evita flash de "sin datos")
+ *
+ * useEffect 1 (mount): fetch del calendario → setData
+ * useEffect 2 (data): una vez llegaron los datos, detecta y expande la semana activa
+ *
+ * `toggleWeek`: función pura que abre/cierra una semana sin afectar las demás.
+ */
 export default function CalendarPage() {
   const { id: leagueId } = useParams<{ id: string }>();
   const [data, setData] = useState<CalendarResponse | null>(null);
@@ -306,6 +376,7 @@ export default function CalendarPage() {
   const [initializing, setInitializing] = useState(true);
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
 
+  // Fase 1: carga inicial del calendario completo
   useEffect(() => {
     let cancelled = false;
     api.series
@@ -319,7 +390,7 @@ export default function CalendarPage() {
       .finally(() => {
         if (!cancelled) {
           setLoading(false);
-          setInitializing(false);
+          setInitializing(false); // libera el null-render hasta que haya algo que mostrar
         }
       });
     return () => {
@@ -327,7 +398,7 @@ export default function CalendarPage() {
     };
   }, [leagueId]);
 
-  // Once data arrives, expand the current/upcoming week by default
+  // Fase 2: una vez que llegaron los datos, detecta y expande la semana más relevante
   useEffect(() => {
     if (!data) return;
     const weeks = groupByWeek(data.series);

@@ -1,5 +1,23 @@
 "use client";
 
+/**
+ * Página de clasificación de managers (leaderboard).
+ *
+ * Muestra la tabla de posiciones de los managers de la liga, con puntos totales,
+ * puntos de la jornada seleccionada y estadísticas avanzadas de equipo.
+ *
+ * Flujo de carga en dos fases para evitar bloqueos visuales:
+ *   Fase 1 (bloqueante): api.leagues.get + api.scoring.leaderboard → base list
+ *   Fase 2 (no bloqueante): api.scoring.detailedLeaderboard → agrega statsMap (AVG PTS)
+ *
+ * Navegación de jornadas:
+ *   El navegador permite ver puntos de semanas históricas. Cuando se selecciona
+ *   una semana, se hace un nuevo fetch con ?week=N y se muestran week_points.
+ *   La variable skipNextWeekEffect evita un doble fetch durante la carga inicial.
+ *
+ * Al hacer clic en una fila se abre el modal TeamModal con el roster del manager.
+ */
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -16,11 +34,27 @@ import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 // ---------------------------------------------------------------------------
 // Sort types
 // ---------------------------------------------------------------------------
+
+/** Columnas disponibles para ordenar la tabla de clasificación. */
 type SortKey = "total_points" | "avg_pts_per_week";
 
 // ---------------------------------------------------------------------------
 // Modal: equipo de un miembro
 // ---------------------------------------------------------------------------
+
+/**
+ * Modal que muestra el roster de un manager específico.
+ * Se abre al hacer clic en una fila del leaderboard.
+ *
+ * Carga el roster via api.leagues.memberRoster, pasando la semana seleccionada
+ * para obtener el snapshot histórico (si existe) o el roster actual.
+ *
+ * - En mobile: slide-up desde abajo (sheet)
+ * - En desktop: zoom-in centrado
+ *
+ * Muestra solo los titulares (filtra los bench slots), ordenados por SLOT_ORDER.
+ * Si no hay snapshot para la semana seleccionada, muestra mensaje vacío.
+ */
 function TeamModal({ leagueId, memberId, memberName, selectedWeek, onClose }: {
   leagueId: string;
   memberId: string;
@@ -306,6 +340,8 @@ function TeamModal({ leagueId, memberId, memberName, selectedWeek, onClose }: {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Genera las iniciales de un nombre de usuario (máximo 2 palabras). */
 function getInitials(name: string | null): string {
   if (!name) return "?";
   return name
@@ -318,6 +354,12 @@ function getInitials(name: string | null): string {
 // ---------------------------------------------------------------------------
 // SortableHeader inline component
 // ---------------------------------------------------------------------------
+
+/**
+ * Header de columna con soporte para ordenamiento bidireccional.
+ * Resalta en amarillo cuando está activo. Muestra un chevron que indica la dirección.
+ * @param hideOnMobile Si true, se oculta en viewports < sm (Tailwind).
+ */
 function SortableHeader({
   label,
   sortKey,
@@ -382,6 +424,11 @@ function SortableHeader({
 // ---------------------------------------------------------------------------
 // Stat cell helper
 // ---------------------------------------------------------------------------
+
+/**
+ * Celda de estadística que muestra "—" cuando el valor es null/undefined.
+ * @param format Función de formateo del número (ej: v => v.toFixed(1))
+ */
 function StatCell({
   value,
   format,
@@ -413,6 +460,20 @@ function StatCell({
 // ---------------------------------------------------------------------------
 // Row component
 // ---------------------------------------------------------------------------
+
+/**
+ * Fila de un manager en la tabla de clasificación.
+ * Resaltado especial (amarillo) cuando `isMe` es true (el usuario autenticado).
+ *
+ * Columnas visibles:
+ * - POS (badge con número)
+ * - MANAGER (avatar + nombre + badge "TÚ" si es el propio usuario)
+ * - AVG PTS (desktop only, de statsMap)
+ * - PTS SEM. / Jornada actual (week_points)
+ * - TOTAL (total_points)
+ *
+ * Clickeable: abre el modal de roster del manager.
+ */
 function StandingRow({
   entry,
   isMe,
@@ -587,6 +648,23 @@ function StandingRow({
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
+
+/**
+ * Página principal del leaderboard de la liga.
+ *
+ * Estado:
+ * - `entries`: lista base del leaderboard (fase 1)
+ * - `detailedEntries`: lista enriquecida con stats (fase 2)
+ * - `statsMap`: Map<member_id, MemberStats> derivado de detailedEntries
+ * - `myMemberId`: ID del miembro autenticado (para destacar su fila)
+ * - `selectedWeek` / `currentWeek` / `availableWeeks`: navegación de jornadas
+ * - `animationKey`: incrementado para relanzar animaciones CSS en cascada
+ * - `selectedMember`: manager cuyos datos se muestran en el modal
+ *
+ * Refs:
+ * - `initialLoadDone`: se activa tras completar la carga inicial (fase 1)
+ * - `skipNextWeekEffect`: flag one-shot para evitar doble fetch al inicializar selectedWeek
+ */
 export default function StandingsPage() {
   const { id: leagueId } = useParams<{ id: string }>();
   const initialLoadDone = useRef(false);
@@ -605,7 +683,7 @@ export default function StandingsPage() {
   const [currentWeek, setCurrentWeek]       = useState<number | null>(null);
   const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
 
-  // Build a stats lookup map from detailedEntries
+  // Mapa de stats indexado por member_id para O(1) lookup en cada StandingRow
   const statsMap = useMemo(() => {
     const map = new Map<string, MemberStats>();
     for (const d of detailedEntries) {
@@ -614,8 +692,9 @@ export default function StandingsPage() {
     return map;
   }, [detailedEntries]);
 
-  // Sorted entries — client-side, derived from detailedEntries when available, else entries
-  // When a week is selected, always use entries (which have week_points from the re-fetch)
+  // Ordenamiento client-side: si hay semana seleccionada usa entries (tienen week_points del re-fetch),
+  // si no hay semana y están disponibles los datos detallados, usa detailedEntries (tienen stats).
+  // Al ordenar por avg_pts_per_week, busca en statsMap ya que entries no tiene esa columna.
   const sortedEntries = useMemo(() => {
     const base: LeaderboardEntry[] = (selectedWeek == null && detailedEntries.length > 0) ? detailedEntries : entries;
     if (sortKey === "total_points") {

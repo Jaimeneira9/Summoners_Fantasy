@@ -1,5 +1,19 @@
 "use client";
 
+/**
+ * Tarjeta de una liga en la lista de "Mis ligas".
+ *
+ * Muestra: franja de color según competición, logo, nombre, badges de competición y modo de juego,
+ * cantidad de managers, puntos del miembro autenticado y presupuesto restante (solo budget_pick).
+ *
+ * El color del gradiente superior se determina por COMPETITION_MAP según el nombre de la competición.
+ * En modo budget_pick sin límite de managers muestra "∞".
+ *
+ * Al hacer clic navega a /leagues/{id}/lineup.
+ * El botón de eliminar solo es visible al hacer hover y solo actúa si el usuario es owner.
+ * Pide confirmación nativa antes de ejecutar api.leagues.delete.
+ */
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";

@@ -1,3 +1,14 @@
+/**
+ * Vista de partido próximo: muestra los promedios de temporada de cada jugador por rol.
+ *
+ * En lugar de stats reales (que no existen aún), usa PlayerSeasonAvgRow con avg_points,
+ * avg_kills, avg_deaths y avg_assists de toda la temporada hasta la fecha.
+ *
+ * El "ganador" por rol se determina por quién tiene mayor avg_points (usado para
+ * resaltar el lado con mejor performance histórica, no un resultado real).
+ *
+ * Reutiliza RoleRow en modo "upcoming", que muestra KDA promedio en lugar de stats exactas.
+ */
 import type { MatchDetailUpcoming, PlayerSeasonAvgRow } from "@/types/match-detail";
 import { RoleRow, ROLE_ORDER } from "./RoleRow";
 

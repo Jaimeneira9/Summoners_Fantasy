@@ -1,3 +1,23 @@
+/**
+ * Fila de comparación de jugadores en un rol específico (home vs away).
+ *
+ * Soporta tres modos a través de RoleRowMode:
+ *   - "game": stats de un game individual (K/D/A exactos + gold/xp diff @15)
+ *   - "series": stats agregadas de la serie (promedios de K/D/A + series_points)
+ *   - "upcoming": promedios de temporada (avg_points + avg K/D/A)
+ *
+ * Diseño en 3 columnas con CSS Grid (1fr auto 1fr):
+ *   - Col 1: jugador home (avatar + nombre + stats, alineado a la izquierda)
+ *   - Col 2: icono del rol + badge de diferencia de puntos (ganador - perdedor)
+ *   - Col 3: jugador away (stats + nombre + avatar, alineado a la derecha como espejo)
+ *
+ * El ganador se resalta con borde amarillo lateral en el avatar y texto brillante.
+ * El badge MVP aparece sobre los puntos del jugador con mayor puntaje.
+ * Si leagueId está disponible, los avatares son clickeables y navegan a /stats/{playerId}.
+ *
+ * StatsLine muestra KDA y (en modo "game") los diffs de gold/xp con colores semánticos.
+ * Para el lado derecho, el orden de los segmentos se invierte para efecto espejo.
+ */
 import { type ReactNode } from "react";
 import Link from "next/link";
 import { RoleIcon } from "@/components/RoleIcon";

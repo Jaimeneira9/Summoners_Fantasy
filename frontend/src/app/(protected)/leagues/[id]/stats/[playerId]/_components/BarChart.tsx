@@ -1,5 +1,17 @@
 "use client";
 
+/**
+ * Gráfico de barras de puntos de fantasy por semana, con selector de split.
+ *
+ * Usa Recharts (ResponsiveContainer + BarChart). La barra de la semana seleccionada
+ * se resalta en amarillo (#FCD400); el resto en gris oscuro (#2A2A2A).
+ * Al hacer clic en una barra se llama a onSelectWeek con el número de semana.
+ *
+ * El selector de splits se renderiza como chips horizontales scrolleables.
+ * Al cambiar de split, calcula la semana por defecto del nuevo split (última disponible)
+ * y llama a onSelectSplit para que la página padre actualice ambos estados.
+ */
+
 import React from "react";
 import type { Split } from "@/lib/api";
 import type { WeekStat } from "./types";

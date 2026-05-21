@@ -1,3 +1,16 @@
+/**
+ * Ícono de rol de LoL y constantes de color y etiqueta por rol.
+ *
+ * RoleIcon: renderiza el ícono del rol desde /public/roles/*.png usando next/image.
+ *   Retorna null si el rol no está mapeado.
+ *
+ * ROLE_COLORS: clases Tailwind por rol (bg, text, border) para badges y bordes.
+ *   Usar en combinación con JSX className.
+ *
+ * ROLE_LABEL: abreviatura legible por rol (TOP, JGL, MID, ADC, SUP, COACH).
+ *   Nota: existe un ROLE_COLORS paralelo en lib/roles.ts con colores hex para
+ *   uso en estilos inline (border-color, background, etc.).
+ */
 import Image from "next/image";
 
 const ROLE_IMAGE: Record<string, string> = {

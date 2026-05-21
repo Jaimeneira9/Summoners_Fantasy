@@ -1,5 +1,16 @@
 "use client";
 
+/**
+ * Componente raíz del detalle de un partido (series).
+ *
+ * Soporta dos modos mediante prop discriminante:
+ *   - "played": muestra MatchHeader + GameTabBar + (SeriesView | GameView según la pestaña activa)
+ *   - "upcoming": muestra MatchHeader + UpcomingView con promedios de temporada
+ *
+ * El estado `selectedTab` es "series" (vista general del BO) o un número de game.
+ * GameTabBar genera una pestaña por cada juego de la serie más la pestaña "General".
+ */
+
 import { useState } from "react";
 import type { MatchDetailPlayed, MatchDetailUpcoming } from "@/types/match-detail";
 import { MatchHeader } from "./MatchHeader";
