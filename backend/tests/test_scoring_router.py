@@ -21,6 +21,7 @@ SERIES_ID_2 = str(uuid4())
 COMPETITION_ID = str(uuid4())
 TEAM_HOME_ID = str(uuid4())
 TEAM_AWAY_ID = str(uuid4())
+HISTORY_LEAGUE_ID = str(uuid4())  # league_id requerido por GET /scoring/player/{id}/history
 
 FAKE_USER = {"id": USER_ID, "email": "test@test.com"}
 
@@ -88,6 +89,8 @@ SERIES_STATS = [
 ]
 
 ACTIVE_COMPETITION = [{"id": COMPETITION_ID}]
+# fantasy_leagues mock: el endpoint usa .single() → data es un dict, no lista
+FAKE_LEAGUE = {"competition_id": COMPETITION_ID}
 
 # player_series_stats para total_points (2a query, sin límite)
 TOTAL_SERIES_STATS = [
@@ -165,13 +168,13 @@ def history_response():
     pss_chain = _chain(SERIES_STATS, TOTAL_SERIES_STATS)
 
     sb = _sb_multi(
+        ("fantasy_leagues", _chain(FAKE_LEAGUE)),
         ("players", _chain([PLAYER])),
         ("teams", teams_chain),
         ("player_series_stats", pss_chain),
-        ("competitions", _chain(ACTIVE_COMPETITION)),
     )
 
-    r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history")
+    r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history?league_id={HISTORY_LEAGUE_ID}")
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -277,19 +280,19 @@ def test_response_has_player_and_total_points(history_response):
 def test_player_not_found_returns_404():
     """Si el jugador no existe, debe devolver 404."""
     sb = _sb_multi(
+        ("fantasy_leagues", _chain(FAKE_LEAGUE)),
         ("players", _chain([])),
         ("teams", _chain([], [])),
         ("player_series_stats", _chain([], [])),
-        ("competitions", _chain([])),
     )
-    r = _client(sb).get(f"/scoring/player/{uuid4()}/history")
+    r = _client(sb).get(f"/scoring/player/{uuid4()}/history?league_id={HISTORY_LEAGUE_ID}")
     assert r.status_code == 404
 
 
 def test_invalid_uuid_returns_422():
-    """UUID inválido debe devolver 422."""
+    """UUID inválido en player_id debe devolver 422."""
     sb = _sb_multi(("players", _chain([])))
-    r = _client(sb).get("/scoring/player/no-es-uuid/history")
+    r = _client(sb).get(f"/scoring/player/no-es-uuid/history?league_id={HISTORY_LEAGUE_ID}")
     assert r.status_code == 422
 
 
@@ -330,14 +333,14 @@ def history_response_with_duration():
     pgs_chain = _chain(PLAYER_GAME_STATS)
 
     sb = _sb_multi(
+        ("fantasy_leagues", _chain(FAKE_LEAGUE)),
         ("players", _chain([PLAYER])),
         ("teams", teams_chain),
         ("player_series_stats", pss_chain),
         ("player_game_stats", pgs_chain),
-        ("competitions", _chain(ACTIVE_COMPETITION)),
     )
 
-    r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history")
+    r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history?league_id={HISTORY_LEAGUE_ID}")
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -469,16 +472,16 @@ def test_duration_from_games_duration_min():
         pss_chain = _chain(SERIES_STATS, TOTAL_SERIES_STATS)
         pgs_chain = _chain(pgs_data)
         sb = _sb_multi(
+            ("fantasy_leagues", _chain(FAKE_LEAGUE)),
             ("players", _chain([PLAYER])),
             ("teams", teams_chain),
             ("player_series_stats", pss_chain),
             ("player_game_stats", pgs_chain),
-            ("competitions", _chain(ACTIVE_COMPETITION)),
         )
         return _client(sb)
 
-    r_short = _build_client(pgs_short).get(f"/scoring/player/{PLAYER_ID}/history")
-    r_long = _build_client(pgs_long).get(f"/scoring/player/{PLAYER_ID}/history")
+    r_short = _build_client(pgs_short).get(f"/scoring/player/{PLAYER_ID}/history?league_id={HISTORY_LEAGUE_ID}")
+    r_long = _build_client(pgs_long).get(f"/scoring/player/{PLAYER_ID}/history?league_id={HISTORY_LEAGUE_ID}")
 
     assert r_short.status_code == 200, r_short.text
     assert r_long.status_code == 200, r_long.text
@@ -518,14 +521,14 @@ def test_no_player_game_stats_uses_default_duration():
     pgs_chain = _chain([])  # sin datos de duración
 
     sb = _sb_multi(
+        ("fantasy_leagues", _chain(FAKE_LEAGUE)),
         ("players", _chain([PLAYER])),
         ("teams", teams_chain),
         ("player_series_stats", pss_chain),
         ("player_game_stats", pgs_chain),
-        ("competitions", _chain(ACTIVE_COMPETITION)),
     )
 
-    r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history")
+    r = _client(sb).get(f"/scoring/player/{PLAYER_ID}/history?league_id={HISTORY_LEAGUE_ID}")
     assert r.status_code == 200, r.text
 
     stats = r.json()["stats"]
@@ -554,6 +557,8 @@ ROSTER_ID_4 = str(uuid4())
 ROSTER_ID_5 = str(uuid4())
 SERIES_ID_WEEK = str(uuid4())
 COMP_ID = str(uuid4())
+# fantasy_leagues mock para el leaderboard: .single() → data es un dict
+FAKE_LEAGUE_LB = {"competition_id": COMP_ID}
 
 MEMBERS_DATA = [
     {"id": MEMBER_ID_4, "user_id": str(uuid4()), "total_points": 50.0, "remaining_budget": 100.0},
@@ -588,7 +593,6 @@ def _leaderboard_supabase(
     members=MEMBERS_DATA,
     rosters=None,
     roster_players=None,
-    competition=None,
     snapshot=SNAPSHOT_WEEK1,
     series_for_week=None,
     pss=PSS_WEEK1,
@@ -600,20 +604,26 @@ def _leaderboard_supabase(
         {"id": ROSTER_ID_5, "member_id": MEMBER_ID_5},
     ]
     roster_players = roster_players or []
-    competition = competition or [{"id": COMP_ID}]
     series_for_week = series_for_week or [{"id": SERIES_ID_WEEK}]
     captain_selections = captain_selections or []
 
     # lineup_snapshots — semanas disponibles + snapshot data
     snapped_weeks = [{"week": 1}]
 
+    # member_total_points: view que calcula totales dinámicos
+    member_total_pts = [
+        {"member_id": MEMBER_ID_4, "total_points": 50.0},
+        {"member_id": MEMBER_ID_5, "total_points": 45.0},
+    ]
+
     sb = _sb_multi(
-        ("league_members", _chain(members)),
+        ("league_members", _chain(members, members)),  # 1ra: membership check, 2da: todos los members
         ("profiles", _chain([])),
         ("rosters", _chain(rosters)),
         ("roster_players", _chain(roster_players)),
-        ("competitions", _chain(competition)),
+        ("fantasy_leagues", _chain(FAKE_LEAGUE_LB)),   # .single() → dict con competition_id
         ("lineup_snapshots", _chain(snapped_weeks, snapshot)),
+        ("member_total_points", _chain(member_total_pts)),
         ("series", _chain(series_for_week)),
         ("captain_selections", _chain(captain_selections)),
         ("player_series_stats", _chain(pss)),
