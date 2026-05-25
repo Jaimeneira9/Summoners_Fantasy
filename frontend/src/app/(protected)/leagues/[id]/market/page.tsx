@@ -28,8 +28,7 @@ import gsap from "gsap";
 import { useGSAP } from "@gsap/react";
 gsap.registerPlugin(useGSAP);
 import { api, type Listing, type SellOffer, type MyBid, type Split, type League, type ScoutPlayer } from "@/lib/api";
-import { ROLE_LABEL, RoleIcon } from "@/components/RoleIcon";
-import { getTeamBadgeUrl } from "@/components/PlayerCard";
+import { ROLE_LABEL } from "@/components/RoleIcon";
 import { getRoleColor } from "@/lib/roles";
 import { PriceTrend } from "@/components/PriceTrend";
 import { ActionPopup } from "@/components/ActionPopup";
@@ -46,14 +45,12 @@ import { Button } from "@/components/ui/Button";
  */
 function PlayerAvatar({
   imageUrl,
-  role,
   name,
   className,
   style,
-  iconClassName,
 }: {
   imageUrl: string | null | undefined;
-  role: string;
+  role?: string;
   name: string;
   className?: string;
   style?: React.CSSProperties;
@@ -63,9 +60,7 @@ function PlayerAvatar({
 
   if (!imageUrl || imgFailed) {
     return (
-      <div className={`flex items-center justify-center ${className ?? "w-full h-full"}`} style={style}>
-        <RoleIcon role={role} className={iconClassName ?? "w-10 h-10 opacity-40"} />
-      </div>
+      <div className={`bg-black ${className ?? "w-full h-full"}`} style={style} />
     );
   }
 
@@ -831,13 +826,15 @@ function PlayerCard({
           >
             {ROLE_LABEL[p.role] ?? p.role.toUpperCase()}
           </span>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={getTeamBadgeUrl(p.team)}
-            alt={p.team}
-            style={{ width: 18, height: 18, objectFit: "contain", marginLeft: "auto" }}
-            onError={(e) => { e.currentTarget.style.display = "none"; }}
-          />
+          {p.team_logo_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={p.team_logo_url}
+              alt={p.team}
+              style={{ width: 18, height: 18, objectFit: "contain", marginLeft: "auto" }}
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+          )}
         </div>
 
         {/* Fila 2 — Player name */}

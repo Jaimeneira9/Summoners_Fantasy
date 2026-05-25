@@ -8,7 +8,7 @@
  * El borde de la foto usa el color hex del rol como acento visual.
  */
 
-import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
+import { ROLE_LABEL } from "@/components/RoleIcon";
 import { getRoleColor } from "@/lib/roles";
 
 export function PlayerHero({
@@ -34,7 +34,6 @@ export function PlayerHero({
   onImgError: () => void;
 }) {
   const roleHex = getRoleColor(player.role);
-  const roleColor = ROLE_COLORS[player.role] ?? ROLE_COLORS.coach;
 
   return (
     <div className="player-hero" style={{
@@ -60,7 +59,7 @@ export function PlayerHero({
           alignItems: "center",
           justifyContent: "center",
         }}>
-          {!imgError ? (
+          {photoUrl && !imgError ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={photoUrl}
@@ -69,7 +68,7 @@ export function PlayerHero({
               onError={onImgError}
             />
           ) : (
-            <RoleIcon role={player.role} className={`w-10 h-10 ${roleColor.text} opacity-60`} />
+            <div style={{ width: "100%", height: "100%", background: "#000000" }} />
           )}
         </div>
         {/* Role badge */}

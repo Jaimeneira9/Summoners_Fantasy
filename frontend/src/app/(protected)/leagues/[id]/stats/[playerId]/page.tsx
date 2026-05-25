@@ -47,18 +47,9 @@ import { PriceHistoryChart } from "./_components/PriceHistoryChart";
 // Constants
 // ---------------------------------------------------------------------------
 
-const PLAYER_PHOTO_BASE =
-  "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosJugadoresLec/";
-
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Genera la URL de foto de un jugador en Supabase Storage usando su nombre (slug). */
-function getPlayerPhotoUrl(name: string): string {
-  return `${PLAYER_PHOTO_BASE}${name.toLowerCase().replace(/ /g, "-")}.webp`;
-}
 
 /** Calcula el ratio KDA. Retorna "PERFECT" cuando muertes === 0. */
 function calcKDA(kills: number, deaths: number, assists: number): string {
@@ -193,7 +184,7 @@ export default function PlayerStatsPage() {
 
   const lastMatchPts = matchStats.length > 0 ? matchStats[matchStats.length - 1].fantasy_points : 0;
 
-  const photoUrl = player ? (player.image_url ?? getPlayerPhotoUrl(player.name)) : "";
+  const photoUrl = player?.image_url ?? "";
 
   // Selected stat for zona 3
   const selectedStat = matchStats.find((s) => s.week === selectedWeek) ?? null;

@@ -29,7 +29,26 @@ import {
   type MemberRoster,
   type League,
 } from "@/lib/api";
-import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
+import { ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
+
+// ---------------------------------------------------------------------------
+// PlayerPhoto — foto circular con fallback negro si no hay imagen o falla la carga
+// ---------------------------------------------------------------------------
+function PlayerPhoto({ imageUrl, name, size = 44 }: { imageUrl: string | null; name: string; size?: number }) {
+  const [failed, setFailed] = React.useState(false);
+  if (!imageUrl || failed) {
+    return <div style={{ width: size, height: size, borderRadius: "50%", background: "#000000", flexShrink: 0 }} />;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={imageUrl}
+      alt={name}
+      style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", objectPosition: "top", flexShrink: 0 }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Sort types
@@ -246,23 +265,7 @@ function TeamModal({ leagueId, memberId, memberName, selectedWeek, onClose }: {
                       }}
                     >
                       {/* Foto circular 44px */}
-                      <div style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: "50%",
-                        overflow: "hidden",
-                        flexShrink: 0,
-                        background: "#141414",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}>
-                        {p.image_url
-                          // eslint-disable-next-line @next/next/no-img-element
-                          ? <img src={p.image_url} alt={p.name} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top" }} />
-                          : <RoleIcon role={p.role} className={`w-5 h-5 ${rc.text}`} />
-                        }
-                      </div>
+                      <PlayerPhoto imageUrl={p.image_url} name={p.name} size={44} />
 
                       {/* Nombre + equipo */}
                       <div style={{ flex: 1, minWidth: 0 }}>
