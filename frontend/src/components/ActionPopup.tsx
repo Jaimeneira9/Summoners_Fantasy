@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/Button";
 // ---------------------------------------------------------------------------
 // PlayerImage — img with RoleIcon fallback on load error or missing src
 // ---------------------------------------------------------------------------
-function PlayerImage({ src, name, role }: { src?: string | null; name: string; role: string }) {
+function PlayerImage({ src, name }: { src?: string | null; name: string; role?: string }) {
   const [failed, setFailed] = useState(false);
 
   if (!src || failed) {

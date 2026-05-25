@@ -45,14 +45,12 @@ import { Button } from "@/components/ui/Button";
  */
 function PlayerAvatar({
   imageUrl,
-  role,
   name,
   className,
   style,
-  iconClassName,
 }: {
   imageUrl: string | null | undefined;
-  role: string;
+  role?: string;
   name: string;
   className?: string;
   style?: React.CSSProperties;
