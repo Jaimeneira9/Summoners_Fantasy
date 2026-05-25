@@ -1,3 +1,13 @@
+/**
+ * Vista de un game individual dentro de la serie.
+ *
+ * Muestra un sub-header con el número de game, ganador y duración formateada (mm:ss).
+ * Luego, por cada rol, renderiza un RoleRow en modo "game" con las stats del game:
+ * K/D/A, gold_diff_15, xp_diff_15 y game_points.
+ *
+ * El MVP del game es el jugador con mayor game_points. El ganador se determina
+ * comparando winner_team_id con el id o nombre del equipo home.
+ */
 import type {
   GameDetailData,
   TeamDetailInfo,

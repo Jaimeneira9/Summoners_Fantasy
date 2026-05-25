@@ -9,12 +9,12 @@ trap 'echo ""; echo "Deteniendo servicios..."; kill 0' EXIT
 echo "Iniciando backend en :8000 ..."
 (cd "$ROOT/backend" && source venv/bin/activate && uvicorn main:app --reload) &
 
-echo "Iniciando frontend en :3000 ..."
+echo "Iniciando frontend en :3002 ..."
 (cd "$ROOT/frontend" && npm run dev) &
 
 echo ""
 echo "  Backend:  http://localhost:8000"
-echo "  Frontend: http://localhost:3000"
+echo "  Frontend: http://localhost:3002"
 echo "  API docs: http://localhost:8000/docs"
 echo ""
 echo "  Debug: Forzar refresco del mercado:"

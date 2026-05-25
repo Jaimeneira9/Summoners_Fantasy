@@ -1,5 +1,27 @@
 "use client";
 
+/**
+ * Modal de creación y unión a ligas.
+ *
+ * Modos: "create" (nueva liga) | "join" (código de invitación).
+ * Se puede abrir preseleccionando el modo con la prop `initialMode`.
+ *
+ * Flujo de creación:
+ *   1. El usuario selecciona la competición (cargada via api.competitions.list al abrir).
+ *   2. Elige el modo de juego: "draft_market" (mercado exclusivo) o "budget_pick" (presupuesto libre).
+ *   3. Nombra la liga y elige el máximo de managers.
+ *   4. Confirma → api.leagues.create → router.refresh() para actualizar la lista de ligas.
+ *
+ * Flujo de unión:
+ *   Ingresa el código de invitación → api.leagues.join → router.refresh().
+ *
+ * Layout: en desktop, sidebar vertical con competiciones + formulario a la derecha (2 columnas).
+ *         en mobile, selector horizontal de chips + formulario a pantalla completa.
+ *
+ * Accesibilidad: bloquea scroll del body mientras está abierto, cierra con Escape.
+ * El overlay cierra el modal al hacer clic fuera del panel.
+ */
+
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api, type Competition } from "@/lib/api";

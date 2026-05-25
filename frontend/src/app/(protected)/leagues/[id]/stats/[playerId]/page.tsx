@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { api, type PlayerSplitHistory, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat, type PriceHistoryEntry, type League, type TeamBrief } from "@/lib/api";
+import { api, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat, type PriceHistoryEntry, type League, type TeamBrief } from "@/lib/api";
 
 import type { PlayerHistoryResponse, WeekStat } from "./_components/types";
 import { LoadingSkeleton } from "./_components/LoadingSkeleton";
@@ -18,6 +18,31 @@ import { BarChart } from "./_components/BarChart";
 import { MatchHistoryList } from "./_components/MatchHistoryList";
 import { PriceHistoryChart } from "./_components/PriceHistoryChart";
 
+/**
+ * Página de estadísticas de un jugador específico.
+ *
+ * Recibe dos parámetros de ruta: [id] (leagueId) y [playerId].
+ * Si viene del scout (market?tab=scout), el breadcrumb apunta a "Explorar".
+ *
+ * Estructura en zonas:
+ *   1. PlayerHero — foto, nombre, puntos totales del split
+ *   2. UpcomingSchedule — próximos partidos del jugador (fetch independiente)
+ *   3. SellPanel — visible solo si el jugador es de tu roster (para marcar en venta)
+ *   4. ClausePanel — gestión de cláusula de rescisión
+ *   5. OfferPanel — aparece si el jugador es de otro manager y está en venta
+ *   6. WeekSelector — chips de jornada para seleccionar la semana a inspeccionar
+ *   7. StatCards — KDA, Kills, Deaths, Assists, CS/min, DPM, XP@15, Gold@15 de la semana elegida
+ *   8. BarChart (col. izquierda) — puntos por semana con selector de split
+ *      PriceHistoryChart + MatchHistoryList (col. derecha)
+ *
+ * Carga en dos fases para no bloquear el render:
+ *   Fase bloqueante: api.leagues.get + api.splits.list + api.scoring.playerHistory
+ *   Fase independiente: api.players.schedule, api.players.priceHistory, api.clause.info
+ *
+ * Los matchStats se filtran por split seleccionado y se re-indexan con week = 1-based.
+ * Los statCards se calculan en el render a partir del stat de la semana seleccionada.
+ */
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -30,15 +55,18 @@ const PLAYER_PHOTO_BASE =
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Genera la URL de foto de un jugador en Supabase Storage usando su nombre (slug). */
 function getPlayerPhotoUrl(name: string): string {
   return `${PLAYER_PHOTO_BASE}${name.toLowerCase().replace(/ /g, "-")}.webp`;
 }
 
+/** Calcula el ratio KDA. Retorna "PERFECT" cuando muertes === 0. */
 function calcKDA(kills: number, deaths: number, assists: number): string {
   if (deaths === 0) return "PERFECT";
   return ((kills + assists) / deaths).toFixed(2);
 }
 
+/** Calcula el porcentaje de barra para una stat. Resultado acotado entre 0 y 100. */
 function barWidth(value: number, max: number): number {
   return Math.min(Math.max((value / max) * 100, 0), 100);
 }
@@ -56,7 +84,6 @@ export default function PlayerStatsPage() {
   const [initializing, setInitializing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [historyData, setHistoryData] = useState<PlayerHistoryResponse | null>(null);
-  const [, setSplitHistory] = useState<PlayerSplitHistory[]>([]);
   const [splits, setSplits] = useState<Split[]>([]);
   const [selectedSplitId, setSelectedSplitId] = useState<string | null>(null);
   const [imgError, setImgError] = useState(false);
@@ -101,12 +128,6 @@ export default function PlayerStatsPage() {
           } else if (h.stats.length > 0) {
             setSelectedWeek(h.stats.length);
           }
-        });
-      })
-      .then(() => {
-        if (cancelled) return;
-        return api.splits.playerHistory(playerId).then((splitHistory) => {
-          if (!cancelled) setSplitHistory(splitHistory as PlayerSplitHistory[]);
         });
       })
       .catch((e: Error) => { if (!cancelled) setError(e.message); })

@@ -1,13 +1,35 @@
 "use client";
 
+/**
+ * Página de standings de equipos LEC.
+ *
+ * Muestra la tabla de clasificación de equipos de la competición asociada a la
+ * liga. Cada fila muestra wins/losses de series (BO3), game wins/losses, win
+ * rate, KDA promedio y diferencia de oro a los 15 minutos.
+ *
+ * Las filas se colorean con un borde izquierdo según la zona de playoffs:
+ * - Verde: clasificación directa a Winner Bracket
+ * - Amarillo: Lower Bracket
+ * - Rojo: eliminado
+ *
+ * Flujo de datos:
+ *   mount → api.teams.standings(leagueId) → setData → sort client-side con useMemo
+ */
+
 import { useEffect, useState, useMemo } from "react";
 import Image from "next/image";
 import { useParams } from "next/navigation";
 import { api, type TeamStandingEntry, type TeamStandingsOut } from "@/lib/api";
 
+/** URL base del bucket de Supabase Storage con logos de equipos LEC. */
 const TEAM_LOGO_BASE =
   "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/";
 
+/**
+ * Construye la URL del logo de un equipo.
+ * Prioriza logo_url si viene del backend; si no, genera la URL por convención
+ * de nombre (nombre en minúsculas con guiones, extensión .webp).
+ */
 function teamLogoUrl(name: string, logo_url: string | null): string {
   if (logo_url) return logo_url;
   return TEAM_LOGO_BASE + name.toLowerCase().replace(/ /g, "-") + ".webp";
@@ -16,17 +38,24 @@ function teamLogoUrl(name: string, logo_url: string | null): string {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Formatea un número con decimales fijos, mostrando "—" si es null. */
 function fmt(value: number | null, decimals = 2): string {
   if (value == null) return "—";
   return value.toFixed(decimals);
 }
 
+/**
+ * Formatea una diferencia de oro: agrega "+" a los valores positivos.
+ * Muestra "—" si el valor es null.
+ */
 function fmtGold(value: number | null): string {
   if (value == null) return "—";
   const v = Math.round(value);
   return v >= 0 ? `+${v}` : String(v);
 }
 
+/** Convierte un win_rate (0–1) a porcentaje legible ("67%"). */
 function fmtPct(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
@@ -34,6 +63,8 @@ function fmtPct(value: number): string {
 // ---------------------------------------------------------------------------
 // Skeleton rows
 // ---------------------------------------------------------------------------
+
+/** Placeholder animado mientras se cargan los datos de standings. */
 function SkeletonRows() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -56,31 +87,57 @@ function SkeletonRows() {
 // ---------------------------------------------------------------------------
 // Playoff bracket row styling
 // ---------------------------------------------------------------------------
-function getPlayoffRowStyle(pos: number): React.CSSProperties {
+
+/**
+ * Genera el estilo del borde izquierdo de una fila según su posición en la tabla.
+ * - Verde (borde completo con esquinas): zona de Winner Bracket
+ * - Amarillo: zona de Lower Bracket
+ * - Rojo: zona de eliminación
+ *
+ * Las esquinas redondeadas se aplican solo a la primera y última fila de cada zona
+ * para crear el efecto visual de bracket.
+ */
+function getPlayoffRowStyle(pos: number, playoffSpots: number, lowerBracketSpots: number): React.CSSProperties {
   const green = "#22C55E";
   const yellow = "#EAB308";
   const red = "#EF4444";
   const borderWidth = 3;
 
+  const lowerStart = playoffSpots + 1;
+  const lowerEnd = playoffSpots + lowerBracketSpots;
+
   if (pos === 1) return { borderLeft: `${borderWidth}px solid ${green}`, borderTop: `1px solid ${green}`, borderTopLeftRadius: 6 };
-  if (pos >= 2 && pos <= 3) return { borderLeft: `${borderWidth}px solid ${green}` };
-  if (pos === 4) return { borderLeft: `${borderWidth}px solid ${green}`, borderBottom: `1px solid ${green}`, borderBottomLeftRadius: 6 };
-  if (pos === 5) return { borderLeft: `${borderWidth}px solid ${yellow}`, borderTop: `1px solid ${yellow}`, borderTopLeftRadius: 6 };
-  if (pos === 6) return { borderLeft: `${borderWidth}px solid ${yellow}`, borderBottom: `1px solid ${yellow}`, borderBottomLeftRadius: 6 };
+  if (pos >= 2 && pos < playoffSpots) return { borderLeft: `${borderWidth}px solid ${green}` };
+  if (pos === playoffSpots) return { borderLeft: `${borderWidth}px solid ${green}`, borderBottom: `1px solid ${green}`, borderBottomLeftRadius: 6 };
+  if (lowerBracketSpots > 0 && pos === lowerStart) return { borderLeft: `${borderWidth}px solid ${yellow}`, borderTop: `1px solid ${yellow}`, borderTopLeftRadius: 6 };
+  if (lowerBracketSpots > 0 && pos > lowerStart && pos < lowerEnd) return { borderLeft: `${borderWidth}px solid ${yellow}` };
+  if (lowerBracketSpots > 0 && pos === lowerEnd) return { borderLeft: `${borderWidth}px solid ${yellow}`, borderBottom: `1px solid ${yellow}`, borderBottomLeftRadius: 6 };
   return { borderLeft: `${borderWidth}px solid ${red}` };
 }
 
 // ---------------------------------------------------------------------------
 // Team row
 // ---------------------------------------------------------------------------
+
+/**
+ * Fila individual de un equipo en la tabla de standings.
+ * Muestra: posición, logo, nombre, W, L, W%, game wins, game losses, KDA, Gold@15.
+ * Las columnas GW, GL, KDA y Gold@15 se ocultan en mobile (hidden sm:block).
+ *
+ * @param animationDelay - Delay en ms para la animación en cascada de entrada.
+ */
 function TeamRow({
   entry,
   pos,
   animationDelay,
+  playoffSpots,
+  lowerBracketSpots,
 }: {
   entry: TeamStandingEntry;
   pos: number;
   animationDelay: number;
+  playoffSpots: number;
+  lowerBracketSpots: number;
 }) {
   const isFirst = pos === 1;
 
@@ -104,7 +161,7 @@ function TeamRow({
     alignItems: "center",
     gap: 12,
     animationDelay: `${animationDelay}ms`,
-    ...getPlayoffRowStyle(pos),
+    ...getPlayoffRowStyle(pos, playoffSpots, lowerBracketSpots),
   };
 
   const wl = entry.wins + entry.losses;
@@ -201,16 +258,25 @@ function TeamRow({
 // ---------------------------------------------------------------------------
 // Playoff legend
 // ---------------------------------------------------------------------------
-const LEGEND_ITEMS = [
-  { color: "#22C55E", label: "Winner Bracket (1-4)" },
-  { color: "#EAB308", label: "Lower Bracket (5-6)" },
-  { color: "#EF4444", label: "Eliminado (7+)" },
-];
 
-function PlayoffLegend() {
+/** Genera los ítems de la leyenda según las zonas de playoff configuradas en la liga. */
+function getLegendItems(playoffSpots: number, lowerBracketSpots: number) {
+  const lowerEnd = playoffSpots + lowerBracketSpots;
+  const items = [
+    { color: "#22C55E", label: `Winner Bracket (1-${playoffSpots})` },
+  ];
+  if (lowerBracketSpots > 0) {
+    items.push({ color: "#EAB308", label: `Lower Bracket (${playoffSpots + 1}-${lowerEnd})` });
+  }
+  items.push({ color: "#EF4444", label: `Eliminado (${lowerEnd + 1}+)` });
+  return items;
+}
+
+function PlayoffLegend({ playoffSpots, lowerBracketSpots }: { playoffSpots: number; lowerBracketSpots: number }) {
+  const legendItems = getLegendItems(playoffSpots, lowerBracketSpots);
   return (
     <div style={{ display: "flex", gap: 16, paddingInline: 4, flexWrap: "wrap" }}>
-      {LEGEND_ITEMS.map(({ color, label }) => (
+      {legendItems.map(({ color, label }) => (
         <div key={color} style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
           <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: 10, color: "#555555" }}>
@@ -225,6 +291,18 @@ function PlayoffLegend() {
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
+
+/**
+ * Página principal de standings de equipos.
+ *
+ * Estado:
+ * - `data`: respuesta completa del backend con entries y spots de playoff
+ * - `loading` / `error`: estado de la carga
+ * - `animationKey`: incrementado al recibir datos para relanzar la animación en cascada
+ *
+ * `sortedEntries` ordena client-side por wins (primario) y win_rate (desempate).
+ * El backend devuelve los datos sin ordenar para evitar acoplamiento con la lógica de UI.
+ */
 export default function TeamsPage() {
   const { id: leagueId } = useParams<{ id: string }>();
   const [data, setData] = useState<TeamStandingsOut | null>(null);
@@ -232,6 +310,8 @@ export default function TeamsPage() {
   const [error, setError] = useState<string | null>(null);
   const [animationKey, setAnimationKey] = useState(0);
 
+  // Carga standings al montar el componente.
+  // El flag `cancelled` previene actualizaciones de estado en componentes desmontados.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -241,6 +321,7 @@ export default function TeamsPage() {
       .then((d) => {
         if (cancelled) return;
         setData(d);
+        // Incrementar la key relanza la animación CSS en cascada de las filas
         setAnimationKey((k) => k + 1);
       })
       .catch((e: Error) => { if (!cancelled) setError(e.message); })
@@ -248,6 +329,8 @@ export default function TeamsPage() {
     return () => { cancelled = true; };
   }, [leagueId]);
 
+  // Ordena client-side: primero por wins de series, desempata con win_rate.
+  // Se hace en el cliente para no requerir una nueva llamada al servidor al cambiar el orden.
   const sortedEntries = useMemo(() => {
     if (!data) return [];
     return [...data.entries].sort((a, b) => b.wins - a.wins || b.win_rate - a.win_rate);
@@ -257,7 +340,7 @@ export default function TeamsPage() {
     fontFamily: "'Space Grotesk', sans-serif",
     fontSize: 10, fontWeight: 600,
     letterSpacing: "0.08em",
-    color: "#333333",
+    color: "#FDE047",
     textTransform: "uppercase",
   };
 
@@ -311,7 +394,7 @@ export default function TeamsPage() {
           <div>
             {/* Legend — mobile: above headers | desktop: after headers */}
             <div className="sm:hidden" style={{ marginBottom: 12 }}>
-              <PlayoffLegend />
+              <PlayoffLegend playoffSpots={data.playoff_spots} lowerBracketSpots={data.lower_bracket_spots} />
             </div>
 
             {/* Table header — two rows */}
@@ -321,10 +404,10 @@ export default function TeamsPage() {
                 <div style={{ width: 40, flexShrink: 0 }} />
                 <div style={{ flex: 1 }} />
                 <div style={{ width: 128, flexShrink: 0, textAlign: "center" }}>
-                  <span style={{ ...headerLabelStyle, color: "#555555" }}>BO</span>
+                  <span style={{ ...headerLabelStyle, color: "#FDE047" }}>BO</span>
                 </div>
                 <div style={{ width: 68, flexShrink: 0, textAlign: "center" }} className="hidden sm:block">
-                  <span style={{ ...headerLabelStyle, color: "#555555" }}>GAMES</span>
+                  <span style={{ ...headerLabelStyle, color: "#FDE047" }}>GAMES</span>
                 </div>
                 <div style={{ width: 56, flexShrink: 0 }} className="hidden sm:block" />
                 <div style={{ width: 72, flexShrink: 0 }} className="hidden sm:block" />
@@ -364,7 +447,7 @@ export default function TeamsPage() {
 
             {/* Legend — desktop: after headers */}
             <div className="hidden sm:block" style={{ marginBottom: 16 }}>
-              <PlayoffLegend />
+              <PlayoffLegend playoffSpots={data.playoff_spots} lowerBracketSpots={data.lower_bracket_spots} />
             </div>
 
             {/* Rows */}
@@ -375,6 +458,8 @@ export default function TeamsPage() {
                   entry={entry}
                   pos={index + 1}
                   animationDelay={index * 60}
+                  playoffSpots={data.playoff_spots}
+                  lowerBracketSpots={data.lower_bracket_spots}
                 />
               ))}
             </div>

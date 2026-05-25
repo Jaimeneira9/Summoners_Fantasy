@@ -1,8 +1,25 @@
 """
-Cliente Leaguepedia (MediaWiki Cargo API).
+Cliente Leaguepedia (MediaWiki Cargo API) — Summoner's Fantasy.
 
 Responsabilidad única: detectar partidas LEC terminadas.
 NO extrae stats de jugadores — eso es responsabilidad de Oracle's Elixir.
+
+Fuente de datos:
+  Leaguepedia es la wiki oficial de esports de League of Legends. Expone sus
+  datos vía la Cargo API de MediaWiki, que permite hacer queries SQL-like sobre
+  tablas como Tournaments, ScoreboardGames, etc.
+
+Cómo se usa en el pipeline:
+  1. LeaguepediaClient.get_active_tournament() detecta el torneo LEC en curso.
+  2. LeaguepediaClient.get_recent_games() obtiene los GameSummary de ese torneo.
+  3. pipeline.ingest.mark_pending_games() persiste esos games como pending_stats.
+  4. El pipeline nocturno (Oracle's Elixir) procesa los pending_stats.
+
+Nota sobre IDs:
+  Cada game tiene dos IDs:
+  - game_id: identificador interno de Leaguepedia (ej. "ESPORTSTMNT01_1234")
+  - riot_platform_game_id: ID de Riot/región (ej. "EUW1_7123456"), usado para
+    cruzar con Oracle's Elixir donde el CSV usa este segundo ID como "gameid".
 """
 import logging
 import time
@@ -20,13 +37,15 @@ MAX_RETRIES = 3
 
 
 class GameSummary(BaseModel):
+    """Resumen de un game individual extraído de Leaguepedia ScoreboardGames."""
+
     game_id: str                   # Leaguepedia GameId, ej: "ESPORTSTMNT01_1234"
     riot_platform_game_id: str     # Para cruzar con Oracle's Elixir, ej: "EUW1_7123456"
     team1: str
     team2: str
-    winner: int                    # 1 o 2
-    duration_min: float            # Gamelength_Number
-    scheduled_at: datetime         # DateTime_UTC
+    winner: int                    # 1 o 2 (qué equipo ganó)
+    duration_min: float            # Gamelength_Number (duración en minutos)
+    scheduled_at: datetime         # DateTime_UTC del game
     team1_picks: list[str]
     team2_picks: list[str]
     team1_bans: list[str]
@@ -34,6 +53,14 @@ class GameSummary(BaseModel):
 
 
 class LeaguepediaClient:
+    """
+    Cliente HTTP para la Cargo API de Leaguepedia.
+
+    Uso recomendado como context manager para asegurar cierre del cliente HTTP:
+        with LeaguepediaClient() as lp:
+            games = lp.get_recent_games(...)
+    """
+
     def __init__(self) -> None:
         self._client = httpx.Client(headers=HEADERS, timeout=30)
 
@@ -45,7 +72,13 @@ class LeaguepediaClient:
         order_by: str = "",
         limit: int = 50,
     ) -> list[dict]:
-        """Ejecuta una consulta Cargo con paginación y retry automático."""
+        """
+        Ejecuta una consulta Cargo con paginación y retry automático.
+
+        La Cargo API de MediaWiki devuelve resultados paginados (máx. 500 por request).
+        Este método itera páginas hasta obtener todos los resultados.
+        Si un request falla, reintenta hasta MAX_RETRIES veces con backoff lineal.
+        """
         results: list[dict] = []
         offset = 0
 
@@ -86,27 +119,18 @@ class LeaguepediaClient:
 
         return results
 
-    def list_recent_tournaments(self, league_contains: str = "LEC", limit: int = 10) -> list[dict]:
-        """
-        Método de diagnóstico: devuelve los torneos más recientes cuyo
-        OverviewPage contiene `league_contains`.
-        """
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        return self._cargo_query(
-            tables="Tournaments",
-            fields="OverviewPage,League,DateStart,Date,IsPlayoffs",
-            where=(
-                f'Tournaments.OverviewPage LIKE "%{league_contains}%"'
-                f' AND Tournaments.DateStart<="{today}"'
-            ),
-            order_by="Tournaments.DateStart DESC",
-            limit=limit,
-        )
-
     def get_active_tournament(self, league: str = "LEC") -> str:
         """
         Devuelve el OverviewPage del torneo LEC activo (season o playoffs).
         Fallback: torneo más reciente si estamos entre splits.
+
+        El OverviewPage es el identificador de torneo en Leaguepedia, con la
+        forma "LEC/2026 Season/Spring Split". Se usa luego en get_recent_games()
+        para filtrar los games de ese torneo.
+
+        Estrategia de búsqueda (dos pasos):
+          1. Torneo en curso: DateStart <= hoy <= Date (fecha fin)
+          2. Si no hay ninguno en curso (entre splits), devuelve el más reciente.
 
         Nota: el campo League no es filtrable directamente en Cargo (es un
         wikilink). Se filtra por OverviewPage LIKE "LEC/%" que identifica
@@ -156,6 +180,13 @@ class LeaguepediaClient:
         """
         Devuelve las partidas terminadas en el torneo dado.
         Si `since` se proporciona, solo devuelve partidas posteriores a esa fecha.
+
+        El parámetro `since` se usa para evitar re-procesar partidas ya conocidas:
+        el scheduler pasa la fecha del último match en DB, de modo que solo
+        se ingresan las partidas nuevas desde ese momento.
+
+        Los games sin game_id se descartan silenciosamente (no sirven para
+        cruzar con Oracle's Elixir ni para persistir en la tabla matches).
         """
         where = f'ScoreboardGames.OverviewPage="{overview_page}"'
         if since:
@@ -220,7 +251,12 @@ class LeaguepediaClient:
 
 
 def _parse_pipe_list(value: str | None) -> list[str]:
-    """Convierte 'A,B,C' o 'A|B|C' en ['A', 'B', 'C']."""
+    """
+    Convierte 'A,B,C' o 'A|B|C' en ['A', 'B', 'C'].
+
+    Leaguepedia usa pipe como separador en campos multi-valor (picks, bans),
+    pero algunos exports históricos usan coma. Se detecta el separador presente.
+    """
     if not value:
         return []
     sep = "|" if "|" in value else ","

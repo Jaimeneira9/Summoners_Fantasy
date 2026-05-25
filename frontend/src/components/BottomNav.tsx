@@ -1,5 +1,19 @@
 "use client";
 
+/**
+ * Barra de navegación inferior — visible solo en mobile (oculta en lg+).
+ *
+ * Muestra 5 ítems principales: Ligas, Roster, Mercado/Explorar, Equipos, Calendario.
+ * En modo budget_pick, el ítem "Mercado" se reemplaza por "Explorar" (apunta a market?tab=scout).
+ *
+ * El botón "Más" abre un popup flotante (portal en document.body) con los ítems
+ * Clasificación y Actividad que no entran en la barra principal.
+ * El popup se cierra automáticamente al navegar (efecto en pathname).
+ *
+ * El punto rojo en el ícono "Roster" indica roster incompleto (prop hasIncompleteRoster).
+ * El popup usa safe-area-inset-bottom para respetar el notch en iOS.
+ */
+
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useState, useEffect, useRef } from "react";

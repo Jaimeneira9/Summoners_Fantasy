@@ -1,5 +1,21 @@
 "use client";
 
+/**
+ * Modal de acción genérico, renderizado en un portal sobre document.body.
+ *
+ * Soporta dos modos:
+ *   - "input": muestra un campo numérico editable (para pujas, cláusulas, upgrades).
+ *              El botón de confirmar se deshabilita si el monto no es válido.
+ *              previewText recibe el monto parseado y devuelve el texto de preview.
+ *   - "confirm": muestra un mensaje fijo de confirmación y confirma sin monto.
+ *
+ * Se monta en el DOM solo después del primer render del cliente (mounted state)
+ * para evitar hydration mismatch con createPortal.
+ *
+ * Cierra con tecla Escape. El overlay cierra al hacer clic fuera del panel.
+ * El input se pre-llena con existingBid (para editar una puja existente) o con minAmount.
+ */
+
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";

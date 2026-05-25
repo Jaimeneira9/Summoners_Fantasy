@@ -1,16 +1,37 @@
 """
-Orquestador de ingestión de series desde gol.gg.
+Orquestador de ingestión de series desde gol.gg — Summoner's Fantasy.
 
-Flujo principal:
-  1. Obtener gol_gg_slug de competitions WHERE is_active=True
-  2. Fetch matchlist → lista de GameEntry
-  3. Resolver team_home_id y team_away_id via teams.aliases
-  4. Upsert series (UNIQUE: team_home_id, team_away_id, date)
-  5. Por cada game: fetch fullstats + meta
-  6. Upsert games
-  7. Por cada jugador: resolver player_id, calcular puntos, upsert player_game_stats
-  8. Calcular promedios de serie → upsert player_series_stats
-  9. Actualizar series.game_count y series.winner_id
+Este es el módulo central del pipeline activo. Coordina el flujo completo desde
+la matchlist de gol.gg hasta los puntos de cada manager de fantasy.
+
+Fuente de datos:
+  gol.gg — scrapeado via Cloudflare Browser Rendering API (módulo gol_gg.py).
+  gol.gg agrupa partidas en series (BO1, BO3, BO5) con scores explícitos.
+
+Flujo completo (run_series_ingest):
+  1.  Obtener competitions activas (is_active=True) desde la DB
+  2.  Por cada competition: fetch matchlist de gol.gg via gol_gg_slug
+  3.  Filtrar entries por current_week (procesar solo la jornada actual)
+  4.  Agrupar games en series: clave (team_home, team_away, fecha)
+  5.  Snapshot de game_ids ya existentes (para evitar price update duplicado)
+  6.  Por cada serie:
+        a. Resolver IDs de equipos via aliases
+        b. Upsert de la serie en la tabla `series`
+        c. Por cada game: fetch fullstats + meta, validar game_id, upsert games
+        d. Calcular puntos por jugador y upsert player_game_stats
+        e. Calcular promedios de serie y upsert player_series_stats
+        f. Actualizar winner_id y game_count en la serie
+  7.  Actualizar precios de jugadores con nuevas stats (solo games nuevos)
+  8.  Auto-avanzar current_week si todas las series de la semana están finished
+  9.  Snapshot de alineaciones de managers (idempotente, una vez por semana)
+  10. Calcular total_points de managers usando los snapshots
+
+Modelos de DB involucrados:
+  competitions → series → games → player_game_stats
+  players, teams (resolución por alias)
+  player_series_stats (promedios agregados por serie)
+  lineup_snapshots (alineaciones semanales de managers)
+  league_members.total_points (puntuación acumulada del torneo)
 """
 from __future__ import annotations
 
@@ -44,9 +65,17 @@ logger = logging.getLogger(__name__)
 def _resolve_team_by_alias(supabase: Client, team_name: str) -> str | None:
     """
     Resuelve el UUID de un equipo buscando team_name en el array aliases.
-    Usa búsqueda case-insensitive con ilike sobre el array serializado.
-
     Returns UUID str o None si no se encuentra.
+
+    gol.gg usa nombres de equipo que pueden diferir de los nombres canónicos en
+    la DB (ej. "NAVI" vs "Natus Vincere", "G2" vs "G2 Esports"). Para manejar
+    esto, la tabla teams tiene una columna `aliases` (array de strings) con los
+    nombres alternativos de cada equipo.
+
+    Estrategia de búsqueda (dos pasos):
+      1. Búsqueda exacta: Supabase .contains() busca el nombre en el array.
+      2. Fallback case-insensitive: trae todos los equipos (~20 para LEC) y
+         compara manualmente. Es aceptable porque la tabla es pequeña.
     """
     try:
         # Supabase no soporta ilike directo en arrays, usamos cs (contains)
@@ -93,6 +122,14 @@ def _resolve_player_id(
     El parámetro `league` filtra por players.league para evitar colisiones
     entre jugadores de distintas ligas con el mismo nombre (ej. 'Scout' en LCK y LPL).
     Default 'LEC' para backward compatibility.
+
+    Estrategia de búsqueda (dos pasos):
+      1. Match exacto (eq) + filtro de liga — el más frecuente y rápido.
+      2. Fallback ilike case-insensitive — para nombres con variaciones de casing
+         entre gol.gg y lo registrado en la DB.
+
+    Si el jugador no se encuentra, se loggea como [UNRESOLVED PLAYER] y sus
+    stats se descartan para ese game (no se persisten en la DB).
     """
     try:
         # Intento exacto primero (nombre + liga)
@@ -143,8 +180,14 @@ def _upsert_series(
     week: int,
 ) -> str | None:
     """
-    Upsert de la serie. Devuelve el UUID de la serie o None si falla.
-    UNIQUE constraint: (team_home_id, team_away_id, date)
+    Upsert de la serie en la tabla `series`. Devuelve el UUID de la serie o None si falla.
+
+    La UNIQUE constraint es (team_home_id, team_away_id, date): dos equipos solo
+    pueden enfrentarse una vez por día en el mismo split, lo que identifica la serie.
+
+    Si el upsert no devuelve datos (el conflicto fue ignorado), hace un SELECT
+    para obtener el ID de la serie ya existente. Esto garantiza idempotencia:
+    el pipeline puede correr múltiples veces sin crear series duplicadas.
     """
     payload = {
         "competition_id": competition_id,
@@ -205,8 +248,14 @@ def _upsert_game(
     winner_team_id: str | None,
 ) -> str | None:
     """
-    Upsert del game. Devuelve el UUID del game o None si falla.
-    UNIQUE constraint: (series_id, game_number)
+    Upsert del game individual en la tabla `games`. Devuelve el UUID o None si falla.
+
+    La UNIQUE constraint es (series_id, game_number): cada game dentro de una
+    serie tiene número secuencial (1, 2, 3). Re-runs sobreescriben el registro
+    existente (a diferencia de series, donde el upsert ignora el conflicto).
+
+    winner_team_id puede ser None si no se pudo resolver el equipo ganador
+    desde el meta de gol.gg (se persiste sin winner y se loggea el warning).
     """
     payload = {
         "series_id": series_id,
@@ -262,7 +311,16 @@ def _upsert_player_game_stats(
     stats: PlayerRawStats,
     game_points: float,
 ) -> None:
-    """Upsert de player_game_stats."""
+    """
+    Upsert de los stats del jugador en un game individual en player_game_stats.
+
+    Persiste tanto las stats crudas scrapeadas de gol.gg como los puntos de
+    fantasy calculados por el scoring engine. La UNIQUE constraint es
+    (player_id, game_id), lo que hace el upsert idempotente.
+
+    game_points es el total de puntos de fantasy para este game específico,
+    calculado en _process_game() antes de llamar a esta función.
+    """
     payload = {
         "player_id": player_id,
         "game_id": game_id,
@@ -309,7 +367,12 @@ def _upsert_player_game_stats(
 def _best_multikill(game_stats_list: list[PlayerRawStats]) -> str | None:
     """
     Retorna el mejor multikill conseguido en cualquier game de la serie.
-    Orden: penta > quadra > triple > double > None
+    Orden de prioridad: penta > quadra > triple > double > None.
+
+    Un jugador puede hacer multikills en games distintos de la misma serie;
+    este helper toma el máximo across todos los games jugados en esa serie.
+    Se usa para poblar el campo best_multikill en player_series_stats, que
+    alimenta el bonus de puntos de multikill en el scoring de fantasy.
     """
     if any(s.penta_kill for s in game_stats_list):
         return "penta"
@@ -333,8 +396,20 @@ def _upsert_player_series_stats(
     """
     Calcula promedios de la serie y hace upsert de player_series_stats.
 
-    game_durations_list: duración en minutos de cada game (mismo orden que game_stats_list).
-    Se usa para calcular avg_wards_per_min.
+    game_stats_list y game_points_list tienen el mismo orden y longitud (un elemento
+    por game jugado en la serie). game_durations_list también es paralela.
+
+    Los promedios calculados son:
+      - avg_kills, avg_deaths, avg_assists, avg_cs_per_min: media simple entre games
+      - avg_gold_diff_15: media de los games donde este dato existe (puede ser None
+        si el game fue corto o gol.gg no reportó el dato)
+      - avg_wards_per_min: (wards_placed + wards_destroyed) / duration_min por game,
+        luego media. Requiere game_durations_list para normalizar por tiempo.
+      - series_points: promedio de game_points — es el valor que usa el scoring
+        de managers para calcular total_points semanales
+
+    Kill participation (no calculado acá): depende de los kills totales del equipo,
+    que no están disponibles en PlayerRawStats. Se calcula via SQL en el backfill.
     """
     n = len(game_stats_list)
     if n == 0:
@@ -411,7 +486,15 @@ def _update_series_result(
     game_count: int,
     winner_id: str | None,
 ) -> None:
-    """Actualiza game_count y winner_id en la serie."""
+    """
+    Actualiza game_count y winner_id en la tabla `series` al finalizar el procesamiento.
+
+    game_count: total de games jugados en la serie (1 para BO1, 2-3 para BO3, etc.)
+    winner_id: UUID del equipo ganador de la serie (el que ganó más games).
+               Puede ser None si hubo empate técnico o no se resolvieron los winners.
+
+    Se llama al final de _process_series(), una vez procesados todos los games.
+    """
     payload: dict = {"game_count": game_count}
     if winner_id:
         payload["winner_id"] = winner_id
@@ -434,6 +517,12 @@ def _game_belongs_to_series(
 ) -> bool:
     """
     Verifica que el game scrapeado pertenezca a la serie esperada.
+
+    Problema que resuelve:
+      gol.gg no garantiza que los game_ids de games 2 y 3 de una serie BO3
+      sean consecutivos respecto al game 1. El pipeline construye los IDs como
+      base_id+1, base_id+2, pero si hay gaps en la numeración interna de gol.gg,
+      estaríamos scrapeando un game de otra serie completamente distinta.
 
     Resuelve los nombres scrapeados del game (winner_team / loser_team) a UUIDs
     de equipo via aliases — igual que se hace para los equipos del matchlist —
@@ -486,14 +575,28 @@ async def _process_game(
     existing_game_ids: set[str],
     # acumulador de player_ids con stats NUEVAS (para price update)
     new_price_player_ids: set[str],
-    league_tag: str = "LEC",  # NUEVO
+    league_tag: str = "LEC",
     competition_id: str | None = None,
 ) -> tuple[str | None, str | None]:
     """
-    Procesa un game individual: fetch stats + meta, upsert games y player_game_stats.
+    Procesa un game individual: fetch stats + meta desde gol.gg, persiste en DB.
+
+    Pasos internos:
+      1. Fetch fullstats (10 jugadores) y meta (duración + winner) desde gol.gg
+      2. Validar que el game_id corresponde a la serie (guard anti-ID-gap)
+      3. Resolver equipo ganador a UUID de DB
+      4. Upsert del game en la tabla `games`
+      5. Asignar result (1=win, 0=loss) a cada PlayerRawStats según el winner
+      6. Por cada jugador: resolver player_id, calcular puntos, upsert player_game_stats
+      7. Acumular (stats, puntos, duración) para el cálculo de stats de serie posterior
+      8. Registrar player_ids con stats nuevas para el price update post-serie
 
     Returns:
-        (game_db_id, winner_team_id) — ambos pueden ser None si algo falla.
+        (game_db_id, winner_team_id) — ambos pueden ser None si algo falla en el proceso.
+
+    El acumulador series_player_stats se modifica in-place. Al final de todos los
+    games de la serie, _process_series() usa ese acumulador para llamar a
+    _upsert_player_series_stats().
     """
     game_id = entry.game_id
 
@@ -620,18 +723,25 @@ async def _process_series(
     team_away_id: str,
     existing_game_ids: set[str],
     new_price_player_ids: set[str],
-    league_tag: str = "LEC",  # NUEVO
+    league_tag: str = "LEC",
     scoring_competition_id: str | None = None,
 ) -> tuple[set[str], str | None]:
     """
-    Procesa todos los games de una serie:
-    - Upsert series
-    - Procesa cada game en orden
-    - Calcula stats de serie
-    - Actualiza series con winner y game_count
+    Procesa todos los games de una serie (BO1/BO3/BO5) end-to-end.
+
+    Orquesta el flujo completo para una serie:
+      1. Upsert de la serie en la tabla `series`
+      2. Procesa cada game en orden numérico via _process_game()
+      3. Contabiliza victorias por equipo para determinar winner de la serie
+      4. Calcula y persiste player_series_stats (promedios across games)
+      5. Actualiza series con game_count y winner_id definitivos
+      6. Loggea resumen de jugadores no resueltos (si los hay)
 
     Returns:
-        Tuple (set de player_ids procesados, series_id o None si falló).
+        (set[player_ids procesados], series_id o None si el upsert de serie falló)
+
+    El set de player_ids se usa en _ingest_single_competition() para saber
+    qué jugadores tienen stats nuevas y requieren price update.
     """
     if not series_entries:
         return set(), None
@@ -738,9 +848,25 @@ def _take_lineup_snapshot_if_needed(
     competition_id: str,
     current_week: int | None = None,
 ) -> None:
-    """Take a one-time snapshot of all managers' starter slots for this week.
-    Idempotent: exits immediately if snapshot already exists for (competition_id, week).
-    Raises ValueError if week != current_week (backfill guard).
+    """
+    Registra el snapshot de alineaciones de todos los managers para esta semana.
+
+    El snapshot captura qué jugadores tiene cada manager como starters al momento
+    de cerrar la jornada, junto con el capitán seleccionado. Estos datos son la
+    "fotografía" de la alineación que se usa para calcular los puntos de la semana.
+
+    Por qué es necesario:
+      Los managers pueden cambiar su alineación durante la semana. El snapshot se
+      toma una vez (al procesar las series de esa semana) y congela qué starters
+      y capitán correspondían a esa jornada. Sin snapshot, no habría manera de
+      saber qué jugadores puntearon para quién en semanas pasadas.
+
+    Idempotente: si ya existe un snapshot para (competition_id, week), no hace nada.
+    Guard de backfill: si week != current_week, lanza ValueError para evitar
+      sobreescribir snapshots históricos con runs de backfill.
+
+    Escribe en la tabla `lineup_snapshots`:
+      una fila por (league_id, member_id, week, slot) — 5 filas por manager.
     """
     if current_week is not None and week != current_week:
         logger.warning(
@@ -853,16 +979,29 @@ def _update_manager_total_points(
     week: int | None = None,  # ignorado: la función itera todas las semanas con snapshot
 ) -> None:
     """
-    Calcula y escribe total_points para cada manager de la competition de forma
-    absoluta e idempotente.
+    Calcula y escribe total_points para cada manager de forma absoluta e idempotente.
 
-    Algoritmo correcto (por semana):
-    - Itera TODAS las semanas que tienen lineup_snapshots en la competition.
-    - Por cada semana usa el snapshot de ESA semana (starters + captain).
-    - Si el snapshot de esa semana tiene < 5 starters → 0 puntos para esa semana.
-    - Suma series_points de las series finalizadas de ESA semana usando los
-      starters de ESA semana; el captain aporta x2.
-    - Acumula el total across todas las semanas y hace un UPDATE absoluto e idempotente.
+    Algoritmo de scoring de managers:
+      Por cada semana con snapshot en esta competition:
+        1. Obtener los 5 starters del manager en esa semana (del snapshot)
+        2. Si hay menos de 5 starters → 0 puntos para esa semana
+        3. Obtener las series finalizadas de esa semana
+        4. Buscar series_points de esos jugadores en esas series
+        5. Si el jugador es capitán → sus puntos cuentan x2
+        6. Sumar todos los puntos de la semana
+
+      Acumular puntos de todas las semanas → total_points del manager
+
+    Idempotente: el UPDATE es absoluto (sobreescribe el total cada vez).
+    Esto permite recalcular correctamente aunque se corra múltiples veces.
+
+    El parámetro `week` está presente por compatibilidad pero se ignora:
+    la función siempre recalcula TODAS las semanas con snapshot para garantizar
+    consistencia (una semana pasada pudo haber tenido correcciones de datos).
+
+    Bulk queries:
+      Para evitar N+1 queries, se hace un único fetch de todos los snapshots
+      y un único fetch de series por semana, luego se trabaja en memoria.
     """
     starter_slots = ["starter_1", "starter_2", "starter_3", "starter_4", "starter_5"]
 
@@ -1049,9 +1188,32 @@ def _update_manager_total_points(
 
 async def _ingest_single_competition(supabase: Client, competition: dict) -> None:
     """
-    Ejecuta el pipeline completo para UNA competition.
+    Ejecuta el pipeline completo de ingestión para UNA competition activa.
 
-    Raises: cualquier excepción no capturada (el caller hace try/except por competition).
+    Esta es la función de nivel medio: orquesta todo para una competition concreta.
+    run_series_ingest() la llama en loop para cada competition activa, con manejo
+    de excepciones independiente entre competitions.
+
+    El flujo interno está detallado en el docstring del módulo. Los puntos más
+    importantes desde el punto de vista de diseño:
+
+    - Filtrado por current_week: solo se procesan las series de la semana actual.
+      Evita re-procesar series pasadas en cada run del scheduler.
+
+    - Snapshot de game_ids existentes: se hace ANTES de procesar cualquier serie.
+      Permite detectar si un game ya tenía stats en la DB, para no duplicar el
+      price update de ese jugador en re-runs.
+
+    - Continuación ante errores de serie: si una serie falla (ej. gol.gg no
+      responde para un game específico), el loop continúa con la siguiente serie
+      en lugar de abortar toda la competition.
+
+    - Auto-avance de semana: si después del procesamiento todas las series de
+      current_week están "finished", se incrementa current_week automáticamente.
+
+    Raises:
+        Cualquier excepción no capturada propagada al caller (run_series_ingest),
+        que loggea y continúa con la siguiente competition.
     """
     competition_id: str = str(competition["id"])
     competition_name: str = competition.get("name", "<unnamed>")
@@ -1276,10 +1438,15 @@ async def _ingest_single_competition(supabase: Client, competition: dict) -> Non
 
 async def run_series_ingest(supabase: Client) -> None:
     """
-    Pipeline completo de ingestión de series desde gol.gg.
+    Punto de entrada del pipeline de ingestión de series. Es la función pública
+    de este módulo, llamada por el scheduler (main.py) cada hora.
 
     Consulta TODAS las competitions activas (is_active=True) y procesa cada una
-    de forma independiente. Si una competition falla, el loop continúa con la siguiente.
+    de forma independiente via _ingest_single_competition(). Si una competition
+    falla con excepción no capturada, el loop continúa con la siguiente para
+    no bloquear el procesamiento del resto.
+
+    Para forzar manualmente: POST /debug/series-ingest (dev) o con X-Debug-Secret (prod).
     """
     logger.info("Starting series ingest pipeline")
 

@@ -1,5 +1,17 @@
 "use client";
 
+/**
+ * Selector compacto de jornadas con navegación por flechas.
+ *
+ * Props:
+ * - weeks: array de números de jornada disponibles (ej: [1, 2, 3])
+ * - selected: jornada activa, o null para "Actual" (la jornada en curso)
+ * - onChange: callback con el nuevo valor seleccionado (null = volver a Actual)
+ *
+ * La lista interna antepone null como primera opción ("Actual"), por lo que
+ * navegar hacia adelante desde "Actual" entra en la primera jornada histórica.
+ * Retorna null si weeks está vacío — el componente no se renderiza.
+ */
 export function JornadaSelector({
   weeks,
   selected,

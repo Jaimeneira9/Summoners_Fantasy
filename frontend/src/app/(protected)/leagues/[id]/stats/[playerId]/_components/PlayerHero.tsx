@@ -1,5 +1,13 @@
 "use client";
 
+/**
+ * Hero del jugador: sección superior de la página de stats.
+ *
+ * Muestra foto (con fallback a RoleIcon en caso de error), nombre, equipo,
+ * precio actual, puntos totales del split y puntos de la última jornada.
+ * El borde de la foto usa el color hex del rol como acento visual.
+ */
+
 import { RoleIcon, ROLE_COLORS, ROLE_LABEL } from "@/components/RoleIcon";
 import { getRoleColor } from "@/lib/roles";
 

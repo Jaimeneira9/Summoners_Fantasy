@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="800" height="600" fill="#FDF8F0"/>
+  
+  <!-- Title -->
+  <text x="400" y="40" text-anchor="middle" font-family="Arial" font-size="24" font-weight="bold" fill="#6B4C9A">Arquitectura de Summoner's Fantasy</text>
+  
+  <!-- Data Pipeline Box -->
+  <rect x="200" y="70" width="400" height="80" fill="#6B4C9A" rx="8"/>
+  <text x="400" y="95" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#FFFFFF">DATA PIPELINE (hourly)</text>
+  <text x="400" y="120" text-anchor="middle" font-family="Arial" font-size="12" fill="#FDF8F0">gol.gg → Cloudflare API → series_ingest.py</text>
+  <text x="400" y="140" text-anchor="middle" font-family="Arial" font-size="12" fill="#FDF8F0">APScheduler: series_ingest, market_refresh</text>
+  
+  <!-- Arrow 1 -->
+  <line x1="400" y1="150" x2="400" y2="190" stroke="#D4AF37" stroke-width="3" marker-end="url(#arrowhead)"/>
+  
+  <!-- Supabase Box -->
+  <rect x="200" y="190" width="400" height="90" fill="#1A1A2E" rx="8"/>
+  <text x="400" y="215" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#FFFFFF">SUPABASE (PostgreSQL + RLS)</text>
+  <text x="400" y="240" text-anchor="middle" font-family="Arial" font-size="11" fill="#FDF8F0">players, teams, series, games, player_game_stats</text>
+  <text x="400" y="260" text-anchor="middle" font-family="Arial" font-size="11" fill="#FDF8F0">fantasy_leagues, league_members, roster_slots</text>
+  <text x="400" y="275" text-anchor="middle" font-family="Arial" font-size="11" fill="#FDF8F0">market_listings, bids, trades, transactions, activity_log</text>
+  
+  <!-- Arrow 2 -->
+  <line x1="400" y1="280" x2="400" y2="320" stroke="#D4AF37" stroke-width="3" marker-end="url(#arrowhead)"/>
+  
+  <!-- Backend Box -->
+  <rect x="200" y="320" width="400" height="90" fill="#6B4C9A" rx="8"/>
+  <text x="400" y="345" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#FFFFFF">FASTAPI BACKEND</text>
+  <text x="400" y="370" text-anchor="middle" font-family="Arial" font-size="11" fill="#FDF8F0">/players, /leagues, /market, /scoring, /trades</text>
+  <text x="400" y="385" text-anchor="middle" font-family="Arial" font-size="11" fill="#FDF8F0">/roster, /activity, /bids, /splits</text>
+  <text x="400" y="400" text-anchor="middle" font-family="Arial" font-size="11" fill="#FDF8F0">Auth: JWT, Dependency Injection</text>
+  
+  <!-- Arrow 3 -->
+  <line x1="400" y1="410" x2="400" y2="450" stroke="#D4AF37" stroke-width="3" marker-end="url(#arrowhead)"/>
+  
+  <!-- Frontend Box -->
+  <rect x="200" y="450" width="400" height="80" fill="#1A1A2E" rx="8"/>
+  <text x="400" y="475" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="#FFFFFF">NEXT.JS 14 FRONTEND</text>
+  <text x="400" y="500" text-anchor="middle" font-family="Arial" font-size="11" fill="#FDF8F0">/(auth)/login, /signup</text>
+  <text x="400" y="515" text-anchor="middle" font-family="Arial" font-size="11" fill="#FDF8F0">/(protected)/dashboard, /leagues/[id]/lineup, /market, /standings</text>
+  
+  <!-- Arrowhead marker definition -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#D4AF37"/>
+    </marker>
+  </defs>
+</svg>

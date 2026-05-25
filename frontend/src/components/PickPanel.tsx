@@ -1,5 +1,21 @@
 "use client";
 
+/**
+ * Panel deslizable (sheet) para seleccionar un jugador en modo budget_pick.
+ *
+ * Se abre desde el lineup cuando el manager hace clic en un slot en modo budget_pick.
+ * Lista los jugadores disponibles filtrados por rol, ordenados por puntos del split.
+ *
+ * Para cada jugador calcula el costo neto: precio actual - precio_pagado del jugador actual en ese slot.
+ * Si el costo neto supera el presupuesto restante, el botón se deshabilita y la fila aparece opaca.
+ * Muestra el saldo resultante tras el fichaje para facilitar la decisión del manager.
+ *
+ * El fichaje llama a api.roster.pick y al completarse invoca onPick con el resultado
+ * para que la página padre recargue el roster.
+ *
+ * Renderizado en un portal sobre document.body. No se monta en SSR (mounted state).
+ */
+
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, type AvailablePlayer, type PickResult } from "@/lib/api";

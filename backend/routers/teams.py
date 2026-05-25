@@ -1,3 +1,19 @@
+"""
+Router: Equipos reales de la competición (teams).
+
+Rutas principales:
+  GET /standings/{league_id} — standings reales de equipos para la competición de la liga
+
+Lógica de negocio central:
+  - Los standings se derivan de la competition_id de la liga (no de la competición activa global),
+    lo que permite ligas asociadas a diferentes competiciones coexistentes.
+  - Los team_ids se obtienen desde series (no desde teams.competition_id), porque las series
+    referencian el competition_id correcto mientras que teams puede apuntar a otra competición.
+  - Las stats de equipo (KDA, gold@15) se agregan a partir de player_game_stats filtrando
+    por competition_id a través del join games → series.
+  - El KDA de equipo usa max(avg_deaths, 1) para evitar división por cero.
+"""
+
 import logging
 from uuid import UUID
 
@@ -28,10 +44,13 @@ class TeamStandingEntry(BaseModel):
 
 class TeamStandingsOut(BaseModel):
     competition_name: str
+    playoff_spots: int
+    lower_bracket_spots: int
     entries: list[TeamStandingEntry]
 
 
 def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
+    """Lanza HTTP 403 si el usuario no es miembro de la liga indicada."""
     resp = (
         supabase.table("league_members")
         .select("id")
@@ -59,9 +78,12 @@ def get_team_standings(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> TeamStandingsOut:
-    """
-    Standings reales de LEC teams para la competition de la liga.
-    W/L basado en series.winner_id. Stats agregadas desde player_game_stats.
+    """Standings reales de los equipos de la competición asociada a la liga.
+
+    W/L se calcula desde series.winner_id (nivel serie, no game).
+    Game W/L se calcula desde games.winner_id.
+    Stats de equipo (KDA, gold@15) se agregan desde player_game_stats.
+    El resultado está ordenado por wins DESC, win_rate DESC.
     """
     _check_membership(supabase, str(league_id), user["id"])
 
@@ -80,7 +102,7 @@ def get_team_standings(
 
     comp_resp = (
         supabase.table("competitions")
-        .select("id, name")
+        .select("id, name, playoff_spots, lower_bracket_spots")
         .eq("id", competition_id)
         .limit(1)
         .execute()
@@ -91,6 +113,8 @@ def get_team_standings(
     competition = comp_resp.data[0]
     competition_id = competition["id"]
     competition_name = competition["name"]
+    playoff_spots: int = competition.get("playoff_spots") or 4
+    lower_bracket_spots: int = competition.get("lower_bracket_spots") or 0
 
     # 2. Traer todos los equipos de esa competition via series
     # Los teams tienen competition_id apuntando a otra competition (ej: LEC Versus),
@@ -111,7 +135,7 @@ def get_team_standings(
             team_ids_from_series.add(row["team_away_id"])
 
     if not team_ids_from_series:
-        return TeamStandingsOut(competition_name=competition_name, entries=[])
+        return TeamStandingsOut(competition_name=competition_name, playoff_spots=playoff_spots, lower_bracket_spots=lower_bracket_spots, entries=[])
 
     teams_resp = (
         supabase.table("teams")
@@ -121,7 +145,7 @@ def get_team_standings(
     )
     teams = teams_resp.data or []
     if not teams:
-        return TeamStandingsOut(competition_name=competition_name, entries=[])
+        return TeamStandingsOut(competition_name=competition_name, playoff_spots=playoff_spots, lower_bracket_spots=lower_bracket_spots, entries=[])
 
     team_ids = [t["id"] for t in teams]
     teams_by_id = {t["id"]: t for t in teams}
@@ -291,4 +315,4 @@ def get_team_standings(
     # Ordenar: wins DESC, win_rate DESC
     entries.sort(key=lambda e: (-e.wins, -e.win_rate))
 
-    return TeamStandingsOut(competition_name=competition_name, entries=entries)
+    return TeamStandingsOut(competition_name=competition_name, playoff_spots=playoff_spots, lower_bracket_spots=lower_bracket_spots, entries=entries)

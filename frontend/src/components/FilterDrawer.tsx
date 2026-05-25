@@ -1,5 +1,23 @@
 "use client";
 
+/**
+ * Panel de filtros lateral (drawer) para el mercado y el scout.
+ *
+ * Soporta filtrado por: competición (split), rol, equipo y rango de precio.
+ * Internamente trabaja con un estado "draft" (borrador) para no aplicar cambios
+ * hasta que el usuario presione "APLICAR". Si presiona "RESETEAR", vuelve a los
+ * valores por defecto (primer split disponible, todos los roles/equipos, sin límite de precio).
+ *
+ * Se sincroniza con el estado comprometido (`committed`) cada vez que se abre,
+ * descartando cualquier borrador no aplicado.
+ *
+ * Animación de entrada/salida via clases CSS (animate-slide-in-right / animate-slide-out-right).
+ * Renderizado en un portal. No se monta en SSR (mounted state).
+ * Cierra con Escape. El overlay cierra al hacer clic fuera del panel.
+ *
+ * En mobile ocupa el 100% del ancho, en desktop es un panel fijo de 320px.
+ */
+
 import { createPortal } from "react-dom";
 import { useState, useEffect, useCallback } from "react";
 import { Split } from "@/lib/api";

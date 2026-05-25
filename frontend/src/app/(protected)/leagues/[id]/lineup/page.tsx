@@ -15,6 +15,21 @@ import { ActionPopup } from "@/components/ActionPopup";
 import { Button } from "@/components/ui/Button";
 import { PickPanel } from "@/components/PickPanel";
 
+/**
+ * Página de alineación semanal del manager.
+ *
+ * Muestra los 5 titulares del roster actual, con soporte para:
+ * - Vista histórica por jornada (JornadaSelector)
+ * - Asignación de capitán con multiplicador ×2 (modal de confirmación)
+ * - Modo budget_pick: cada slot es clickeable y abre el PickPanel para fichar
+ * - Barra de estadísticas: presupuesto restante, puntos totales, posición en liga y puntos de jornada
+ *
+ * Carga en paralelo: roster + split activo + leaderboard + datos de liga en un solo Promise.all.
+ * El re-fetch por semana usa un ref (isInitialMount) para evitar el doble fetch en montaje.
+ *
+ * Animaciones de entrada via GSAP (useGSAP), con scope en el contenedor de titulares.
+ */
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -40,6 +55,10 @@ const SLOT_ROLES: Record<string, string> = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+/**
+ * Calcula los puntos de la jornada actual sumando solo los titulares (slots starter_*).
+ * El capitán aporta el doble de sus jornada_points (multiplicador ×2).
+ */
 function calcJornadaPoints(players: RosterPlayer[], captainId: string | null): number {
   const STARTER_SLOT_SET = new Set(["starter_1", "starter_2", "starter_3", "starter_4", "starter_5"]);
   return players
@@ -54,6 +73,10 @@ function calcJornadaPoints(players: RosterPlayer[], captainId: string | null): n
 // ---------------------------------------------------------------------------
 // Split reset warning banner
 // ---------------------------------------------------------------------------
+/**
+ * Banner de alerta que aparece cuando el reset del split está a menos de 48 horas.
+ * Solo se muestra si split.reset_date está definido y el tiempo restante es positivo.
+ */
 function SplitResetWarning({ split, leagueId }: { split: Split | null; leagueId: string }) {
   if (!split?.reset_date) return null;
 
@@ -117,6 +140,10 @@ function PriceTrend({ pct }: { pct?: number | null }) {
 // ---------------------------------------------------------------------------
 // Roster Stats Bar
 // ---------------------------------------------------------------------------
+/**
+ * Barra de 4 métricas del roster: presupuesto restante, puntos totales, posición en liga y puntos de jornada.
+ * Cuando hay capitán asignado y hay puntos de jornada, muestra el indicador "cap. ×2" bajo la celda Jornada.
+ */
 function RosterStatsBar({
   remainingBudget,
   totalPoints,
@@ -669,13 +696,11 @@ function PlayerCard({
   }
 
   const p = rp.player;
-  const rc = ROLE_COLORS[p.role] ?? ROLE_COLORS.coach;
 
   return (
     <PlayerCardFilled
       rp={rp}
       p={p}
-      rc={rc}
       leagueId={leagueId}
       splitName={splitName}
       isMvp={false}
@@ -691,7 +716,8 @@ function PlayerCard({
   );
 }
 
-// Separate component to keep hooks at top level (no conditional hook calls)
+// Componente separado para mantener los hooks en el nivel superior — evita hooks condicionales.
+// PlayerCard sería un condicional (rp === null → slot vacío), por lo que no puede tener hooks propios.
 function PlayerCardFilled({
   rp,
   p,
@@ -708,7 +734,6 @@ function PlayerCardFilled({
 }: {
   rp: RosterPlayer;
   p: RosterPlayer["player"];
-  rc?: (typeof ROLE_COLORS)[string];
   leagueId: string;
   splitName?: string;
   isMvp?: boolean;

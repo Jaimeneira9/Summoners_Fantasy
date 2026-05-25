@@ -1,18 +1,37 @@
 "use client";
 
+/**
+ * Página de listado de ligas del usuario.
+ *
+ * Muestra todas las ligas a las que pertenece el usuario autenticado.
+ * Permite crear una nueva liga o unirse con código de invitación
+ * a través del componente LeagueModal.
+ *
+ * Flujo:
+ *   mount → api.leagues.list() → setLeagues
+ *   Al cerrar el modal (creación/join exitoso) → reload automático via load()
+ */
+
 import { useEffect, useState } from "react";
 import { api, type League } from "@/lib/api";
 import { LeagueRow } from "@/components/LeagueRow";
 import { LeagueModal } from "@/components/LeagueModal";
 
+/** Modos disponibles del modal de liga. */
 type ModalMode = "create" | "join";
 
+/**
+ * Página de "Mis ligas".
+ * Lista las ligas del usuario, con acceso rápido para crear o unirse a una.
+ * Si no hay ligas, muestra un EmptyState clickeable que abre el modal de creación.
+ */
 export default function LigasPage() {
   const [leagues, setLeagues] = useState<League[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<ModalMode>("create");
 
+  /** Carga (o recarga) la lista de ligas del usuario. Se llama al montar y al cerrar el modal. */
   const load = () => {
     setLoading(true);
     api.leagues
@@ -26,6 +45,7 @@ export default function LigasPage() {
     load();
   }, []);
 
+  /** Abre el modal en el modo indicado ("create" por defecto). */
   const openModal = (mode: ModalMode = "create") => {
     setModalMode(mode);
     setModalOpen(true);
@@ -81,6 +101,7 @@ export default function LigasPage() {
   );
 }
 
+/** Skeleton de carga: tres filas pulsantes mientras se obtienen las ligas. */
 function LigasSkeleton() {
   return (
     <div className="space-y-3">
@@ -95,6 +116,10 @@ function LigasSkeleton() {
   );
 }
 
+/**
+ * Estado vacío cuando el usuario no tiene ligas.
+ * Es un botón completo (toda el área es clickeable) que abre el modal de creación.
+ */
 function EmptyState({ onOpen }: { onOpen?: () => void }) {
   return (
     <button

@@ -1,3 +1,15 @@
+/**
+ * Vista de resumen de la serie completa (pestaña "General").
+ *
+ * Para cada rol (en el orden ROLE_ORDER), renderiza un RoleRow con los stats
+ * agregados de la serie completa: promedios de K/D/A y series_points totales.
+ *
+ * Lógica de MVP: el jugador con mayor series_points en toda la serie recibe el badge MVP.
+ * El ganador por rol se determina comparando los series_points de cada posición,
+ * independientemente del ganador de la serie.
+ *
+ * El header de equipos usa el mismo grid que RoleRow para mantener alineación de columnas.
+ */
 import type { MatchDetailPlayed, PlayerSeriesStatRow } from "@/types/match-detail";
 import { RoleRow, ROLE_ORDER } from "./RoleRow";
 

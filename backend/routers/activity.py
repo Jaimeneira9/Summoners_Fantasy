@@ -1,3 +1,16 @@
+"""
+Router: Feed de actividad de transacciones de la liga (activity).
+
+Rutas principales:
+  GET /{league_id} — últimas N transacciones de la liga (por defecto 50)
+
+Lógica de negocio central:
+  - Combina la tabla transactions con perfiles de buyers y sellers.
+  - Los nombres de managers se resuelven con prioridad: display_name de league_members
+    (nick en la liga) > username de profiles (nombre global). Si ninguno existe, 'Manager'.
+  - Usado en el frontend para el feed de actividad de mercado en tiempo real.
+"""
+
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,6 +36,7 @@ class ActivityEvent(BaseModel):
 
 
 def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
+    """Lanza HTTP 403 si el usuario no es miembro de la liga indicada."""
     resp = (
         supabase.table("league_members")
         .select("id")
@@ -41,6 +55,11 @@ async def get_activity(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> list[ActivityEvent]:
+    """Devuelve el feed de actividad de la liga (compras, ventas, trades, cláusulas).
+
+    Resuelve los nombres de buyers y sellers en una sola query a profiles,
+    con fallback a display_name y luego a 'Manager' si no hay username.
+    """
     _check_membership(supabase, str(league_id), user["id"])
 
     tx_resp = (

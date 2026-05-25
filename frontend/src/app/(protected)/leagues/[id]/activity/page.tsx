@@ -1,10 +1,22 @@
 "use client";
 
+/**
+ * Página de actividad reciente de la liga.
+ *
+ * Muestra un feed cronológico de eventos del mercado: fichajes, pujas ganadas,
+ * ventas y traspasos. Cada evento incluye el icono del jugador (o el ícono de
+ * su rol como fallback), un mensaje descriptivo y la marca de tiempo relativa.
+ *
+ * Tipos de evento soportados: buy, bid_win, sell, trade.
+ * El label de cada tipo se genera dinámicamente a partir del evento.
+ */
+
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, type ActivityEvent } from "@/lib/api";
 import { RoleIcon, ROLE_COLORS } from "@/components/RoleIcon";
 
+/** Convierte un timestamp ISO a texto relativo: "hace Xd", "hace Xh", "hace Xm" o "ahora". */
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60_000);
