@@ -3,7 +3,7 @@
 import type { PriceHistoryEntry } from "@/lib/api";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
-type Props = { entries: PriceHistoryEntry[] };
+type Props = { entries: PriceHistoryEntry[]; splitLabel?: string };
 
 // Custom tooltip — must be a proper component (not inline arrow) for Recharts to render correctly
 function PriceTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: PriceHistoryEntry }> }) {
@@ -27,7 +27,7 @@ function PriceTooltip({ active, payload }: { active?: boolean; payload?: Array<{
   );
 }
 
-export function PriceHistoryChart({ entries }: Props) {
+export function PriceHistoryChart({ entries, splitLabel }: Props) {
   if (entries.length === 0) return null;
 
   const prices = entries.map(e => e.price);
@@ -43,7 +43,7 @@ export function PriceHistoryChart({ entries }: Props) {
     ? (() => {
         const weeks = entries.map(e => e.week).filter((w): w is number => w !== undefined);
         const maxWeek = Math.max(...weeks);
-        return `LEC Spring 2026 · J1–J${maxWeek}`;
+        return splitLabel ? `${splitLabel} · J1–J${maxWeek}` : `J1–J${maxWeek}`;
       })()
     : `Últimas ${entries.length} actualizaciones`;
 

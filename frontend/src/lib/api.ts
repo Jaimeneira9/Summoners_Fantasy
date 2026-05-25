@@ -472,6 +472,13 @@ export type PriceHistoryResponse = {
   entries: PriceHistoryEntry[];
 };
 
+export type TeamBrief = {
+  id: string;
+  name: string;
+  code: string | null;
+  logo_url: string | null;
+};
+
 /** Estadísticas de un equipo LEC en la tabla de clasificación. */
 export type TeamStandingEntry = {
   team_id: string;
@@ -797,6 +804,7 @@ export const api = {
       req(`/bids/${leagueId}/listings/${listingId}`, { method: "DELETE" }),
   },
   teams: {
+    list: () => req<TeamBrief[]>("/teams/"),
     /**
      * Clasificación de equipos LEC con stats para la liga indicada.
      * @param competitionId Filtra por competición específica (opcional).

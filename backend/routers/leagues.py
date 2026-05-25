@@ -129,6 +129,16 @@ async def list_leagues(
         .in_("id", league_ids)
         .execute()
     )
+    # Fetch real total_points from the view (league_members.total_points is always 0)
+    member_ids = [m["id"] for m in memberships.data]
+    pts_resp = (
+        supabase.table("member_total_points")
+        .select("member_id, total_points")
+        .in_("member_id", member_ids)
+        .execute()
+    )
+    pts_map = {r["member_id"]: float(r["total_points"] or 0) for r in (pts_resp.data or [])}
+
     results = []
     for league in response.data:
         competition_row = league.pop("competitions", None) or {}
@@ -140,7 +150,7 @@ async def list_leagues(
             "member": {
                 "id": m["id"],
                 "remaining_budget": m["remaining_budget"],
-                "total_points": m["total_points"],
+                "total_points": pts_map.get(m["id"], 0.0),
                 "display_name": m.get("display_name"),
             } if m else None,
         })
@@ -304,12 +314,20 @@ async def get_league(
     data["logo_url"] = competition_row.get("logo_url")
 
     m = member_resp.data[0]
+    # Fetch real total_points from the view (league_members.total_points is always 0)
+    pts_resp = (
+        supabase.table("member_total_points")
+        .select("member_id, total_points")
+        .eq("member_id", m["id"])
+        .execute()
+    )
+    pts_map = {r["member_id"]: float(r["total_points"] or 0) for r in (pts_resp.data or [])}
     return {
         **data,
         "member": {
             "id": m["id"],
             "remaining_budget": m["remaining_budget"],
-            "total_points": m["total_points"],
+            "total_points": pts_map.get(m["id"], 0.0),
             "display_name": m.get("display_name"),
         },
     }
@@ -330,7 +348,22 @@ async def list_members(
         .eq("league_id", str(league_id))
         .execute()
     )
-    return response.data
+    members = response.data or []
+    if not members:
+        return []
+
+    # Overwrite total_points with values from the view (league_members.total_points is always 0)
+    member_ids = [m["id"] for m in members]
+    pts_resp = (
+        supabase.table("member_total_points")
+        .select("member_id, total_points")
+        .in_("member_id", member_ids)
+        .execute()
+    )
+    pts_map = {r["member_id"]: float(r["total_points"] or 0) for r in (pts_resp.data or [])}
+    for m in members:
+        m["total_points"] = pts_map.get(m["id"], 0.0)
+    return members
 
 
 @router.post("/{league_id}/join", response_model=MemberOut, status_code=status.HTTP_201_CREATED)
@@ -463,7 +496,18 @@ async def get_member_roster(
     )
     if not member_resp.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Miembro no encontrado")
-    member = member_resp.data[0]
+    member = dict(member_resp.data[0])
+    # Overwrite total_points with the real value from the view
+    pts_resp = (
+        supabase.table("member_total_points")
+        .select("member_id, total_points")
+        .eq("member_id", member["id"])
+        .execute()
+    )
+    if pts_resp.data:
+        member["total_points"] = float(pts_resp.data[0]["total_points"] or 0)
+    else:
+        member["total_points"] = 0.0
 
     # Obtener competition_id desde fantasy_leagues (necesaria para snapshot y split_points)
     fl_resp = (

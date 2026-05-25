@@ -28,7 +28,7 @@ function formatDate(dateStr: string): string {
 
 function teamLogoUrl(team: TeamDetailInfo): string {
   if (team.logo_url) return team.logo_url;
-  return `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/${team.name
+  return `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/LEC/${team.name
     .toLowerCase()
     .replace(/ /g, "-")}.webp`;
 }

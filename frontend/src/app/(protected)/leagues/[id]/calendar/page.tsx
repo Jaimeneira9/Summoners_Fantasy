@@ -24,7 +24,7 @@ import { api, type SeriesCalendarEntry, type CalendarResponse } from "@/lib/api"
 // ---------------------------------------------------------------------------
 
 const TEAM_LOGO_BASE =
-  "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/";
+  "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/LEC/";
 
 /**
  * Construye la URL del logo de un equipo.

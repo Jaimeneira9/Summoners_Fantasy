@@ -58,12 +58,6 @@ export function BarChart({
       {/* Selector de splits — chips custom */}
       {splits.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, overflowX: "auto", flexWrap: "nowrap", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/lec.webp"
-            alt="LEC"
-            style={{ width: 24, height: 24, borderRadius: 4, objectFit: "contain", flexShrink: 0 }}
-          />
           {splits.map((split) => {
             const isActive = split.id === selectedSplitId;
             return (

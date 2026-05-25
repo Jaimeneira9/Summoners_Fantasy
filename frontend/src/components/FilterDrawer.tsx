@@ -107,10 +107,10 @@ export default function FilterDrawer({
           >✕</button>
         </div>
 
-        {/* Section: COMPETICIÓN */}
+        {/* Section: SPLIT */}
         {splits.length > 0 && (
           <div style={{ padding: "16px", borderBottom: "1px solid #2A2A2A" }}>
-            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 11, fontWeight: 600, color: "#888", letterSpacing: "0.08em", marginBottom: 10 }}>COMPETICIÓN</div>
+            <div style={{ fontFamily: "'Space Grotesk',sans-serif", fontSize: 11, fontWeight: 600, color: "#888", letterSpacing: "0.08em", marginBottom: 10 }}>SPLIT</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {splits.map((s) => {
                 const active = draft.splitId === s.id;
