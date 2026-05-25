@@ -607,8 +607,8 @@ def _leaderboard_supabase(
     series_for_week = series_for_week or [{"id": SERIES_ID_WEEK}]
     captain_selections = captain_selections or []
 
-    # lineup_snapshots — semanas disponibles + snapshot data
-    snapped_weeks = [{"week": 1}]
+    # series: 2 llamadas — (1) available_weeks, (2) series_ids en _calc_week_points
+    available_weeks_data = [{"week": 1}]
 
     # member_total_points: view que calcula totales dinámicos
     member_total_pts = [
@@ -622,9 +622,9 @@ def _leaderboard_supabase(
         ("rosters", _chain(rosters)),
         ("roster_players", _chain(roster_players)),
         ("fantasy_leagues", _chain(FAKE_LEAGUE_LB)),   # .single() → dict con competition_id
-        ("lineup_snapshots", _chain(snapped_weeks, snapshot)),
+        ("series", _chain(available_weeks_data, series_for_week)),  # 1ra: available_weeks, 2da: _calc_week_points
         ("member_total_points", _chain(member_total_pts)),
-        ("series", _chain(series_for_week)),
+        ("lineup_snapshots", _chain(snapshot)),  # una sola query: snapshot data
         ("captain_selections", _chain(captain_selections)),
         ("player_series_stats", _chain(pss)),
     )
