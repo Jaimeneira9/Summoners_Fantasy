@@ -891,13 +891,13 @@ def _take_lineup_snapshot_if_needed(
         logger.info("Lineup snapshot already exists for week=%d — skipping", week)
         return
 
-    # Fetch all leagues for this competition (via fantasy_leagues; filter by competition text or
-    # just take all active league_members since fantasy_leagues has no competition_id FK)
-    # Strategy: snapshot ALL league_members regardless of competition — they all share the
-    # same active competition, so competition_id scoping is handled at query time.
+    # Fetch solo los league_members de ligas que pertenecen a esta competition.
+    # Sin este filtro, el pipeline de LES escribiría snapshots con competition_id=LES
+    # para managers de ligas LEC (y viceversa), corrompiendo las filas de lineup_snapshots.
     members_resp = (
         supabase.table("league_members")
-        .select("id, league_id")
+        .select("id, league_id, fantasy_leagues!inner(competition_id)")
+        .eq("fantasy_leagues.competition_id", competition_id)
         .execute()
     )
 
