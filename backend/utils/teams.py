@@ -5,8 +5,20 @@ El cache dura 600 segundos (10 min) y se comparte entre todos los requests
 que corren en el mismo proceso — evita queries repetidas a la tabla teams.
 """
 import time
+import unicodedata
 
 from supabase import Client
+
+
+def _normalize(s: str) -> str:
+    """Elimina diacríticos y normaliza a lowercase para comparación."""
+    return (
+        unicodedata.normalize("NFKD", s)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .lower()
+        .strip()
+    )
 
 _cache: dict = {"data": None, "timestamp": 0.0}
 _TTL = 600.0  # segundos
@@ -25,11 +37,11 @@ def resolve_team_id(supabase: Client, team_name: str) -> str | None:
         _cache["data"] = resp.data or []
         _cache["timestamp"] = now
 
-    needle = team_name.strip().lower()
+    needle = _normalize(team_name)
     for t in _cache["data"]:
         aliases: list[str] = t.get("aliases") or []
         all_names = [t["name"]] + aliases
         for candidate in all_names:
-            if candidate.strip().lower() == needle:
+            if _normalize(candidate) == needle:
                 return str(t["id"])
     return None

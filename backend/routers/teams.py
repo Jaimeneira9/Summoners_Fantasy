@@ -43,6 +43,16 @@ def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No eres miembro de esta liga")
 
 
+@router.get("/", response_model=list[dict])
+def list_teams(
+    supabase: Client = Depends(get_supabase),
+    _user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """Lista todos los equipos con id, name, code y logo_url."""
+    resp = supabase.table("teams").select("id, name, code, logo_url").execute()
+    return resp.data or []
+
+
 @router.get("/standings/{league_id}", response_model=TeamStandingsOut)
 def get_team_standings(
     league_id: UUID,

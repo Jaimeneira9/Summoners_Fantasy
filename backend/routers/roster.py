@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
 from uuid import UUID
@@ -131,19 +132,39 @@ async def get_roster(
     user: dict = Depends(get_current_user),
 ) -> RosterOut:
     """Devuelve la plantilla del usuario en una liga."""
-    member = _get_member(supabase, str(league_id), user["id"])
+    # ── Group A: member + league queries in parallel (both only need league_id) ──
+    loop = asyncio.get_event_loop()
 
-    # ── Step 2: Resolve competition from fantasy_leagues + current week ──
+    def _fetch_member():
+        resp = (
+            supabase.table("league_members")
+            .select("id, remaining_budget, total_points")
+            .eq("league_id", str(league_id))
+            .eq("user_id", user["id"])
+            .execute()
+        )
+        if not resp.data:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No eres miembro de esta liga")
+        return resp.data[0]
+
+    def _fetch_league():
+        return (
+            supabase.table("fantasy_leagues")
+            .select("competition_id")
+            .eq("id", str(league_id))
+            .single()
+            .execute()
+        )
+
+    member, fl_resp = await asyncio.gather(
+        loop.run_in_executor(None, _fetch_member),
+        loop.run_in_executor(None, _fetch_league),
+    )
+
+    # ── Step 2: Resolve competition_id from parallel result ──
     competition_id: Optional[str] = None
     current_week: Optional[int] = None
 
-    fl_resp = (
-        supabase.table("fantasy_leagues")
-        .select("competition_id")
-        .eq("id", str(league_id))
-        .single()
-        .execute()
-    )
     if not fl_resp.data or not fl_resp.data.get("competition_id"):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -205,39 +226,47 @@ async def get_roster(
         snap_player_ids = [r["player_id"] for r in snap_resp.data if r.get("player_id")]
         snap_slot_map = {r["slot"]: r["player_id"] for r in snap_resp.data}
 
-        # Fetch player data
+        # ── Historical Group B: players + series for snap_series_ids in parallel ──
         snap_players_map: dict[str, dict] = {}
+        snap_jornada_points: dict[str, float] = {}
+
         if snap_player_ids:
-            p_resp = (
-                supabase.table("players")
-                .select("id, name, team, role, image_url, current_price, last_price_change_pct")
-                .in_("id", snap_player_ids)
-                .execute()
+            def _fetch_snap_players():
+                return (
+                    supabase.table("players")
+                    .select("id, name, team, role, image_url, current_price, last_price_change_pct")
+                    .in_("id", snap_player_ids)
+                    .execute()
+                )
+
+            def _fetch_snap_series():
+                return (
+                    supabase.table("series")
+                    .select("id")
+                    .eq("competition_id", competition_id)
+                    .eq("week", week)
+                    .eq("status", "finished")
+                    .execute()
+                )
+
+            p_resp, week_series_resp = await asyncio.gather(
+                loop.run_in_executor(None, _fetch_snap_players),
+                loop.run_in_executor(None, _fetch_snap_series),
             )
             snap_players_map = {p["id"]: p for p in (p_resp.data or [])}
 
-        # Fetch jornada_points for the requested week (finished series only)
-        snap_jornada_points: dict[str, float] = {}
-        week_series_resp = (
-            supabase.table("series")
-            .select("id")
-            .eq("competition_id", competition_id)
-            .eq("week", week)
-            .eq("status", "finished")
-            .execute()
-        )
-        snap_series_ids = [s["id"] for s in (week_series_resp.data or [])]
-        if snap_series_ids and snap_player_ids:
-            jp_resp = (
-                supabase.table("player_series_stats")
-                .select("player_id, series_points")
-                .in_("series_id", snap_series_ids)
-                .in_("player_id", snap_player_ids)
-                .execute()
-            )
-            for jp_row in (jp_resp.data or []):
-                pid = str(jp_row["player_id"])
-                snap_jornada_points[pid] = snap_jornada_points.get(pid, 0.0) + float(jp_row.get("series_points") or 0.0)
+            snap_series_ids = [s["id"] for s in (week_series_resp.data or [])]
+            if snap_series_ids:
+                jp_resp = (
+                    supabase.table("player_series_stats")
+                    .select("player_id, series_points")
+                    .in_("series_id", snap_series_ids)
+                    .in_("player_id", snap_player_ids)
+                    .execute()
+                )
+                for jp_row in (jp_resp.data or []):
+                    pid = str(jp_row["player_id"])
+                    snap_jornada_points[pid] = snap_jornada_points.get(pid, 0.0) + float(jp_row.get("series_points") or 0.0)
 
         snap_players_out: list[RosterPlayerOut] = []
         for slot, player_id in snap_slot_map.items():
@@ -286,15 +315,36 @@ async def get_roster(
         # Collect player_ids to fetch points
         player_ids = [row["players"]["id"] for row in (rp_resp.data or []) if row.get("players")]
 
-        # ── Step 6a: split_points (existing logic — unchanged) ──
+        # ── Live Group B: split_points + jornada series query in parallel ──
         split_points_by_player: dict[str, float] = {}
+        jornada_points_by_player: dict[str, float] = {}
+
         if player_ids:
-            pss_resp = (
-                supabase.table("player_series_stats")
-                .select("player_id, series_points, series(competition_id, competitions(is_active))")
-                .in_("player_id", player_ids)
-                .execute()
+            def _fetch_split_points():
+                return (
+                    supabase.table("player_series_stats")
+                    .select("player_id, series_points, series(competition_id, competitions(is_active))")
+                    .in_("player_id", player_ids)
+                    .execute()
+                )
+
+            def _fetch_jornada_series():
+                if current_week is not None and competition_id is not None:
+                    return (
+                        supabase.table("series")
+                        .select("id")
+                        .eq("competition_id", competition_id)
+                        .eq("week", current_week)
+                        .eq("status", "finished")
+                        .execute()
+                    )
+                return None
+
+            pss_resp, week_series_resp = await asyncio.gather(
+                loop.run_in_executor(None, _fetch_split_points),
+                loop.run_in_executor(None, _fetch_jornada_series),
             )
+
             for pss_row in (pss_resp.data or []):
                 series = pss_row.get("series") or {}
                 competition = series.get("competitions") or {}
@@ -302,32 +352,23 @@ async def get_roster(
                     pid = str(pss_row["player_id"])
                     split_points_by_player[pid] = split_points_by_player.get(pid, 0.0) + float(pss_row.get("series_points") or 0.0)
 
-        # ── Step 6b: jornada_points — sum series_points for finished series in current_week ──
-        jornada_points_by_player: dict[str, float] = {}
-        if player_ids and current_week is not None and competition_id is not None:
-            week_series_resp = (
-                supabase.table("series")
-                .select("id")
-                .eq("competition_id", competition_id)
-                .eq("week", current_week)
-                .eq("status", "finished")
-                .execute()
-            )
-            series_ids = [row["id"] for row in (week_series_resp.data or [])]
-            if series_ids:
-                jp_resp = (
-                    supabase.table("player_series_stats")
-                    .select("player_id, series_points")
-                    .in_("series_id", series_ids)
-                    .in_("player_id", player_ids)
-                    .execute()
-                )
-                for jp_row in (jp_resp.data or []):
-                    pid = str(jp_row["player_id"])
-                    jornada_points_by_player[pid] = (
-                        jornada_points_by_player.get(pid, 0.0)
-                        + float(jp_row.get("series_points") or 0.0)
+            # ── Step 6b: jornada_points — sum series_points for finished series in current_week ──
+            if week_series_resp is not None:
+                series_ids = [row["id"] for row in (week_series_resp.data or [])]
+                if series_ids:
+                    jp_resp = (
+                        supabase.table("player_series_stats")
+                        .select("player_id, series_points")
+                        .in_("series_id", series_ids)
+                        .in_("player_id", player_ids)
+                        .execute()
                     )
+                    for jp_row in (jp_resp.data or []):
+                        pid = str(jp_row["player_id"])
+                        jornada_points_by_player[pid] = (
+                            jornada_points_by_player.get(pid, 0.0)
+                            + float(jp_row.get("series_points") or 0.0)
+                        )
 
         # ── Step 7: Build players_out ──
         for row in (rp_resp.data or []):
@@ -353,7 +394,7 @@ async def get_roster(
                 supabase.table("captain_selections")
                 .select("captain_player_id")
                 .eq("member_id", member["id"])
-                .eq("week", current_week)
+                .eq("week", current_week + 1)
                 .limit(1)
                 .execute()
             )
@@ -626,7 +667,7 @@ async def set_captain(
     }
     supabase.table("captain_selections").upsert(
         upsert_data,
-        on_conflict="member_id,week",
+        on_conflict="member_id,competition_id,week",
     ).execute()
 
     # 5. Also update lineup_snapshots if they already exist for this week

@@ -50,18 +50,6 @@ class DetailedLeaderboardEntry(BaseModel):
     stats: MemberStatsOut
 
 
-def _check_membership(supabase: Client, league_id: str, user_id: str) -> None:
-    resp = (
-        supabase.table("league_members")
-        .select("id")
-        .eq("league_id", league_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
-    if not resp.data:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No eres miembro de esta liga")
-
-
 @router.get("/leaderboard/{league_id}", response_model=LeaderboardResponse)
 async def get_leaderboard(
     league_id: UUID,
@@ -69,8 +57,7 @@ async def get_leaderboard(
     supabase: Client = Depends(get_supabase),
     user: dict = Depends(get_current_user),
 ) -> LeaderboardResponse:
-    _check_membership(supabase, str(league_id), user["id"])
-
+    # Fetch all league_members and verify membership in a single query
     members_resp = (
         supabase.table("league_members")
         .select("id, user_id, total_points, remaining_budget")
@@ -79,6 +66,8 @@ async def get_leaderboard(
         .execute()
     )
     members = members_resp.data or []
+    if not any(str(m.get("user_id", "")) == str(user["id"]) for m in members):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No eres miembro de esta liga")
 
     # Traer usernames de profiles en una sola query
     user_ids = [m["user_id"] for m in members if m.get("user_id")]
@@ -135,14 +124,15 @@ async def get_leaderboard(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga no encontrada")
     active_competition_id: str | None = str(league_resp.data["competition_id"]) if league_resp.data.get("competition_id") else None
 
-    # Obtener semanas disponibles (solo semanas con lineup_snapshots)
+    # Obtener semanas disponibles (series finalizadas como fuente de verdad)
     available_weeks: list[int] = []
     current_week: int | None = None
     if active_competition_id:
         snapped_resp = (
-            supabase.table("lineup_snapshots")
+            supabase.table("series")
             .select("week")
             .eq("competition_id", active_competition_id)
+            .eq("status", "finished")
             .execute()
         )
         week_set: set[int] = set()
@@ -509,9 +499,7 @@ def get_detailed_leaderboard(
     Leaderboard detallado: incluye stats agregadas por manager (KDA, gold@15, pts/semana).
     Más costoso que el leaderboard básico — corre en threadpool (sync def).
     """
-    _check_membership(supabase, str(league_id), user["id"])
-
-    # 1. Fetch league_members ordered by total_points DESC
+    # 1. Fetch league_members and verify membership in a single query
     members_resp = (
         supabase.table("league_members")
         .select("id, user_id, total_points, remaining_budget")
@@ -520,10 +508,21 @@ def get_detailed_leaderboard(
         .execute()
     )
     members = members_resp.data or []
+    if not any(str(m.get("user_id", "")) == str(user["id"]) for m in members):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No eres miembro de esta liga")
     if not members:
         return []
 
     member_ids = [m["id"] for m in members]
+
+    # 1b. Fetch real total_points from the view (league_members.total_points is always 0)
+    pts_view_resp = (
+        supabase.table("member_total_points")
+        .select("member_id, total_points")
+        .in_("member_id", member_ids)
+        .execute()
+    )
+    pts_map = {r["member_id"]: float(r["total_points"] or 0) for r in (pts_view_resp.data or [])}
 
     # 2. Fetch usernames from profiles in one query
     user_ids = [m["user_id"] for m in members if m.get("user_id")]
@@ -568,19 +567,37 @@ def get_detailed_leaderboard(
             if not slot.startswith("bench"):
                 member_starter_ids[member_id].append(rp["player_id"])
 
-    # 5. Fetch active competition_id
-    active_comp_resp = (
-        supabase.table("competitions")
-        .select("id")
-        .eq("is_active", True)
-        .limit(1)
+    # 5. Fetch active competition_id from the league (source of truth: fantasy_leagues)
+    league_resp = (
+        supabase.table("fantasy_leagues")
+        .select("competition_id")
+        .eq("id", str(league_id))
+        .single()
         .execute()
     )
+    if not league_resp.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Liga no encontrada")
     active_competition_id: str | None = (
-        (active_comp_resp.data or [{}])[0].get("id") if active_comp_resp.data else None
+        str(league_resp.data["competition_id"]) if league_resp.data.get("competition_id") else None
     )
 
-    # 6. Batch query: player_game_stats for all starters, filtered by active competition
+    # 5b. Fetch all series_ids for the competition once — used to filter both pgs and pss in SQL
+    competition_series_ids: list[str] = []
+    competition_week_map: dict[str, int] = {}  # series_id -> week
+    if active_competition_id:
+        series_resp = (
+            supabase.table("series")
+            .select("id, week")
+            .eq("competition_id", active_competition_id)
+            .execute()
+        )
+        for s in (series_resp.data or []):
+            sid = s["id"]
+            competition_series_ids.append(sid)
+            if s.get("week") is not None:
+                competition_week_map[sid] = int(s["week"])
+
+    # 6. Batch query: player_game_stats for all starters, filtered by competition in SQL
     all_starter_ids = list({pid for pids in member_starter_ids.values() for pid in pids})
 
     # Map player_id -> member_id for aggregation
@@ -604,18 +621,19 @@ def get_detailed_leaderboard(
         for mid in member_ids
     }
 
-    if all_starter_ids and active_competition_id:
-        # Fetch via games → series join to filter by competition_id
+    if all_starter_ids and competition_series_ids:
+        # Filter player_game_stats in SQL via games.series_id — no Python-side filtering needed
         pgs_resp = (
             supabase.table("player_game_stats")
-            .select("player_id, kills, deaths, assists, gold_diff_15, game_points, games(series(competition_id, week))")
+            .select("player_id, kills, deaths, assists, gold_diff_15, game_points, games(series_id)")
             .in_("player_id", all_starter_ids)
+            .in_("games.series_id", competition_series_ids)
             .execute()
         )
         for row in (pgs_resp.data or []):
             game = row.get("games") or {}
-            series_data = game.get("series") or {}
-            if str(series_data.get("competition_id") or "") != str(active_competition_id):
+            series_id = str(game.get("series_id") or "")
+            if not series_id or series_id not in competition_week_map:
                 continue
 
             pid = row["player_id"]
@@ -634,27 +652,26 @@ def get_detailed_leaderboard(
                 acc["gold_diff_15"].append(float(row["gold_diff_15"]))
             if row.get("game_points") is not None:
                 acc["game_points"].append(float(row["game_points"]))
-            week = series_data.get("week")
+            week = competition_week_map.get(series_id)
             if week is not None:
                 acc["week_set"].add(week)
 
-    # 6b. Batch query: player_series_stats for all starters, to compute weeks_scored per member.
+    # 6b. Batch query: player_series_stats for all starters, filtered by competition in SQL.
     # weeks_scored = weeks where sum of starters' series_points > 0.
     # { member_id: { week: sum_series_points } }
     member_week_pts: dict[str, dict[int, float]] = {mid: {} for mid in member_ids}
 
-    if all_starter_ids and active_competition_id:
+    if all_starter_ids and competition_series_ids:
         pss_resp = (
             supabase.table("player_series_stats")
-            .select("player_id, series_points, series(competition_id, week)")
+            .select("player_id, series_points, series_id")
             .in_("player_id", all_starter_ids)
+            .in_("series_id", competition_series_ids)
             .execute()
         )
         for row in (pss_resp.data or []):
-            series_data = row.get("series") or {}
-            if str(series_data.get("competition_id") or "") != str(active_competition_id):
-                continue
-            week = series_data.get("week")
+            sid = str(row.get("series_id") or "")
+            week = competition_week_map.get(sid)
             if week is None:
                 continue
             pid = row["player_id"]
@@ -691,7 +708,7 @@ def get_detailed_leaderboard(
         # weeks_scored = weeks where sum of starters' series_points > 0
         week_map = member_week_pts[mid]
         weeks_scored = sum(1 for pts in week_map.values() if pts > 0)
-        total_points = float(m["total_points"] or 0)
+        total_points = pts_map.get(mid, 0.0)
         avg_pts_per_week: float | None = (
             round(total_points / weeks_scored, 2) if weeks_scored > 0 else None
         )
@@ -704,7 +721,7 @@ def get_detailed_leaderboard(
                 member_id=mid,
                 username=profile.get("username"),
                 avatar_url=profile.get("avatar_url"),
-                total_points=float(m["total_points"] or 0),
+                total_points=pts_map.get(mid, 0.0),
                 remaining_budget=float(m["remaining_budget"] or 0),
                 player_count=player_count_map.get(mid, 0),
                 stats=MemberStatsOut(

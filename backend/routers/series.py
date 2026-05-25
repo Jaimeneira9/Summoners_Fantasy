@@ -23,6 +23,8 @@ class SeriesCalendarEntry(BaseModel):
     series_id: str
     team_home: str
     team_away: str
+    home_logo: str | None = None
+    away_logo: str | None = None
     date: str
     week: int | None
     status: str
@@ -268,8 +270,8 @@ def get_calendar(
         supabase.table("series")
         .select(
             "id, date, week, status, winner_id, game_count, team_home_id, team_away_id,"
-            " home_team:teams!series_team_home_id_fkey(id, name),"
-            " away_team:teams!series_team_away_id_fkey(id, name)"
+            " home_team:teams!series_team_home_id_fkey(id, name, logo_url),"
+            " away_team:teams!series_team_away_id_fkey(id, name, logo_url)"
         )
         .eq("competition_id", competition_id)
         .order("date", desc=False)
@@ -293,6 +295,8 @@ def get_calendar(
                 series_id=str(s["id"]),
                 team_home=home_team.get("name") or "",
                 team_away=away_team.get("name") or "",
+                home_logo=home_team.get("logo_url"),
+                away_logo=away_team.get("logo_url"),
                 date=str(s.get("date") or ""),
                 week=s.get("week"),
                 status=s.get("status") or "scheduled",

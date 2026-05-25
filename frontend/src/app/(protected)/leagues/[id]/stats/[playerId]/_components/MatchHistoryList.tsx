@@ -11,6 +11,7 @@ export function MatchHistoryList({
   gamesLoading,
   player,
   playerId,
+  teamLogoMap = {},
   onSelectWeek,
   onGamesLoaded,
   onGamesLoadingChange,
@@ -23,6 +24,7 @@ export function MatchHistoryList({
   gamesLoading: string | null;
   player: { team: string };
   playerId: string;
+  teamLogoMap?: Record<string, string>;
   onSelectWeek: (week: number) => void;
   onGamesLoaded: (seriesId: string, games: GameDetailStat[]) => void;
   onGamesLoadingChange: (seriesId: string | null) => void;
@@ -131,7 +133,7 @@ export function MatchHistoryList({
                     {rival && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={`https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/${rival.toLowerCase().replace(/ /g, "-")}.webp`}
+                        src={teamLogoMap[rival] ?? `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/LEC/${rival.toLowerCase().replace(/ /g, "-")}.webp`}
                         alt={rival}
                         style={{ width: 20, height: 20, objectFit: "contain", flexShrink: 0 }}
                         onError={(e) => { e.currentTarget.style.display = "none"; }}

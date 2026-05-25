@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { api, type PlayerSplitHistory, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat, type PriceHistoryEntry, type League } from "@/lib/api";
+import { api, type PlayerSplitHistory, type Split, type UpcomingMatch, type ClauseInfo, type GameDetailStat, type PriceHistoryEntry, type League, type TeamBrief } from "@/lib/api";
 
 import type { PlayerHistoryResponse, WeekStat } from "./_components/types";
 import { LoadingSkeleton } from "./_components/LoadingSkeleton";
@@ -69,6 +69,7 @@ export default function PlayerStatsPage() {
   const [gamesCache, setGamesCache] = useState<Map<string, GameDetailStat[]>>(new Map());
   const [gamesLoading, setGamesLoading] = useState<string | null>(null);
   const [priceHistory, setPriceHistory] = useState<PriceHistoryEntry[]>([]);
+  const [teamLogoMap, setTeamLogoMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +135,19 @@ export default function PlayerStatsPage() {
       .then((data) => setPriceHistory(data.entries))
       .catch(() => setPriceHistory([]));
   }, [playerId]);
+
+  // Independent teams fetch — builds logo map for rival team logos
+  useEffect(() => {
+    api.teams.list()
+      .then((teams: TeamBrief[]) => {
+        const map: Record<string, string> = {};
+        for (const t of teams) {
+          if (t.logo_url) map[t.name] = t.logo_url;
+        }
+        setTeamLogoMap(map);
+      })
+      .catch(() => {});
+  }, []);
 
   // Independent clause fetch — silent failure if endpoint not yet available
   useEffect(() => {
@@ -304,6 +318,7 @@ export default function PlayerStatsPage() {
           loading={scheduleLoading}
           role={player.role}
           leagueId={leagueId}
+          teamLogoMap={teamLogoMap}
         />
 
         {/* ================================================================ */}
@@ -359,6 +374,7 @@ export default function PlayerStatsPage() {
             selectedWeek={selectedWeek}
             onSelectWeek={setSelectedWeek}
             player={player}
+            teamLogoMap={teamLogoMap}
           />
         )}
 
@@ -394,7 +410,10 @@ export default function PlayerStatsPage() {
 
           {/* Col derecha: Price history + Historial de jornadas */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 20 }}>
-            <PriceHistoryChart entries={priceHistory} />
+            <PriceHistoryChart
+              entries={priceHistory}
+              splitLabel={splits.find(s => s.id === selectedSplitId)?.name}
+            />
             <MatchHistoryList
               matchStats={matchStats}
               selectedWeek={selectedWeek}
@@ -403,6 +422,7 @@ export default function PlayerStatsPage() {
               gamesLoading={gamesLoading}
               player={player}
               playerId={playerId}
+              teamLogoMap={teamLogoMap}
               onSelectWeek={setSelectedWeek}
               onGamesLoaded={(seriesId, games) => {
                 setGamesCache((prev) => {

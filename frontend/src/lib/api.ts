@@ -365,6 +365,13 @@ export type PriceHistoryResponse = {
   entries: PriceHistoryEntry[];
 };
 
+export type TeamBrief = {
+  id: string;
+  name: string;
+  code: string | null;
+  logo_url: string | null;
+};
+
 export type TeamStandingEntry = {
   team_id: string;
   team_name: string;
@@ -388,6 +395,8 @@ export type SeriesCalendarEntry = {
   series_id: string;
   team_home: string;
   team_away: string;
+  home_logo?: string | null;
+  away_logo?: string | null;
   date: string;
   week: number | null;
   status: string;
@@ -559,6 +568,7 @@ export const api = {
       req(`/bids/${leagueId}/listings/${listingId}`, { method: "DELETE" }),
   },
   teams: {
+    list: () => req<TeamBrief[]>("/teams/"),
     standings: (leagueId: string, competitionId?: string) =>
       req<TeamStandingsOut>(
         `/teams/standings/${leagueId}${competitionId ? `?competition_id=${competitionId}` : ""}`

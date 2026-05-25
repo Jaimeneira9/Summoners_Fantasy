@@ -64,8 +64,17 @@ function LogoMSI() {
 // Helper: get logo component by competition name
 // ---------------------------------------------------------------------------
 
-function CompetitionLogo({ name }: { name: string }) {
-  const upper = name.toUpperCase();
+function CompetitionLogo({ competition }: { competition: Competition }) {
+  if (competition.logo_url) {
+    return (
+      <img
+        src={competition.logo_url}
+        alt={competition.name}
+        style={{ width: "22px", height: "22px", objectFit: "contain" }}
+      />
+    );
+  }
+  const upper = competition.name.toUpperCase();
   if (upper.startsWith("LEC")) return <LogoLEC />;
   if (upper.startsWith("LCK")) return <LogoLCK />;
   if (upper.startsWith("LPL")) return <LogoLPL />;
@@ -381,7 +390,7 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                         justifyContent: "center",
                       }}
                     >
-                      <CompetitionLogo name={c.name} />
+                      <CompetitionLogo competition={c} />
                     </div>
                     <span style={{ fontSize: "11px", fontWeight: 600, color: selected ? "#E8E9EE" : "#6B6C7E" }}>
                       {c.name}
@@ -433,13 +442,13 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                       flexShrink: 0,
                     }}
                   >
-                    <CompetitionLogo name={c.name} />
+                    <CompetitionLogo competition={c} />
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <p style={{ fontSize: "13px", fontWeight: 700, color: selected ? "#E8E9EE" : "#6B6C7E", margin: 0 }}>
-                      {c.name}
+                      {c.name.split(" ")[0].toUpperCase()}
                     </p>
-                    <p style={{ fontSize: "11px", color: "#6B6C7E", margin: 0 }}>{c.name.split(" ")[0]}</p>
+                    <p style={{ fontSize: "11px", color: "#6B6C7E", margin: 0 }}>{c.name}</p>
                   </div>
                 </div>
               );
@@ -462,7 +471,7 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                     Nueva liga
                   </p>
                   <p style={{ fontSize: "13px", color: "#6B6C7E", margin: 0 }}>
-                    Configurá tu liga de {compAbbr} y compartí el código con tus amigos.
+                    Configura tu liga de {compAbbr} y comparte el código con tus amigos.
                   </p>
                 </div>
 
@@ -672,7 +681,7 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                     Unirse a una liga
                   </p>
                   <p style={{ fontSize: "13px", color: "#6B6C7E", margin: 0 }}>
-                    Ingresá el código que te pasó el creador de la liga.
+                    Ingresa el código que te compartió el creador de la liga.
                   </p>
                 </div>
 
@@ -716,7 +725,7 @@ export function LeagueModal({ isOpen, onClose, initialMode = "create" }: LeagueM
                     />
                   </div>
                   <p style={{ fontSize: "12px", color: "#6B6C7E", marginTop: "6px", margin: "6px 0 0" }}>
-                    Pedile el código al creador de la liga
+                    Pídele el código al creador de la liga
                   </p>
                 </div>
 

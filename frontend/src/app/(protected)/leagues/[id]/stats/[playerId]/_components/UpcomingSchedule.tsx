@@ -8,11 +8,13 @@ export function UpcomingSchedule({
   loading,
   role,
   leagueId,
+  teamLogoMap = {},
 }: {
   matches: UpcomingMatch[] | null;
   loading: boolean;
   role: string;
   leagueId: string;
+  teamLogoMap?: Record<string, string>;
 }) {
   if (role === "coach") return null;
 
@@ -93,7 +95,7 @@ export function UpcomingSchedule({
               {/* Team logo */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={`https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/${opponentSlug}.webp`}
+                src={teamLogoMap[match.opponent] ?? `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/LEC/${opponentSlug}.webp`}
                 alt={match.opponent}
                 style={{ width: 22, height: 22, objectFit: "contain", flexShrink: 0 }}
                 onError={(e) => { e.currentTarget.style.display = "none"; }}

@@ -9,7 +9,7 @@ import { api, type SeriesCalendarEntry, type CalendarResponse } from "@/lib/api"
 // ---------------------------------------------------------------------------
 
 const TEAM_LOGO_BASE =
-  "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/";
+  "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/LEC/";
 
 function teamLogoUrl(name: string): string {
   return `${TEAM_LOGO_BASE}${name.toLowerCase().replace(/ /g, "-")}.webp`;
@@ -132,9 +132,11 @@ function StatusBadge({ status, result }: { status: string; result: string | null
 function TeamDisplay({
   name,
   align,
+  logoUrl,
 }: {
   name: string;
   align: "left" | "right";
+  logoUrl?: string | null;
 }) {
   const isLeft = align === "left";
   return (
@@ -151,7 +153,7 @@ function TeamDisplay({
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={teamLogoUrl(name)}
+        src={logoUrl || teamLogoUrl(name)}
         alt={name}
         onError={(e) => {
           e.currentTarget.style.display = "none";
@@ -221,13 +223,13 @@ function MatchCard({
     >
       {/* Main row: home — status — away */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <TeamDisplay name={entry.team_home} align="left" />
+        <TeamDisplay name={entry.team_home} align="left" logoUrl={entry.home_logo} />
 
         <div style={{ display: "flex", justifyContent: "center", flexShrink: 0, minWidth: 56 }}>
           <StatusBadge status={entry.status} result={entry.result} />
         </div>
 
-        <TeamDisplay name={entry.team_away} align="right" />
+        <TeamDisplay name={entry.team_away} align="right" logoUrl={entry.away_logo} />
       </div>
 
       {/* Date row */}
