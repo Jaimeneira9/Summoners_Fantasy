@@ -55,12 +55,30 @@ class PlayerOut(BaseModel):
     is_active: bool
 
 
+STORAGE_BASE = "https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec"
+
+TEAM_SLUG_EXCEPTIONS: dict[str, str] = {
+    "Movistar KOI": "movistar-koi",
+}
+
+
+def build_team_logo_url(team_name: str, league_abbr: str) -> str:
+    """Construye la URL del escudo del equipo en Supabase Storage.
+
+    Estructura: FotosEquiposLec/{LEC|LES}/{team-slug}.webp
+    Se aplican excepciones de slug para equipos con nombres especiales.
+    """
+    slug = TEAM_SLUG_EXCEPTIONS.get(team_name) or team_name.lower().replace(" ", "-")
+    return f"{STORAGE_BASE}/{league_abbr}/{slug}.webp"
+
+
 class ScoutPlayer(BaseModel):
     id: UUID
     name: str
     team: str
     role: Role
     image_url: str | None
+    team_logo_url: str | None = None
     current_price: float
     last_price_change_pct: float
     avg_kills: float
@@ -295,6 +313,7 @@ async def scout_players(
             team=p["team"],
             role=p["role"],
             image_url=p.get("image_url"),
+            team_logo_url=build_team_logo_url(p["team"], league_abbr),
             current_price=float(p.get("current_price") or 0),
             last_price_change_pct=float(p.get("last_price_change_pct") or 0),
             avg_kills=avg(rows, "avg_kills"),
