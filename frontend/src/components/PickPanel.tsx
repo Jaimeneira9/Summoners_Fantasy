@@ -77,17 +77,14 @@ function PlayerRow({
   picking: string | null;
   onPick: (player: AvailablePlayer) => void;
 }) {
+  const [imgFailed, setImgFailed] = useState(false);
   const roleHex = getRoleColor(player.role);
   const netCost = player.current_price - (currentPlayer?.price_paid ?? 0);
   const affordable = netCost <= remainingBudget;
   const budgetAfter = remainingBudget - netCost;
   const isPicking = picking === player.id;
 
-  const imageUrl =
-    player.image_url ||
-    `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosJugadoresLec/${player.name
-      .toLowerCase()
-      .replace(/ /g, "-")}.webp`;
+  const imageUrl = player.image_url;
 
   return (
     <div
@@ -110,22 +107,19 @@ function PlayerRow({
           borderRadius: "10px",
           overflow: "hidden",
           flexShrink: 0,
-          background: roleHex + "22",
+          background: "#000000",
           border: `1px solid ${roleHex}44`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt={player.name}
-          style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.display = "none";
-          }}
-        />
+        {imageUrl && !imgFailed && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt={player.name}
+            style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top" }}
+            onError={() => setImgFailed(true)}
+          />
+        )}
       </div>
 
       {/* Info — nombre, equipo, badges */}

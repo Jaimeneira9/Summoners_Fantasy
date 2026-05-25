@@ -193,7 +193,7 @@ export default function PlayerStatsPage() {
 
   const lastMatchPts = matchStats.length > 0 ? matchStats[matchStats.length - 1].fantasy_points : 0;
 
-  const photoUrl = player ? (player.image_url ?? getPlayerPhotoUrl(player.name)) : "";
+  const photoUrl = player?.image_url ?? "";
 
   // Selected stat for zona 3
   const selectedStat = matchStats.find((s) => s.week === selectedWeek) ?? null;

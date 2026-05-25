@@ -19,7 +19,6 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/Button";
-import { RoleIcon } from "@/components/RoleIcon";
 
 // ---------------------------------------------------------------------------
 // PlayerImage — img with RoleIcon fallback on load error or missing src
@@ -34,15 +33,10 @@ function PlayerImage({ src, name, role }: { src?: string | null; name: string; r
           width: 48,
           height: 48,
           borderRadius: "8px",
-          background: "#1e2535",
+          background: "#000000",
           flexShrink: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
         }}
-      >
-        <RoleIcon role={role} className="w-7 h-7 opacity-50" />
-      </div>
+      />
     );
   }
 

@@ -779,10 +779,8 @@ function PlayerCardFilled({
     }
   };
 
-  // Build image URL — fallback to Supabase storage if image_url is null
-  const imageUrl =
-    p.image_url ||
-    `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosJugadoresLec/${p.name.toLowerCase().replace(/ /g, "-")}.webp`;
+  const [imgFailed, setImgFailed] = useState(false);
+  const imageUrl = p.image_url;
 
   // ── MOBILE: horizontal card ─────────────────────────────────────────────
   if (isMobile) {
@@ -801,14 +799,16 @@ function PlayerCardFilled({
           onClick={onSlotClick}
         >
           {/* LEFT: image 64×80 */}
-          <div style={{ width: 64, height: 80, position: "relative", background: roleHex, flexShrink: 0 }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
-              alt={p.name}
-              style={{ objectFit: "cover", objectPosition: "center top", width: "100%", height: "100%" }}
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-            />
+          <div style={{ width: 64, height: 80, position: "relative", background: "#000000", flexShrink: 0 }}>
+            {imageUrl && !imgFailed && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={imageUrl}
+                alt={p.name}
+                style={{ objectFit: "cover", objectPosition: "center top", width: "100%", height: "100%" }}
+                onError={() => setImgFailed(true)}
+              />
+            )}
             {/* Badges overlaid on image */}
             {isMvp && (
               <div style={{ position: "absolute", top: 4, right: 4, background: "#FCD400", borderRadius: 3, padding: "1px 4px", fontSize: 8, fontWeight: 700, color: "#000" }}>
@@ -997,17 +997,19 @@ function PlayerCardFilled({
           height: "180px",
           width: "100%",
           position: "relative",
-          background: roleHex,
+          background: "#000000",
           flexShrink: 0,
         }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt={p.name}
-          style={{ objectFit: "cover", objectPosition: "center top", width: "100%", height: "100%" }}
-          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-        />
+        {imageUrl && !imgFailed && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={imageUrl}
+            alt={p.name}
+            style={{ objectFit: "cover", objectPosition: "center top", width: "100%", height: "100%" }}
+            onError={() => setImgFailed(true)}
+          />
+        )}
         {/* Bottom gradient overlay */}
         <div
           style={{
