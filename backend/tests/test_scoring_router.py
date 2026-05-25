@@ -561,7 +561,7 @@ COMP_ID = str(uuid4())
 FAKE_LEAGUE_LB = {"competition_id": COMP_ID}
 
 MEMBERS_DATA = [
-    {"id": MEMBER_ID_4, "user_id": str(uuid4()), "total_points": 50.0, "remaining_budget": 100.0},
+    {"id": MEMBER_ID_4, "user_id": USER_ID, "total_points": 50.0, "remaining_budget": 100.0},
     {"id": MEMBER_ID_5, "user_id": str(uuid4()), "total_points": 45.0, "remaining_budget": 80.0},
 ]
 
@@ -617,7 +617,7 @@ def _leaderboard_supabase(
     ]
 
     sb = _sb_multi(
-        ("league_members", _chain(members, members)),  # 1ra: membership check, 2da: todos los members
+        ("league_members", _chain(members)),  # una sola query: membership check + fetch de members
         ("profiles", _chain([])),
         ("rosters", _chain(rosters)),
         ("roster_players", _chain(roster_players)),
