@@ -107,7 +107,7 @@ function PlayerRow({
           borderRadius: "10px",
           overflow: "hidden",
           flexShrink: 0,
-          background: "#000000",
+          background: imageUrl && !imgFailed ? roleHex + "22" : "#000000",
           border: `1px solid ${roleHex}44`,
         }}
       >
