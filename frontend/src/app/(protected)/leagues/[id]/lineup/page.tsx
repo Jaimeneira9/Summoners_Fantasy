@@ -799,7 +799,7 @@ function PlayerCardFilled({
           onClick={onSlotClick}
         >
           {/* LEFT: image 64×80 */}
-          <div style={{ width: 64, height: 80, position: "relative", background: "#000000", flexShrink: 0 }}>
+          <div style={{ width: 64, height: 80, position: "relative", background: imageUrl && !imgFailed ? roleHex : "#000000", flexShrink: 0 }}>
             {imageUrl && !imgFailed && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -997,7 +997,7 @@ function PlayerCardFilled({
           height: "180px",
           width: "100%",
           position: "relative",
-          background: "#000000",
+          background: imageUrl && !imgFailed ? roleHex : "#000000",
           flexShrink: 0,
         }}
       >
