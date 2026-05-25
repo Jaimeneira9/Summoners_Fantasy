@@ -1716,19 +1716,20 @@ function ScoutRow({ player: p, animationDelay, onOpen }: { player: ScoutPlayer; 
           {/* Fila 2: equipo */}
           <div className="flex items-center gap-1.5 mt-1 min-w-0">
             <div className="flex-shrink-0 flex items-center justify-center" style={{ width: 14, height: 14 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={getTeamBadgeUrl(p.team)}
-                alt={p.team}
-                style={{ width: 14, height: 14, objectFit: "contain" }}
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                  (e.currentTarget.nextSibling as HTMLElement)?.style.setProperty("display", "flex");
-                }}
-              />
-              <span style={{ display: "none", fontSize: "8px", color: "#C8A84B", fontWeight: 700 }}>
-                {p.team.substring(0, 2).toUpperCase()}
-              </span>
+              {p.team_logo_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={p.team_logo_url}
+                  alt={p.team}
+                  style={{ width: 14, height: 14, objectFit: "contain" }}
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+              )}
+              {!p.team_logo_url && (
+                <span style={{ fontSize: "8px", color: "#C8A84B", fontWeight: 700 }}>
+                  {p.team.substring(0, 2).toUpperCase()}
+                </span>
+              )}
             </div>
             <span
               className="truncate hidden sm:inline"

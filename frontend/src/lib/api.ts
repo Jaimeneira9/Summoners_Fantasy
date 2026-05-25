@@ -303,6 +303,8 @@ export type ScoutPlayer = {
   team: string;
   role: string;
   image_url: string | null;
+  /** URL del escudo del equipo en Supabase Storage (subdirectorio LEC o LES según competición). */
+  team_logo_url: string | null;
   current_price: number;
   last_price_change_pct: number;
   avg_kills: number;
