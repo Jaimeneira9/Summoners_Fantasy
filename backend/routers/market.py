@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 from supabase import Client
 
 from auth.dependencies import get_current_user, get_supabase
+from routers.players import build_team_logo_url
 
 router = APIRouter()
 
@@ -69,6 +70,7 @@ class PlayerBrief(BaseModel):
     current_price: float
     split_points: float = 0.0
     last_price_change_pct: float = 0.0
+    team_logo_url: str | None = None
 
 
 class ListingOut(BaseModel):
@@ -220,9 +222,12 @@ async def get_listings(
     """
     _get_member(supabase, str(league_id), user["id"])
 
-    league_resp = supabase.table("fantasy_leagues").select("game_mode").eq("id", str(league_id)).single().execute()
+    league_resp = supabase.table("fantasy_leagues").select("game_mode, competitions(name)").eq("id", str(league_id)).single().execute()
     if league_resp.data and league_resp.data["game_mode"] == "budget_pick":
         return []
+
+    comp_name = ((league_resp.data or {}).get("competitions") or {}).get("name", "")
+    league_abbr = comp_name.split()[0].upper() if comp_name else "LEC"
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -299,6 +304,7 @@ async def get_listings(
     for listing in listings:
         pid = str(listing["player_id"])
         listing["players"]["split_points"] = split_points_by_player.get(pid, 0.0)
+        listing["players"]["team_logo_url"] = build_team_logo_url(listing["players"]["team"], league_abbr)
 
     # Count active bids per listing (only for market_listings, not peer sell_offers)
     listing_ids = [row["id"] for row in listings if not row.get("offer_type")]

@@ -89,6 +89,8 @@ export type PlayerBrief = {
   team: string;
   role: string;
   image_url: string | null;
+  /** URL del escudo del equipo con subdirectorio de competición (LEC/ o LES/). */
+  team_logo_url?: string | null;
   /** Precio de mercado actual en millones. */
   current_price: number;
   /** Puntos acumulados en la temporada completa. */
