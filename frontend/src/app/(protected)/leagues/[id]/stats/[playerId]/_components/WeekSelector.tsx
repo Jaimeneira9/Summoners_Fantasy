@@ -8,12 +8,14 @@ export function WeekSelector({
   onSelectWeek,
   player,
   teamLogoMap = {},
+  competitionFolder = "LEC",
 }: {
   matchStats: WeekStat[];
   selectedWeek: number | null;
   onSelectWeek: (week: number) => void;
   player: { team: string };
   teamLogoMap?: Record<string, string>;
+  competitionFolder?: string;
 }) {
   const activeStat = matchStats.find((s) => s.week === selectedWeek);
   const activeIsWin = activeStat ? activeStat.result === 1 : false;
@@ -85,7 +87,7 @@ export function WeekSelector({
           {activeRival && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={teamLogoMap[activeRival] ?? `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/LEC/${activeRival.toLowerCase().replace(/ /g, "-")}.webp`}
+              src={teamLogoMap[activeRival] ?? `https://kjtifrtuknxtuuiyflza.supabase.co/storage/v1/object/public/FotosEquiposLec/${competitionFolder}/${activeRival.toLowerCase().replace(/ /g, "-")}.webp`}
               alt={activeRival}
               style={{ width: 20, height: 20, objectFit: "contain" }}
               onError={(e) => { e.currentTarget.style.display = "none"; }}

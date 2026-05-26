@@ -184,6 +184,9 @@ export default function PlayerStatsPage() {
 
   const lastMatchPts = matchStats.length > 0 ? matchStats[matchStats.length - 1].fantasy_points : 0;
 
+  const selectedSplit = splits.find(s => s.id === selectedSplitId) ?? null;
+  const competitionFolder = selectedSplit?.competition.startsWith("LES") ? "LES" : "LEC";
+
   const photoUrl = player?.image_url ?? "";
 
   // Selected stat for zona 3
@@ -387,6 +390,7 @@ export default function PlayerStatsPage() {
             onSelectWeek={setSelectedWeek}
             player={player}
             teamLogoMap={teamLogoMap}
+            competitionFolder={competitionFolder}
           />
         )}
 
