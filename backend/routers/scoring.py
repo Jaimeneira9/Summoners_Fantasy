@@ -103,7 +103,7 @@ async def get_leaderboard(
         supabase.table("league_members")
         .select("id, user_id, total_points, remaining_budget")
         .eq("league_id", str(league_id))
-        .order("total_points", desc=True)
+        .order("id")
         .execute()
     )
     members = members_resp.data or []
@@ -308,7 +308,7 @@ async def get_leaderboard(
     else:
         members_sorted = sorted(
             members,
-            key=lambda m: dynamic_total_points.get(m["id"], 0.0),
+            key=lambda m: (dynamic_total_points.get(m["id"], 0.0), m["id"]),
             reverse=True,
         )
 
