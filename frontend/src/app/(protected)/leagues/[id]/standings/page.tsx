@@ -701,11 +701,13 @@ export default function StandingsPage() {
   const sortedEntries = useMemo(() => {
     const base: LeaderboardEntry[] = (selectedWeek == null && detailedEntries.length > 0) ? detailedEntries : entries;
     if (sortKey === "total_points") {
-      const sorted = [...base].sort((a, b) =>
-        sortDir === "desc"
+      const sorted = [...base].sort((a, b) => {
+        const diff = sortDir === "desc"
           ? b.total_points - a.total_points
-          : a.total_points - b.total_points,
-      );
+          : a.total_points - b.total_points;
+        if (diff !== 0) return diff;
+        return (a.member_id ?? "").localeCompare(b.member_id ?? "");
+      });
       return sorted;
     }
     return [...base].sort((a, b) => {
